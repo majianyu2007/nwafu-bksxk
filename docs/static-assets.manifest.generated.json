@@ -1,0 +1,812 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": [
+    "static-snapshot/"
+  ],
+  "assetCount": 79,
+  "sourceSets": [
+    {
+      "kind": "app-static",
+      "localRoot": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/",
+      "description": "业务前端脚本快照，用于离线提取接口、函数和请求构造逻辑。"
+    },
+    {
+      "kind": "xkres-public",
+      "localRoot": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/",
+      "sourceOrigin": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/",
+      "description": "页面引用的公开 JS、CSS、图片和 CSS 背景图。"
+    }
+  ],
+  "assets": [
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_content_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/content.js",
+      "bytes": 3633,
+      "sha256": "efa70c9fecf1581b2053fa7077af68e17542158ccddaf652f0c2262c0b689ad6",
+      "contentType": "application/javascript",
+      "logicalPath": "static/content.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_departurelog_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/departurelog.js",
+      "bytes": 5980,
+      "sha256": "6aec878b15e451356c17561ab470c2f7a9be5f2235f3b20ba3f77f9fac7ffe1c",
+      "contentType": "application/javascript",
+      "logicalPath": "static/departurelog.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_departurelogbs_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/departurelogBS.js",
+      "bytes": 330,
+      "sha256": "db722d74636a659228de26353be2ce015005eac3b158fd2e6ed5c460df48f2f4",
+      "contentType": "application/javascript",
+      "logicalPath": "static/departurelogBS.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_grablessons_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/grablessons.js",
+      "bytes": 225610,
+      "sha256": "168ba99879cb68a78fdb29db5f24ee4474d026c9aefc1c8f1b0bad57e6e92424",
+      "contentType": "application/javascript",
+      "logicalPath": "static/grablessons.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_grablessonsbs_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/grablessonsBS.js",
+      "bytes": 488,
+      "sha256": "356265ad67be5164841a2161615b961d8e5314c9bf2402f6897edf7f9ba2972d",
+      "contentType": "application/javascript",
+      "logicalPath": "static/grablessonsBS.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_index_min_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/index.min.js",
+      "bytes": 22500,
+      "sha256": "ae7126603c45732208ac5b1b205b582852d8588274faee41dac6c08324b5c6c8",
+      "contentType": "application/javascript",
+      "logicalPath": "static/index.min.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_indexbs_min_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/indexBS.min.js",
+      "bytes": 2192,
+      "sha256": "67c25a4de98891ce51ff4467bd566e98e3194f8428cf7d29c1c183dbc93b98bb",
+      "contentType": "application/javascript",
+      "logicalPath": "static/indexBS.min.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_jssimple_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/jssimple.js",
+      "bytes": 12299,
+      "sha256": "8569659dcbb5a7a2415e94e3fc8587402af38483590537027a3da5bbf5810075",
+      "contentType": "application/javascript",
+      "logicalPath": "static/jssimple.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_jssimplebs_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/jssimpleBs.js",
+      "bytes": 485,
+      "sha256": "279850eda271d65867ea8fbdd76bbf7e61e16e4b1fcab8b1ead3e61f94f1a039",
+      "contentType": "application/javascript",
+      "logicalPath": "static/jssimpleBs.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_logininuserregister_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/loginInUserRegister.js",
+      "bytes": 2102,
+      "sha256": "35c21b9b3de7747b9f1efe1e76ef94e5772b0ced138816ac63f58a1c14ee3e9c",
+      "contentType": "application/javascript",
+      "logicalPath": "static/loginInUserRegister.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_publicinfo_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/publicinfo.js",
+      "bytes": 4549,
+      "sha256": "482440609a8d3b07831b1e40eeebfb4b0674f8453eb52c81f9ac839a0def0294",
+      "contentType": "application/javascript",
+      "logicalPath": "static/publicinfo.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_publicinfobs_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/publicinfoBS.js",
+      "bytes": 464,
+      "sha256": "68e1ca9e83bd234ad39b692ecaac50e77b6fb8e3fe48c00fa54923260fdf3d13",
+      "contentType": "application/javascript",
+      "logicalPath": "static/publicinfoBS.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_scoredetail_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/scoredetail.js",
+      "bytes": 3919,
+      "sha256": "dec41a1611c40f294fe31e69f89bfeeed8c188807eff48be65d3bfbf61a6cf5b",
+      "contentType": "application/javascript",
+      "logicalPath": "static/scoredetail.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_scoredetailbs_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/scoredetailBs.js",
+      "bytes": 253,
+      "sha256": "0a2056cc2b8f7c8e9043db308bdb24424dfa939a5014282109d98537126290da",
+      "contentType": "application/javascript",
+      "logicalPath": "static/scoredetailBs.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_selectedcourse_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/selectedcourse.js",
+      "bytes": 34851,
+      "sha256": "24c2cb6a2c7aae9aebfce97c8c9cf095c9ba445e3c981208e7423a14cf6f1bfc",
+      "contentType": "application/javascript",
+      "logicalPath": "static/selectedcourse.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_selectedcoursebs_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/selectedcourseBS.js",
+      "bytes": 1613,
+      "sha256": "3039c0b0f10bf32e599a4c9bcf06b5bf260af17bd509c6bfdabf8ee490239a70",
+      "contentType": "application/javascript",
+      "logicalPath": "static/selectedcourseBS.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_sidebar_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/sidebar.js",
+      "bytes": 28603,
+      "sha256": "946df6babd6137bbc929bb878257c5eeb9675dee8f1ed5d3d54c0e40289dd5af",
+      "contentType": "application/javascript",
+      "logicalPath": "static/sidebar.js"
+    },
+    {
+      "id": "bksxk_nwafu_edu_cn_xsxkapp_static_xsxkpub_js",
+      "kind": "app-static",
+      "tag": "script",
+      "localPath": "static-snapshot/bksxk.nwafu.edu.cn/xsxkapp/static/xsxkpub.js",
+      "bytes": 12643,
+      "sha256": "1adc3fca255a31abc1d03ff3d5d0fd760117b49a3548eea556ddc1db9c0f25d1",
+      "contentType": "application/javascript",
+      "logicalPath": "static/xsxkpub.js"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_css_bhtip_css",
+      "kind": "xkres-public",
+      "tag": "link",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/bhTip.css",
+      "bytes": 8562,
+      "sha256": "e7e20c7388fe655e1a58ba080591ccec11e9e2718bb1f739b79787ab80ecfa17",
+      "contentType": "text/css",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/bhTip.css?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_css_curriculavariable_bhwindow_css",
+      "kind": "xkres-public",
+      "tag": "link",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/curriculavariable/bhwindow.css",
+      "bytes": 1410,
+      "sha256": "ea677f229f53449eb647f3355240286a54d4df15c1f03dd0c1f0f5a6674b4faf",
+      "contentType": "text/css",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/curriculavariable/bhwindow.css?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_css_curriculavariable_jqxtabs_css",
+      "kind": "xkres-public",
+      "tag": "link",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/curriculavariable/jqxTabs.css",
+      "bytes": 8199,
+      "sha256": "075a8c4575d1cd6c412cd3e6232847c2d7586bb78cae5b2980011aa53719f328",
+      "contentType": "text/css",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/curriculavariable/jqxTabs.css?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_css_electivebatchandxz_css",
+      "kind": "xkres-public",
+      "tag": "link",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/electiveBatchAndXz.css",
+      "bytes": 1483,
+      "sha256": "c4c4f8b7e77d8f78614577cc3975dca6dfa0b891c7c9c68aa11f196da4580665",
+      "contentType": "text/css",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/electiveBatchAndXz.css?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_css_grablessons_grablessons_css",
+      "kind": "xkres-public",
+      "tag": "link",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/grablessons/grablessons.css",
+      "bytes": 54656,
+      "sha256": "c5f232d04e1b1b1da0206eae326b2d214d070a747d678d63ed30487a11c6d522",
+      "contentType": "text/css",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/grablessons/grablessons.css?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_css_index_bh_css",
+      "kind": "xkres-public",
+      "tag": "link",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/index/bh.css",
+      "bytes": 3767,
+      "sha256": "80941ba3d573e1e6605f5bfc503cf814ba9365812ce8b716c9a2b7e4caf72c5c",
+      "contentType": "text/css",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/index/bh.css"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_css_index_index_min_css",
+      "kind": "xkres-public",
+      "tag": "link",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/index/index.min.css",
+      "bytes": 18212,
+      "sha256": "79b12f4b12659656f24a934045bbc12231247da02434afc17166bd03e6443f0e",
+      "contentType": "text/css",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/index/index.min.css"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_css_marquee_css",
+      "kind": "xkres-public",
+      "tag": "link",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/marquee.css",
+      "bytes": 410,
+      "sha256": "885497c1bf7e4575ebfb6dc922b8e131dc3d84f52e2dd2be9fe03e881b6713ef",
+      "contentType": "text/css",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/marquee.css"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_css_messagequeuetable_css",
+      "kind": "xkres-public",
+      "tag": "link",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/messageQueueTable.css",
+      "bytes": 814,
+      "sha256": "926051cdc5c9e651ac2d73df11de6fb3aa6611dd8aa9e969e0d8e9b0fd328e53",
+      "contentType": "text/css",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/messageQueueTable.css?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_css_selectedcourse_selectedcourse_css",
+      "kind": "xkres-public",
+      "tag": "link",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/selectedcourse/selectedcourse.css",
+      "bytes": 21453,
+      "sha256": "cfc41d7d3fef4d561d4155ae72aaccb17661f80a87dbf09c0d4f2cbd72763a8c",
+      "contentType": "text/css",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/selectedcourse/selectedcourse.css?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_common_down_double_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/common/down-double.png",
+      "bytes": 448,
+      "sha256": "1d6357a569828abe08302d63dad99ef84e495d997d473bece0ece9984b4647a0",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/common/down-double.png"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_common_icon_close_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/common/icon-close.png",
+      "bytes": 307,
+      "sha256": "cd2f189be4a97e523e93be277c42ffb62d806143a03e2399e52250fee3d500db",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/common/icon-close.png"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_curriculavariable_01_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/01.png",
+      "bytes": 49664,
+      "sha256": "d0940216b21c68a9c8e516e53ed65c2299dff4b14173fa9f3d335bb350189e15",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/01.png?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_curriculavariable_02_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/02.png",
+      "bytes": 37406,
+      "sha256": "a9e06a378aaf6ee3c5c0f16caf96fa3d3aba3226d8b2f3ea89914b4071a34e1a",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/02.png?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_curriculavariable_change_electivebatch_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/change-electiveBatch.png",
+      "bytes": 443,
+      "sha256": "bb2674300f210e3c4c495dbf5146e4984c6fe659baf59ea46b9c78cc27a27eed",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/change-electiveBatch.png?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_curriculavariable_choice_icon_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/choice-icon.png",
+      "bytes": 37809,
+      "sha256": "f9fc67081e7c2cd33db834377a05ad70cc19f35dd3beb0c68da889fa93aacd6f",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/choice-icon.png?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_curriculavariable_course_icon_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/course-icon.png",
+      "bytes": 39397,
+      "sha256": "6fa7ac9d517dceb0554cb689798a1fe175c653c1e8d528c46a2ce39b01a2fadd",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/course-icon.png?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_curriculavariable_dialog_icon_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/dialog-icon.png",
+      "bytes": 1255,
+      "sha256": "26e0a05d302d15bee6d27f49646dd22b70d4dbc89bca12822b1e1e3ee231d508",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/dialog-icon.png?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_curriculavariable_score_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/score.png",
+      "bytes": 418,
+      "sha256": "034e7e2dad3dcb5ce830c046245658a24eb7947d7873700f0d2dcd58537ed844",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/score.png?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_curriculavariable_unsuccessful_icon_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/unsuccessful-icon.png",
+      "bytes": 3785,
+      "sha256": "7afaa41c5672a0e6552e3e68744c6761765ee3d6ee62fd997bbe79c8e841665a",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/unsuccessful-icon.png?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_curriculavariable_user_icon_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/user-icon.png",
+      "bytes": 50830,
+      "sha256": "ea88fac5acc5fc906c247722d60482f8683a4d25702e74ce6259fa27b52d7e13",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/user-icon.png?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_index_banner_jpg",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/banner.jpg",
+      "bytes": 47815,
+      "sha256": "be17613210b0aee6187cb73db987d4580be2a5913b5fced80be06528ffe372d8",
+      "contentType": "image/jpeg",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/banner.jpg"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_index_default_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/default.png",
+      "bytes": 842,
+      "sha256": "0acd331bfc95f98d068470779151799c68b60b6adcc593bc35b3ca210888e419",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/default.png"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_index_icon_light_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/icon_light.png",
+      "bytes": 11864,
+      "sha256": "5202fa2eb5886f094c3ad0ca1b341aba392930e3f4fc95232d2f4dfc12722859",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/icon_light.png"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_index_jwcphonenumber_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/jwcphonenumber.png",
+      "bytes": 216007,
+      "sha256": "9f4f3e3eea3c451c891db7133845503fbfa249398b0854da69ebe835482fd651",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/jwcphonenumber.png"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_index_logo_mini_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/logo-mini.png",
+      "bytes": 13395,
+      "sha256": "0fa5169b56e75a9bd258df90e183406d0f288107cb906b05051c9689561c11ce",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/logo-mini.png?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_index_no_start_logo_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/no-start-logo.png",
+      "bytes": 26518,
+      "sha256": "11cbe9e58787ab5e41ede2322e68e5f219d1caea257ec0bbedaec563fe4d6c20",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/no-start-logo.png"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_index_no_start_quotation_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/no-start-quotation.png",
+      "bytes": 551,
+      "sha256": "4772ddb1578384d7443f854b186dc92375652995ef7f1c742c2b57cad78ec469",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/no-start-quotation.png"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_index_password_icon_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/password-icon.png",
+      "bytes": 250,
+      "sha256": "876633339b43c8d822791f143541e985fdf727968c8a4069abbc67cf832685c7",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/password-icon.png"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_index_service_manual_bg_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/service-manual-bg.png",
+      "bytes": 11314,
+      "sha256": "6b6294348bcf5a4321f8d788c71ee2521016b6c8a2a12acce0db15d7f55cb9e1",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/service-manual-bg.png"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_index_user_icon_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/user-icon.png",
+      "bytes": 309,
+      "sha256": "dce2d3cbeeac3ea3e1b4092e18fe5091235e28b247ad61aeeb7f75dd2a393182",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/user-icon.png"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_images_user_male56_76_png",
+      "kind": "xkres-public",
+      "tag": "image",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/user/male56_76.png",
+      "bytes": 1529,
+      "sha256": "54a63b60b3dc854e9b79815947d83c5e198e9e8217ebadcda11d0f0e81ad7298",
+      "contentType": "image/png",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/user/male56_76.png"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_barrage_util_min_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/barrage_util.min.js",
+      "bytes": 1657,
+      "sha256": "1aeb79639ecfafcfac876e64889b1645312d24755155933eca9ade8a4381a215",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/barrage_util.min.js"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_bh_utils_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/bh_utils.js",
+      "bytes": 49820,
+      "sha256": "3e32aeee2db06f1a1f675ce7e405a3f938e6e8338258c00c0f7089c4e0f1d9ac",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/bh_utils.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_bh_utils_min_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/bh_utils.min.js",
+      "bytes": 14779,
+      "sha256": "8b97908e6d277af15d597ca498e117c8134f955d58cc5b692914ba9eba6bbb46",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/bh_utils.min.js"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_bhtip_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/bhTip.js",
+      "bytes": 10317,
+      "sha256": "2fc3352abb5f6959fc20b1ac36c5ebb6efd91b424c09382d428da663d9478371",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/bhTip.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_bhtip_min_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/bhTip.min.js",
+      "bytes": 2462,
+      "sha256": "32196c0fd078fc11ef491d2bd1229fe610ec2ab2e51511361b63fd9e810b7a92",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/bhTip.min.js"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_curriculavariable_sidebar_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/curriculavariable/sidebar.js",
+      "bytes": 28603,
+      "sha256": "946df6babd6137bbc929bb878257c5eeb9675dee8f1ed5d3d54c0e40289dd5af",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/curriculavariable/sidebar.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_departurelog_departurelog_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/departurelog/departurelog.js",
+      "bytes": 5980,
+      "sha256": "6aec878b15e451356c17561ab470c2f7a9be5f2235f3b20ba3f77f9fac7ffe1c",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/departurelog/departurelog.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_departurelog_departurelogbs_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/departurelog/departurelogBS.js",
+      "bytes": 330,
+      "sha256": "db722d74636a659228de26353be2ce015005eac3b158fd2e6ed5c460df48f2f4",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/departurelog/departurelogBS.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_des_min_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/des.min.js",
+      "bytes": 10635,
+      "sha256": "85d5dcd2abde9784ca7d72b8fc2b63dede9b696fd844edfd1652b40f329d8130",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/des.min.js"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_grablessons_grablessons_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/grablessons/grablessons.js",
+      "bytes": 225610,
+      "sha256": "168ba99879cb68a78fdb29db5f24ee4474d026c9aefc1c8f1b0bad57e6e92424",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/grablessons/grablessons.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_grablessons_grablessonsbs_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/grablessons/grablessonsBS.js",
+      "bytes": 488,
+      "sha256": "356265ad67be5164841a2161615b961d8e5314c9bf2402f6897edf7f9ba2972d",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/grablessons/grablessonsBS.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_index_index_min_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/index/index.min.js",
+      "bytes": 22500,
+      "sha256": "ae7126603c45732208ac5b1b205b582852d8588274faee41dac6c08324b5c6c8",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/index/index.min.js"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_index_indexbs_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/index/indexBS.js",
+      "bytes": 3797,
+      "sha256": "7fbe2ed9d2fbd25cabe87fa4ee0d3af1bba7f7b6a594bdf881cbfa5a54cf431d",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/index/indexBS.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_index_indexbs_min_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/index/indexBS.min.js",
+      "bytes": 2192,
+      "sha256": "67c25a4de98891ce51ff4467bd566e98e3194f8428cf7d29c1c183dbc93b98bb",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/index/indexBS.min.js"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_jquery_base64_min_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jquery.base64.min.js",
+      "bytes": 1406,
+      "sha256": "6598af04e470d3abe4811bc8c3b5f57ea158ebd8a9d830999b840a4a49f4d0a1",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jquery.base64.min.js"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_jqxcore_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jqxcore.js",
+      "bytes": 137597,
+      "sha256": "ba9da9fbea04617e08d9f377e51627086ac180e223c9b09acaaf7ed7f9d26355",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jqxcore.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_jqxtabs_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jqxtabs.js",
+      "bytes": 53839,
+      "sha256": "bddbb29153c363fbd938eb6aa225fd897f07a5f11f2605151a4fba96bc2a46ca",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jqxtabs.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_jqxwidget_jquery_nicescroll_min_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jqxwidget/jquery.nicescroll.min.js",
+      "bytes": 60534,
+      "sha256": "91937c5db3a3b9de6ff75e5c5d27c814d294d582ad5c2ca10106f04b0d9c1fe1",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jqxwidget/jquery.nicescroll.min.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_jqxwindow_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jqxwindow.js",
+      "bytes": 61735,
+      "sha256": "0e098327e810572565347e4c78baa4571192e7821f371cfac1a05b8772eae2be",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jqxwindow.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_logininuserregister_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/loginInUserRegister.js",
+      "bytes": 2102,
+      "sha256": "35c21b9b3de7747b9f1efe1e76ef94e5772b0ced138816ac63f58a1c14ee3e9c",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/loginInUserRegister.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_selectedcourse_selectedcourse_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/selectedcourse/selectedcourse.js",
+      "bytes": 34851,
+      "sha256": "24c2cb6a2c7aae9aebfce97c8c9cf095c9ba445e3c981208e7423a14cf6f1bfc",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/selectedcourse/selectedcourse.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_selectedcourse_selectedcoursebs_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/selectedcourse/selectedcourseBS.js",
+      "bytes": 1613,
+      "sha256": "3039c0b0f10bf32e599a4c9bcf06b5bf260af17bd509c6bfdabf8ee490239a70",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/selectedcourse/selectedcourseBS.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_window_min_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/window.min.js",
+      "bytes": 2914,
+      "sha256": "e353978707024275647ff4207d78196744067d940a2cf7a8a016adda59bd1721",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/window.min.js"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_xfimage_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/xfimage.js",
+      "bytes": 2939,
+      "sha256": "6f931ad33dd1d41679b28632119053c7d4d8a424e9f90a0171a32e782fc36c58",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/xfimage.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_js_xsxkpub_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/xsxkpub.js",
+      "bytes": 12643,
+      "sha256": "1adc3fca255a31abc1d03ff3d5d0fd760117b49a3548eea556ddc1db9c0f25d1",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/xsxkpub.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_plugins_flipclock_flipclock_min_css",
+      "kind": "xkres-public",
+      "tag": "link",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/plugins/FlipClock/flipclock.min.css",
+      "bytes": 6175,
+      "sha256": "e03a617222924ec56c20f465471c3af2a9039bb3b4ebaf3631fbeaf313cf1a54",
+      "contentType": "text/css",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/plugins/FlipClock/flipclock.min.css"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_plugins_flipclock_flipclock_min_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/plugins/FlipClock/flipclock.min.js",
+      "bytes": 21195,
+      "sha256": "6a9d5dbf84bd7a2fa47df82423672e390a76906d4e9246e8613ae6638248faeb",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/plugins/FlipClock/flipclock.min.js"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_plugins_jquery_min_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/plugins/jquery.min.js",
+      "bytes": 84162,
+      "sha256": "06aa7bca8db963c527ffad1b2613aa8525cf038be3628ea81b31ae77a1c2dd08",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/plugins/jquery.min.js?av=1782721526082"
+    },
+    {
+      "id": "xkres_nwafu_edu_cn_products_jwfw_xsxkapp_public_plugins_sortable_sortable_1_3_0_js",
+      "kind": "xkres-public",
+      "tag": "script",
+      "localPath": "static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/plugins/sortable/Sortable-1.3.0.js",
+      "bytes": 29446,
+      "sha256": "9452c6c5a85d78c674aaa39c413c528ede0539ccd97c7b0b207bbbbbf3e79162",
+      "contentType": "application/javascript",
+      "url": "https://xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/plugins/sortable/Sortable-1.3.0.js?av=1782721526082"
+    }
+  ]
+}

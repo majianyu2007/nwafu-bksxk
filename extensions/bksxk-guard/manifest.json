@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "BKSXK Guard",
+  "version": "0.1.0",
+  "description": "Injects the BKSXK userscript at document_start for Playwright capture sessions.",
+  "host_permissions": [
+    "*://*.nwafu.edu.cn/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.nwafu.edu.cn/*"
+      ],
+      "js": [
+        "bksxk-guard.user.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "name": "bksxk",
+  "version": "1.0.0",
+  "description": "NWAFU course selection system API capture notes and tooling.",
+  "main": "index.js",
+  "scripts": {
+    "capture": "node scripts/sync-extension.mjs && node scripts/capture-bksxk.mjs",
+    "coverage-check": "node scripts/check-api-coverage.mjs",
+    "api-manifest": "node scripts/generate-api-manifest.mjs",
+    "api-requests": "node scripts/generate-request-examples.mjs",
+    "api-requests-check": "node scripts/generate-request-examples.mjs --check",
+    "client-contract": "node scripts/generate-client-contract.mjs",
+    "client-contract-check": "node scripts/generate-client-contract.mjs --check",
+    "endpoint-audit": "node scripts/audit-endpoint-inventory.mjs",
+    "endpoint-audit-check": "node scripts/audit-endpoint-inventory.mjs --check",
+    "go-catalog": "node scripts/generate-go-client-catalog.mjs",
+    "go-catalog-check": "node scripts/generate-go-client-catalog.mjs --check",
+    "offline-snapshots": "node scripts/generate-offline-snapshots.mjs",
+    "offline-snapshots-check": "node scripts/generate-offline-snapshots.mjs --check",
+    "page-manifest": "node scripts/generate-page-manifest.mjs",
+    "page-manifest-check": "node scripts/generate-page-manifest.mjs --check",
+    "response-schemas": "node scripts/generate-response-schemas.mjs",
+    "response-schemas-check": "node scripts/generate-response-schemas.mjs --check",
+    "receiver": "node scripts/guard-receiver.mjs",
+    "request-examples": "node scripts/request-builders.mjs",
+    "sanitize": "node scripts/sanitize-artifacts.mjs",
+    "sensitive-check": "node scripts/check-sensitive.mjs",
+    "static-assets": "node scripts/check-static-assets.mjs",
+    "static-assets-check": "node scripts/check-static-assets.mjs --check",
+    "site-map": "node scripts/extract-site-map.mjs",
+    "sync-extension": "node scripts/sync-extension.mjs",
+    "summarize": "node scripts/summarize-api.mjs",
+    "test": "node --check userscripts/bksxk-guard.user.js && node --check scripts/audit-endpoint-inventory.mjs && node --check scripts/capture-bksxk.mjs && node --check scripts/check-api-coverage.mjs && node --check scripts/check-sensitive.mjs && node --check scripts/check-static-assets.mjs && node --check scripts/extract-site-map.mjs && node --check scripts/generate-api-manifest.mjs && node --check scripts/generate-client-contract.mjs && node --check scripts/generate-go-client-catalog.mjs && node --check scripts/generate-offline-snapshots.mjs && node --check scripts/generate-page-manifest.mjs && node --check scripts/generate-request-examples.mjs && node --check scripts/generate-response-schemas.mjs && node --check scripts/guard-receiver.mjs && node --check scripts/request-builders.mjs && node --check scripts/sanitize-artifacts.mjs && node --check scripts/summarize-api.mjs && node --check scripts/sync-extension.mjs && npm run coverage-check && npm run api-requests-check && npm run page-manifest-check && npm run response-schemas-check && npm run client-contract-check && npm run static-assets-check && npm run offline-snapshots-check && npm run endpoint-audit-check && npm run go-catalog-check && npm run sensitive-check"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}

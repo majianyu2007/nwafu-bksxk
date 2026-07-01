@@ -1,0 +1,280 @@
+.bh-tip-btn:hover,.scenes-er-number a:hover {
+    text-decoration: underline
+}
+.bh-tip-btn-group {
+    display: inline-block
+}
+.bh-tip {
+    top: -40px;
+    z-index: 99999;
+    min-width: 240px;
+    opacity: 0
+}
+
+.bh-tip .bh-card {
+    padding: 8px 22px;
+    height: 36px;
+    text-align: center;
+    background: #fff;
+}
+
+.bh-tip-top-bar {
+    height: 4px;
+    width: 100%
+}
+
+.bh-tip-content {
+    height: 20px;
+    position: relative;
+    margin: 0 auto
+}
+.bh-tip-content .iconfont {
+    position: relative;
+    top: 1px;
+    left: 0
+}
+
+.bh-tip-closeIcon {
+    width: 16px;
+    height: 16px;
+    line-height: 16px;
+    position: absolute;
+    top: 14px;
+    right: 8px;
+    text-align: center;
+    color: #666;
+    cursor: pointer;
+    z-index: 10000
+}
+
+.bh-tip-closeIcon:hover {
+    background-color: #F0F1F9
+}
+
+.bh-tip-btn {
+    margin-left: 8px
+}
+
+.bh-tip-btn:hover {
+    cursor: pointer
+}
+
+.bh-tip-primary .bh-tip-top-bar {
+    background-color: #2196F3
+}
+
+.bh-tip-primary .iconfont {
+    color: #2196F3
+}
+
+.bh-tip-success .bh-tip-top-bar {
+    background-color: #60BE29
+}
+
+.bh-tip-success .iconfont {
+    color: #60BE29
+}
+
+.bh-tip-warning .bh-tip-top-bar {
+    background-color: #EF971C
+}
+
+.bh-tip-warning .iconfont {
+    color: #EF971C
+}
+
+.bh-tip-danger .bh-tip-top-bar {
+    background-color: #E24034
+}
+
+.bh-tip-danger .iconfont {
+    color: #E24034
+}
+
+.bh-tip-info .bh-tip-top-bar {
+    background-color: #3E50B4
+}
+
+.bh-tip-info .iconfont {
+    color: #3E50B4
+}
+
+.bh-tip-loading .bh-tip-top-bar {
+    background-color: #666
+}
+
+.bh-tip-loading .iconfont {
+    color: #666;
+    width: 16px;
+    height: 16px;
+    background: url(data:image/gif;base64,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) no-repeat
+}
+
+.bh-tip-animate-top-opacity {
+    -webkit-transition: top,opacity;
+    transition: top,opacity;
+    -webkit-transition-duration: .25s;
+    transition-duration: .25s;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden
+}
+
+.bh-switch {
+    display: inline-block;
+    vertical-align: top;
+    position: relative;
+    user-select: none
+}
+
+.bh-switch:after {
+    content: "";
+    display: table;
+    clear: both
+}
+
+.bh-switch>label {
+    float: left
+}
+
+.bh-switch:hover .bh-switch-helper:before {
+    box-shadow: 0 8px 14px rgba(0,0,0,.25)
+}
+
+.bh-switch:hover input:disabled {
+    cursor: no-drop
+}
+
+.bh-switch:hover input:disabled+.bh-switch-helper:before {
+    background-color: #CCEAE7;
+    box-shadow: none
+}
+
+.bh-switch .bh-switch-label {
+    display: inline-block;
+    margin: 0 20px 0 0;
+    vertical-align: top;
+    -webkit-transition: color .56s cubic-bezier(.4,0,.2,1);
+    transition: color .56s cubic-bezier(.4,0,.2,1);
+    font-weight: 400;
+    padding: 2px 8px
+}
+
+.bh-switch .bh-switch-helper {
+    display: inline-block;
+    position: relative;
+    width: 48px;
+    height: 24px;
+    border-radius: 24px;
+    -webkit-transition: background .28s cubic-bezier(.4,0,.2,1);
+    transition: background .28s cubic-bezier(.4,0,.2,1);
+    vertical-align: middle;
+    cursor: pointer;
+    overflow: hidden
+}
+
+.bh-switch .bh-switch-helper:before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background-color: #fff;
+    box-shadow: 0 2px 6px rgba(0,0,0,.2);
+    border-radius: 100%;
+    webkit-transition: left .28s cubic-bezier(.4,0,.2,1),background .28s cubic-bezier(.4,0,.2,1),box-shadow .28s cubic-bezier(.4,0,.2,1);
+    -webkit-transition: left .28s cubic-bezier(.4,0,.2,1),background .28s cubic-bezier(.4,0,.2,1),box-shadow .28s cubic-bezier(.4,0,.2,1);
+    transition: left .28s cubic-bezier(.4,0,.2,1),background .28s cubic-bezier(.4,0,.2,1),box-shadow .28s cubic-bezier(.4,0,.2,1)
+}
+
+.bh-switch>.bh-switch-text {
+    padding: 2px 4px
+}
+
+.bh-switch>.bh-switch-text:after {
+    content: attr(open-text);
+    display: inline;
+    color: #666
+}
+
+.bh-switch input {
+    position: absolute;
+    z-index: 2;
+    width: 48px;
+    margin: 0;
+    height: 100%;
+    cursor: pointer;
+    opacity: 0;
+    right: 0;
+}
+
+.bh-switch input:checked+.bh-switch-helper:before {
+    left: 26px
+}
+
+.bh-switch input:checked+.bh-switch-helper+.bh-switch-text:after {
+    content: attr(close-text);
+    color: #8AC249
+}
+
+.bh-switch .bh-open {
+    display: none
+}
+
+.bh-switch input:checked+.bh-switch-helper {
+    background: #8AC249
+}
+
+.bh-switch input:disabled:checked+.bh-switch-helper {
+    background: rgba(138,194,73,.35)
+}
+
+.bh-switch input:disabled:checked+.bh-switch-helper:before {
+    background: #fff
+}
+
+.bh-switch input:disabled+.bh-switch-helper:before {
+    background-color: #CCEAE7;
+    box-shadow: none
+}
+
+.bh-switch .bh-switch-label.bh-close {
+    color: #EBF7F6
+}
+
+.bh-switch .bh-switch-label.open {
+    color: #8AC249
+}
+
+.bh-switch .bh-switch-helper {
+    background-color: #EBF7F6
+}
+
+.bh-switch.danger input:checked+.bh-switch-helper {
+    background: #8AC249
+}
+
+.bh-switch.danger input:disabled:checked+.bh-switch-helper {
+    background: rgba(138,194,73,.35)
+}
+
+.bh-switch.danger input:disabled:checked+.bh-switch-helper:before {
+    background: #fff
+}
+
+.bh-switch.danger input:disabled+.bh-switch-helper:before {
+    background-color: #CCEAE7;
+    box-shadow: none
+}
+
+.bh-switch.danger .bh-switch-label.bh-close {
+    color: #E6564A
+}
+
+.bh-switch.danger .bh-switch-label.open {
+    color: #8AC249
+}
+
+.bh-switch.danger .bh-switch-helper {
+    background-color: #E6564A
+}

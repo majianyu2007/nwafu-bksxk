@@ -1,0 +1,2790 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": [
+    "docs/api.manifest.generated.json",
+    "docs/api.requests.generated.json",
+    "docs/api.response-schemas.generated.json",
+    "docs/page.manifest.generated.json"
+  ],
+  "siteMapStats": {
+    "apiRows": 56,
+    "pageRows": 17,
+    "stateChangingRows": 12,
+    "functionRows": 327
+  },
+  "endpointCount": 58,
+  "pageCount": 17,
+  "summary": {
+    "byStatus": {
+      "运行期已验证": 42,
+      "静态已定位": 4,
+      "写操作未执行": 10,
+      "静态残留": 2
+    },
+    "bySection": {
+      "登录与初始化": 12,
+      "公共信息与字典": 15,
+      "课程列表与查询": 10,
+      "已选、课表与详情": 15,
+      "状态变更": 6
+    },
+    "byMethod": {
+      "GET": 41,
+      "POST": 17
+    },
+    "byResponseAvailability": {
+      "runtime-field-summary": 41,
+      "static-only": 3,
+      "binary": 1,
+      "write-not-executed": 10,
+      "static-residual-nonjson": 1,
+      "static-residual-404": 1,
+      "binary-or-empty": 1
+    },
+    "stateChanging": 10
+  },
+  "endpointContract": [
+    {
+      "id": "get_elective_batch_do",
+      "section": "登录与初始化",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/batch.do",
+      "description": "登录态可见轮次列表",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "code",
+          "name",
+          "batchType",
+          "canSelect",
+          "beginTime",
+          "endTime",
+          "tacticCode",
+          "schoolTermName",
+          "weekRange"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_elective_batchisopen_do",
+      "section": "登录与初始化",
+      "status": "运行期已验证",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/elective/batchisopen.do",
+      "description": "轮次开放状态，`xklcdm=<batchCode>`",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "xklcdm": "<batchCode>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "`msg` is observed as `1` when the batch is open."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_student_4_vcode_do",
+      "section": "登录与初始化",
+      "status": "静态已定位",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/student/4/vcode.do",
+      "description": "验证码 token",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "static-only",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Returns a captcha token object; static/login flow only."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_student_vcode_image_do",
+      "section": "登录与初始化",
+      "status": "静态已定位",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/student/vcode/image.do",
+      "description": "验证码图片",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "vtoken": "<vtoken>"
+        }
+      },
+      "response": {
+        "availability": "binary",
+        "contentType": "image/*",
+        "notes": "Captcha image bytes."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_student_check_login_do",
+      "section": "登录与初始化",
+      "status": "静态已定位",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/student/check/login.do",
+      "description": "登录校验",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "timestrap": "<timestamp>",
+          "loginName": "<studentCode>",
+          "loginPwd": "<password>",
+          "verifyCode": "<captcha>",
+          "vtoken": "<vtoken>"
+        }
+      },
+      "response": {
+        "availability": "static-only",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Successful response includes a session token; raw login response is not persisted."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_student_studentcode_do",
+      "section": "登录与初始化",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/student/<studentCode>.do",
+      "description": "学生信息",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "pathParams": {
+          "studentCode": "<studentCode>"
+        },
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataFields": [
+          "electiveIsOpen",
+          "levelTeaching",
+          "studentTag",
+          "collegeName",
+          "departmentName",
+          "grade",
+          "schoolClass",
+          "schoolClassName",
+          "totalCredit",
+          "getCredit",
+          "needCredit",
+          "campus",
+          "campusName",
+          "college",
+          "department",
+          "gender",
+          "trainingLevel",
+          "studentType",
+          "majorTrainingCode",
+          "minorTrainingCode",
+          "limitElective",
+          "majorName",
+          "electiveBatch",
+          "electiveBatchList",
+          "limitElectiveList",
+          "noSelectReason",
+          "teachCampus",
+          "expElectiveBatchList",
+          "noSearchCj",
+          "code",
+          "name",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_student_xklcqr_do",
+      "section": "登录与初始化",
+      "status": "写操作未执行",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/student/xklcqr.do",
+      "description": "选课轮次须知确认",
+      "stateChanging": true,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "electiveBatchCode": "<batchCode>",
+          "studentCode": "<studentCode>"
+        }
+      },
+      "response": {
+        "availability": "write-not-executed",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "State-changing endpoint; request construction is documented, but no real response was captured."
+      },
+      "executionPolicy": "serialize-only"
+    },
+    {
+      "id": "get_student_guidemap_do",
+      "section": "登录与初始化",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/student/guideMap.do",
+      "description": "引导页读取状态",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>",
+          "studentCode": "<studentCode>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Observed `msg=已读引导页` for an already-read guide page."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_student_guidemap_do",
+      "section": "登录与初始化",
+      "status": "写操作未执行",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/student/guideMap.do",
+      "description": "标记引导页已读",
+      "stateChanging": true,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "studentCode": "<studentCode>"
+        }
+      },
+      "response": {
+        "availability": "write-not-executed",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Marks guide page as read; not executed for response capture."
+      },
+      "executionPolicy": "serialize-only"
+    },
+    {
+      "id": "get_student_register_do",
+      "section": "登录与初始化",
+      "status": "写操作未执行",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/student/register.do",
+      "description": "CAS/统一身份注册",
+      "stateChanging": true,
+      "request": {
+        "headers": [],
+        "query": {
+          "number": "<studentOrCasNumber>"
+        }
+      },
+      "response": {
+        "availability": "write-not-executed",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Registration endpoint; not executed for response capture."
+      },
+      "executionPolicy": "serialize-only"
+    },
+    {
+      "id": "get_student_logout_do",
+      "section": "登录与初始化",
+      "status": "写操作未执行",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/student/logout.do",
+      "description": "退出登录",
+      "stateChanging": true,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>",
+          "studentNumber": "<studentCode>"
+        }
+      },
+      "response": {
+        "availability": "write-not-executed",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Logout endpoint; not executed for response capture."
+      },
+      "executionPolicy": "serialize-only"
+    },
+    {
+      "id": "get_student_authlogout_do",
+      "section": "登录与初始化",
+      "status": "写操作未执行",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/student/authlogout.do",
+      "description": "认证退出",
+      "stateChanging": true,
+      "request": {
+        "headers": [],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "write-not-executed",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Auth logout endpoint; not executed for response capture."
+      },
+      "executionPolicy": "serialize-only"
+    },
+    {
+      "id": "get_publicinfo_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo.do",
+      "description": "首页聚合信息",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "timestamp": "<timestamp>",
+          "pageSize": "10",
+          "pageNumber": "1"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataFields": [
+          "celebrityFamousList",
+          "consultMethod",
+          "noticeList",
+          "commonProblemList",
+          "stopInfo",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_dictionary_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/dictionary.do",
+      "description": "字典",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "mapKind": "dictionary object keyed by dictionary category"
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_sysparam_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/sysparam.do",
+      "description": "系统参数",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>",
+          "_": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataFields": [
+          "needBook",
+          "displayCjMenu",
+          "xgxkQueryTitle",
+          "useList",
+          "kclbNotDisplay",
+          "displayMajorFlag",
+          "isSplitRetake"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_onlineusers_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/onlineUsers.do",
+      "description": "在线人数",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Online user count/status endpoint; exact body varies by deployment."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_volunteer_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/volunteer.do",
+      "description": "志愿等级字典",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "grade",
+          "isUse",
+          "name",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_fx_nj_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/fx/nj.do",
+      "description": "辅修筛选年级",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Filter dictionary; observed code=1."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_fx_yx_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/fx/yx.do",
+      "description": "辅修筛选院系",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Filter dictionary; observed code=1."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_fx_zy_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/fx/zy.do",
+      "description": "辅修筛选专业",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Filter dictionary; observed code=1."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_zx_nj_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/zx/nj.do",
+      "description": "跨年级/方案外筛选年级",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Filter dictionary; observed code=1."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_zx_yx_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/zx/yx.do",
+      "description": "跨年级/方案外筛选院系",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Filter dictionary; observed code=1."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_zx_zy_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/zx/zy.do",
+      "description": "跨年级/方案外筛选专业",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "`msg` can be a large JSON string dictionary."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_notice_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/notice.do",
+      "description": "公告列表",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "timestamp": "<timestamp>",
+          "pageSize": "10",
+          "pageNumber": "0"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "title",
+          "publishTime",
+          "timeDescription",
+          "filename",
+          "content",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_notice_view_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/notice/view.do",
+      "description": "公告详情",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "timestamp": "<timestamp>",
+          "wid": "<noticeWid>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataFields": [
+          "title",
+          "publishTime",
+          "timeDescription",
+          "filename",
+          "content",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_problem_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/problem.do",
+      "description": "常见问题",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "title",
+          "publishTime",
+          "timeDescription",
+          "content",
+          "serialNumber",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_celebrityfamous_do",
+      "section": "公共信息与字典",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/celebrityfamous.do",
+      "description": "页脚/名言信息",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "englishContent",
+          "content",
+          "author",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_elective_recommendedcourse_do",
+      "section": "课程列表与查询",
+      "status": "运行期已验证",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/elective/recommendedCourse.do",
+      "description": "推荐课程，课程行含 `tcList`",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "querySetting": "{\"data\":{\"studentCode\":\"<studentCode>\",\"campus\":\"<campus>\",\"electiveBatchCode\":\"<batchCode>\",\"isMajor\":\"1\",\"teachingClassType\":\"TJKC\",\"checkConflict\":\"2\",\"checkCapacity\":\"2\",\"queryContent\":\"\"},\"pageSize\":\"10\",\"pageNumber\":\"0\",\"order\":\"\"}"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "credit",
+          "courseUrl",
+          "majorFlag",
+          "courseFlag",
+          "replaceCourseName",
+          "courseNumber",
+          "courseName",
+          "courseNatureName",
+          "retakeType",
+          "retakeTypeDetail",
+          "departmentName",
+          "campusName",
+          "replaceCourseNumber",
+          "number",
+          "selected",
+          "tcList",
+          "type",
+          "typeName",
+          "hours",
+          "wid"
+        ],
+        "mapKind": "course row tcList contains teaching class cards"
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_elective_programcourse_do",
+      "section": "课程列表与查询",
+      "status": "运行期已验证",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/elective/programCourse.do",
+      "description": "方案内、方案外、重修、体育、辅修等入口",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "querySetting": "{\"data\":{\"studentCode\":\"<studentCode>\",\"campus\":\"<campus>\",\"electiveBatchCode\":\"<batchCode>\",\"isMajor\":\"1\",\"teachingClassType\":\"FANKC\",\"checkConflict\":\"2\",\"checkCapacity\":\"2\",\"queryContent\":\"\"},\"pageSize\":\"10\",\"pageNumber\":\"0\",\"order\":\"\"}"
+        },
+        "variants": [
+          {
+            "name": "FANKC",
+            "endpoint": "/sys/xsxkapp/elective/programCourse.do",
+            "method": "POST",
+            "body": {
+              "querySetting": "{\"data\":{\"studentCode\":\"<studentCode>\",\"campus\":\"<campus>\",\"electiveBatchCode\":\"<batchCode>\",\"isMajor\":\"1\",\"teachingClassType\":\"FANKC\",\"checkConflict\":\"2\",\"checkCapacity\":\"2\",\"queryContent\":\"\"},\"pageSize\":\"10\",\"pageNumber\":\"0\",\"order\":\"\"}"
+            }
+          },
+          {
+            "name": "FAWKC",
+            "endpoint": "/sys/xsxkapp/elective/programCourse.do",
+            "method": "POST",
+            "body": {
+              "querySetting": "{\"data\":{\"studentCode\":\"<studentCode>\",\"campus\":\"<campus>\",\"electiveBatchCode\":\"<batchCode>\",\"isMajor\":\"1\",\"teachingClassType\":\"FAWKC\",\"checkConflict\":\"2\",\"checkCapacity\":\"2\",\"queryContent\":\"\"},\"pageSize\":\"10\",\"pageNumber\":\"0\",\"order\":\"\"}"
+            }
+          },
+          {
+            "name": "CXKC",
+            "endpoint": "/sys/xsxkapp/elective/programCourse.do",
+            "method": "POST",
+            "body": {
+              "querySetting": "{\"data\":{\"studentCode\":\"<studentCode>\",\"campus\":\"<campus>\",\"electiveBatchCode\":\"<batchCode>\",\"isMajor\":\"1\",\"teachingClassType\":\"CXKC\",\"checkConflict\":\"2\",\"checkCapacity\":\"2\",\"queryContent\":\"\"},\"pageSize\":\"10\",\"pageNumber\":\"0\",\"order\":\"\"}"
+            }
+          },
+          {
+            "name": "TYKC",
+            "endpoint": "/sys/xsxkapp/elective/programCourse.do",
+            "method": "POST",
+            "body": {
+              "querySetting": "{\"data\":{\"studentCode\":\"<studentCode>\",\"campus\":\"<campus>\",\"electiveBatchCode\":\"<batchCode>\",\"isMajor\":\"1\",\"teachingClassType\":\"TYKC\",\"checkConflict\":\"2\",\"checkCapacity\":\"2\",\"queryContent\":\"\"},\"pageSize\":\"10\",\"pageNumber\":\"0\",\"order\":\"\"}"
+            }
+          },
+          {
+            "name": "FXKC",
+            "endpoint": "/sys/xsxkapp/elective/programCourse.do",
+            "method": "POST",
+            "body": {
+              "querySetting": "{\"data\":{\"studentCode\":\"<studentCode>\",\"campus\":\"<campus>\",\"electiveBatchCode\":\"<batchCode>\",\"isMajor\":\"0\",\"teachingClassType\":\"FXKC\",\"checkConflict\":\"2\",\"checkCapacity\":\"2\",\"queryContent\":\"\"},\"pageSize\":\"10\",\"pageNumber\":\"0\",\"order\":\"\"}"
+            }
+          }
+        ]
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "credit",
+          "courseUrl",
+          "majorFlag",
+          "courseFlag",
+          "replaceCourseName",
+          "courseNumber",
+          "courseName",
+          "courseNatureName",
+          "retakeType",
+          "retakeTypeDetail",
+          "departmentName",
+          "campusName",
+          "replaceCourseNumber",
+          "number",
+          "selected",
+          "tcList",
+          "type",
+          "typeName",
+          "hours",
+          "wid"
+        ],
+        "mapKind": "course row tcList contains teaching class cards"
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_elective_publiccourse_do",
+      "section": "课程列表与查询",
+      "status": "运行期已验证",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/elective/publicCourse.do",
+      "description": "公选课程入口",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "querySetting": "{\"data\":{\"studentCode\":\"<studentCode>\",\"campus\":\"<campus>\",\"electiveBatchCode\":\"<batchCode>\",\"isMajor\":\"1\",\"teachingClassType\":\"XGXK\",\"checkConflict\":\"2\",\"checkCapacity\":\"2\",\"queryContent\":\"\"},\"pageSize\":\"10\",\"pageNumber\":\"0\",\"order\":\"\"}"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "credit",
+          "courseUrl",
+          "majorFlag",
+          "courseFlag",
+          "replaceCourseName",
+          "courseNumber",
+          "courseName",
+          "courseNatureName",
+          "retakeType",
+          "retakeTypeDetail",
+          "departmentName",
+          "campusName",
+          "replaceCourseNumber",
+          "number",
+          "selected",
+          "tcList",
+          "type",
+          "typeName",
+          "hours",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_elective_querycourse_do",
+      "section": "课程列表与查询",
+      "status": "运行期已验证",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/elective/queryCourse.do",
+      "description": "全校课程，返回教学班平铺行",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "querySetting": "{\"data\":{\"studentCode\":\"<studentCode>\",\"campus\":\"<campus>\",\"electiveBatchCode\":\"<batchCode>\",\"isMajor\":\"1\",\"teachingClassType\":\"QXKC\",\"queryContent\":\"\"},\"pageSize\":\"10\",\"pageNumber\":\"0\",\"order\":\"\"}"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "teachingClassID",
+          "courseNumber",
+          "courseName",
+          "courseIndex",
+          "teacherName",
+          "teachingPlace",
+          "classCapacity",
+          "numberOfSelected",
+          "isFull",
+          "isConflict",
+          "conflictDesc",
+          "hasTest",
+          "isTest",
+          "testTeachingClassID",
+          "needOrderBook",
+          "needBook",
+          "hasBook",
+          "chooseVolunteer",
+          "isChoose",
+          "capacitySuffix",
+          "numberOfFirstVolunteer",
+          "engpCode",
+          "engpName",
+          "sportCode",
+          "sportName",
+          "courseNature",
+          "courseNatureName",
+          "courseType",
+          "courseTypeName",
+          "departmentName",
+          "campus",
+          "campusName",
+          "hours",
+          "credit",
+          "wid"
+        ],
+        "notes": "All-school query returns flattened teaching-class rows."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_elective_testcourse_do",
+      "section": "课程列表与查询",
+      "status": "运行期已验证",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/elective/testCourse.do",
+      "description": "实验课查询",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "jxbid": "<teachingClassId>",
+          "electiveBatchCode": "<batchCode>",
+          "studentCode": "<studentCode>",
+          "isMajor": "1",
+          "teachingClassType": "<teachingClassType>",
+          "campus": "<campus>",
+          "checkCapacity": "0",
+          "checkConflict": "0"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "credit",
+          "courseUrl",
+          "majorFlag",
+          "courseFlag",
+          "replaceCourseName",
+          "courseNumber",
+          "courseName",
+          "courseNatureName",
+          "retakeType",
+          "retakeTypeDetail",
+          "departmentName",
+          "campusName",
+          "replaceCourseNumber",
+          "number",
+          "selected",
+          "tcList",
+          "type",
+          "typeName",
+          "hours",
+          "wid"
+        ],
+        "mapKind": "textbook selection map keyed by opaque ids"
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_elective_course_kcssfa_do",
+      "section": "课程列表与查询",
+      "status": "运行期已验证",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/elective/course/kcssfa.do",
+      "description": "课程所属方案",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "querySetting": "{\"data\":{\"studentCode\":\"<studentCode>\",\"electiveBatchCode\":\"<batchCode>\",\"courseNumber\":\"<courseNumber>\"},\"pageSize\":\"10\",\"pageNumber\":\"0\"}"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "credit",
+          "courseUrl",
+          "majorFlag",
+          "courseFlag",
+          "replaceCourseName",
+          "courseNumber",
+          "courseName",
+          "courseNatureName",
+          "retakeType",
+          "retakeTypeDetail",
+          "departmentName",
+          "campusName",
+          "replaceCourseNumber",
+          "number",
+          "selected",
+          "tcList",
+          "type",
+          "typeName",
+          "hours",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_elective_course_do",
+      "section": "课程列表与查询",
+      "status": "静态残留",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/course.do",
+      "description": "静态 `queryCourse()` 封装；运行期 GET 不返回业务 JSON，业务查询用 POST",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>",
+          "querySetting": "{\"data\":{\"studentCode\":\"<studentCode>\",\"campus\":\"<campus>\",\"electiveBatchCode\":\"<batchCode>\",\"isMajor\":\"1\",\"teachingClassType\":\"FANKC\",\"checkConflict\":\"2\",\"checkCapacity\":\"2\",\"queryContent\":\"\"},\"pageSize\":\"10\",\"pageNumber\":\"0\",\"order\":\"\"}"
+        },
+        "notes": "Static queryCourse() wrapper; runtime business JSON uses POST for the same path."
+      },
+      "response": {
+        "availability": "static-residual-nonjson",
+        "notes": "Static queryCourse() wrapper sends GET, but runtime business JSON was observed on POST for the same path."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_elective_course_do",
+      "section": "课程列表与查询",
+      "status": "运行期已验证",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/elective/course.do",
+      "description": "侧边栏课程搜索；静态封装写 GET，但业务 JSON 实测为 POST",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "querySetting": "{\"data\":{\"studentCode\":\"<studentCode>\",\"campus\":\"<campus>\",\"electiveBatchCode\":\"<batchCode>\",\"isMajor\":\"1\",\"teachingClassType\":\"FANKC\",\"checkConflict\":\"2\",\"checkCapacity\":\"2\",\"queryContent\":\"\"},\"pageSize\":\"10\",\"pageNumber\":\"0\",\"order\":\"\"}"
+        },
+        "notes": "Static wrapper says GET; runtime JSON endpoint is POST."
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "credit",
+          "courseUrl",
+          "majorFlag",
+          "courseFlag",
+          "replaceCourseName",
+          "courseNumber",
+          "courseName",
+          "courseNatureName",
+          "retakeType",
+          "retakeTypeDetail",
+          "departmentName",
+          "campusName",
+          "replaceCourseNumber",
+          "number",
+          "selected",
+          "tcList",
+          "type",
+          "typeName",
+          "hours",
+          "wid"
+        ],
+        "notes": "Runtime JSON endpoint is POST even though static wrapper says GET."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_elective_course_volunteer_do",
+      "section": "课程列表与查询",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/course/volunteer.do",
+      "description": "课程可选志愿等级，参数为 `queryParam={\"data\":...}`",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "queryParam": "{\"data\":{\"studentCode\":\"<studentCode>\",\"electiveBatchCode\":\"<batchCode>\",\"courseNumber\":\"<courseNumber>\"}}",
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "grade",
+          "isUse",
+          "name",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_elective_volunteered_do",
+      "section": "课程列表与查询",
+      "status": "静态残留",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/volunteered.do",
+      "description": "当前部署返回 404；已选志愿弹窗实际走 `courseResult.do`",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>",
+          "studentCode": "<studentCode>",
+          "electiveBatchCode": "<batchCode>"
+        },
+        "notes": "Static residual; current deployment returned 404 during runtime probe."
+      },
+      "response": {
+        "availability": "static-residual-404",
+        "httpStatus": 404,
+        "notes": "Static function exists, but current deployment returned HTML 404; selected-volunteer UI uses courseResult.do."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_elective_courseresult_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/courseResult.do",
+      "description": "已选课程",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>",
+          "studentCode": "<studentCode>",
+          "electiveBatchCode": "<batchCode>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "teachingClassID",
+          "courseNumber",
+          "courseName",
+          "courseIndex",
+          "teacherName",
+          "teachingPlace",
+          "classCapacity",
+          "numberOfSelected",
+          "isFull",
+          "isConflict",
+          "conflictDesc",
+          "hasTest",
+          "isTest",
+          "testTeachingClassID",
+          "needOrderBook",
+          "needBook",
+          "hasBook",
+          "chooseVolunteer",
+          "isChoose",
+          "capacitySuffix",
+          "numberOfFirstVolunteer",
+          "engpCode",
+          "engpName",
+          "sportCode",
+          "sportName",
+          "courseNature",
+          "courseNatureName",
+          "courseType",
+          "courseTypeName",
+          "departmentName",
+          "campus",
+          "campusName",
+          "hours",
+          "credit",
+          "wid",
+          "studentCode",
+          "isMajor",
+          "trainingCode",
+          "deleteOperateTime",
+          "teachingClassType",
+          "studentName",
+          "canDelete",
+          "selectStatus",
+          "learnType",
+          "noOccupyCapacity",
+          "deleteOperateType",
+          "deleteOperateTypeName",
+          "deleteOperatePersonName",
+          "operateIP",
+          "isConfirm",
+          "capacityType",
+          "comment"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_elective_returnresults_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/returnResults.do",
+      "description": "退选日志",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>",
+          "studentCode": "<studentCode>",
+          "electiveBatchCode": "<batchCode>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "teachingClassID",
+          "courseNumber",
+          "courseName",
+          "courseIndex",
+          "teacherName",
+          "teachingPlace",
+          "classCapacity",
+          "numberOfSelected",
+          "isFull",
+          "isConflict",
+          "conflictDesc",
+          "hasTest",
+          "isTest",
+          "testTeachingClassID",
+          "needOrderBook",
+          "needBook",
+          "hasBook",
+          "chooseVolunteer",
+          "isChoose",
+          "capacitySuffix",
+          "numberOfFirstVolunteer",
+          "engpCode",
+          "engpName",
+          "sportCode",
+          "sportName",
+          "courseNature",
+          "courseNatureName",
+          "courseType",
+          "courseTypeName",
+          "departmentName",
+          "campus",
+          "campusName",
+          "hours",
+          "credit",
+          "wid",
+          "studentCode",
+          "isMajor",
+          "trainingCode",
+          "deleteOperateTime",
+          "teachingClassType",
+          "studentName",
+          "canDelete",
+          "selectStatus",
+          "learnType",
+          "noOccupyCapacity",
+          "deleteOperateType",
+          "deleteOperateTypeName",
+          "deleteOperatePersonName",
+          "operateIP",
+          "isConfirm",
+          "capacityType",
+          "comment"
+        ],
+        "notes": "Observed empty dataList in current capture."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_elective_unsuccessful_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/unsuccessful.do",
+      "description": "落选课程",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "isRead": "1",
+          "studentCode": "<studentCode>",
+          "electiveBatchCode": "<batchCode>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "teachingClassID",
+          "courseNumber",
+          "courseName",
+          "courseIndex",
+          "teacherName",
+          "teachingPlace",
+          "classCapacity",
+          "numberOfSelected",
+          "isFull",
+          "isConflict",
+          "conflictDesc",
+          "hasTest",
+          "isTest",
+          "testTeachingClassID",
+          "needOrderBook",
+          "needBook",
+          "hasBook",
+          "chooseVolunteer",
+          "isChoose",
+          "capacitySuffix",
+          "numberOfFirstVolunteer",
+          "engpCode",
+          "engpName",
+          "sportCode",
+          "sportName",
+          "courseNature",
+          "courseNatureName",
+          "courseType",
+          "courseTypeName",
+          "departmentName",
+          "campus",
+          "campusName",
+          "hours",
+          "credit",
+          "wid",
+          "isRead"
+        ],
+        "notes": "Observed empty dataList in current capture."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_elective_querystudentqueue_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/queryStudentQueue.do",
+      "description": "队列信息",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "studentCode": "<studentCode>",
+          "electiveBatchCode": "<batchCode>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Observed empty dataList in current capture."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_elective_teachingtime_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/teachingTime.do",
+      "description": "已排课表",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>",
+          "studentCode": "<studentCode>",
+          "electiveBatchCode": "<batchCode>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "teachingClassID",
+          "courseNumber",
+          "courseName",
+          "courseIndex",
+          "teacherName",
+          "teachingPlace",
+          "classCapacity",
+          "numberOfSelected",
+          "isFull",
+          "isConflict",
+          "conflictDesc",
+          "hasTest",
+          "isTest",
+          "testTeachingClassID",
+          "needOrderBook",
+          "needBook",
+          "hasBook",
+          "chooseVolunteer",
+          "isChoose",
+          "capacitySuffix",
+          "numberOfFirstVolunteer",
+          "engpCode",
+          "engpName",
+          "sportCode",
+          "sportName",
+          "courseNature",
+          "courseNatureName",
+          "courseType",
+          "courseTypeName",
+          "departmentName",
+          "campus",
+          "campusName",
+          "hours",
+          "credit",
+          "wid"
+        ],
+        "notes": "Scheduled timetable rows."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_elective_noarranged_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/noArranged.do",
+      "description": "未安排时间课程",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>",
+          "studentCode": "<studentCode>",
+          "electiveBatchCode": "<batchCode>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "teachingClassID",
+          "courseNumber",
+          "courseName",
+          "courseIndex",
+          "teacherName",
+          "teachingPlace",
+          "classCapacity",
+          "numberOfSelected",
+          "isFull",
+          "isConflict",
+          "conflictDesc",
+          "hasTest",
+          "isTest",
+          "testTeachingClassID",
+          "needOrderBook",
+          "needBook",
+          "hasBook",
+          "chooseVolunteer",
+          "isChoose",
+          "capacitySuffix",
+          "numberOfFirstVolunteer",
+          "engpCode",
+          "engpName",
+          "sportCode",
+          "sportName",
+          "courseNature",
+          "courseNatureName",
+          "courseType",
+          "courseTypeName",
+          "departmentName",
+          "campus",
+          "campusName",
+          "hours",
+          "credit",
+          "wid"
+        ],
+        "notes": "Courses without arranged timetable slots."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_queryjxb_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/queryjxb.do",
+      "description": "教学班详情",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "xklcdm": "<batchCode>",
+          "jxbid": "<teachingClassId>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataFields": [
+          "teachingClassID",
+          "courseNumber",
+          "courseName",
+          "courseIndex",
+          "teacherName",
+          "teachingPlace",
+          "classCapacity",
+          "numberOfSelected",
+          "isFull",
+          "isConflict",
+          "conflictDesc",
+          "hasTest",
+          "isTest",
+          "testTeachingClassID",
+          "needOrderBook",
+          "needBook",
+          "hasBook",
+          "chooseVolunteer",
+          "isChoose",
+          "capacitySuffix",
+          "numberOfFirstVolunteer",
+          "engpCode",
+          "engpName",
+          "sportCode",
+          "sportName",
+          "courseNature",
+          "courseNatureName",
+          "courseType",
+          "courseTypeName",
+          "departmentName",
+          "campus",
+          "campusName",
+          "hours",
+          "credit",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_elective_teachingclass_capacity_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/teachingclass/capacity.do",
+      "description": "教学班容量",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "teachingClassId": "<teachingClassId>",
+          "capacitySuffix": "<capacitySuffix>",
+          "xh": "<studentCode>",
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataFields": [
+          "teachingClassID",
+          "courseNumber",
+          "courseName",
+          "courseIndex",
+          "teacherName",
+          "teachingPlace",
+          "classCapacity",
+          "numberOfSelected",
+          "isFull",
+          "isConflict",
+          "conflictDesc",
+          "hasTest",
+          "isTest",
+          "testTeachingClassID",
+          "needOrderBook",
+          "needBook",
+          "hasBook",
+          "chooseVolunteer",
+          "isChoose",
+          "capacitySuffix",
+          "numberOfFirstVolunteer",
+          "engpCode",
+          "engpName",
+          "sportCode",
+          "sportName",
+          "courseNature",
+          "courseNatureName",
+          "courseType",
+          "courseTypeName",
+          "departmentName",
+          "campus",
+          "campusName",
+          "hours",
+          "credit",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_util_canchoose_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/util/canchoose.do",
+      "description": "可选原因分析",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "xh": "<studentCode>",
+          "jxbid": "<teachingClassId>",
+          "xklcdm": "<batchCode>",
+          "timestamp": "<timestamp>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataFields": [
+          "studentCode",
+          "isMajor",
+          "electiveBatchCode",
+          "queryContent",
+          "checkCapacity",
+          "courseNumber",
+          "campus",
+          "teachingClassType",
+          "checkConflict",
+          "reasonList",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_querykcxx_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/querykcxx.do",
+      "description": "课程详情",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "kch": "<courseNumber>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataFields": [
+          "courseNumber",
+          "courseName",
+          "credit",
+          "hours",
+          "courseNatureName",
+          "departmentName",
+          "courseUrl",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_queryjzg_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/queryjzg.do",
+      "description": "教师详情",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "jsh": "<teacherCode>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataFields": [
+          "NO",
+          "NAME",
+          "SEX",
+          "COUNTRY",
+          "JOB_TITLE",
+          "ADMINISTRATION_TITLE",
+          "FACULTY_NAME",
+          "COMPANY_NAME",
+          "TUTOR_TYPE",
+          "TYPENAME",
+          "START_DATE",
+          "END_DATE",
+          "UNDERGRADUATE_TOTAL_TEACH_TIME",
+          "GRADUATE_TOTAL_TEACH_TIME",
+          "WORKS_TEXTBOOK_TOTAL_CNT",
+          "TEACH_AWARDS_TOTAL_CNT",
+          "TEACH_THESIS_TOTAL_CNT",
+          "SCIENTIFIC_AWARDS_TOTAL_CNT",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "get_publicinfo_queryjzgphoto_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/publicinfo/queryjzgphoto.do",
+      "description": "教师照片",
+      "stateChanging": false,
+      "request": {
+        "headers": [],
+        "query": {
+          "jsh": "<teacherCode>"
+        }
+      },
+      "response": {
+        "availability": "binary-or-empty",
+        "contentType": "image/*",
+        "notes": "Teacher photo endpoint."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_student_xkxf_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/student/xkxf.do",
+      "description": "选课学分信息",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "xh": "<studentCode>",
+          "xklcdm": "<batchCode>",
+          "xklclx": "<batchType>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataFields": [
+          "electiveIsOpen",
+          "levelTeaching",
+          "studentTag",
+          "collegeName",
+          "departmentName",
+          "grade",
+          "schoolClass",
+          "schoolClassName",
+          "totalCredit",
+          "getCredit",
+          "needCredit",
+          "campus",
+          "campusName",
+          "college",
+          "department",
+          "gender",
+          "trainingLevel",
+          "studentType",
+          "majorTrainingCode",
+          "minorTrainingCode",
+          "limitElective",
+          "majorName",
+          "electiveBatch",
+          "electiveBatchList",
+          "limitElectiveList",
+          "noSelectReason",
+          "teachCampus",
+          "expElectiveBatchList",
+          "noSearchCj",
+          "code",
+          "name",
+          "wid"
+        ]
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_student_xscj_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/student/xscj.do",
+      "description": "成绩详情，本次菜单未开放",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "electiveBatchCode": "<batchCode>",
+          "studentCode": "<studentCode>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "schoolTermName",
+          "courseNumber",
+          "courseName",
+          "credit",
+          "score",
+          "retakeTypeName"
+        ],
+        "notes": "Current runtime returned code=0 because score menu was not open."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_textbook_queryxsjxbbook_do",
+      "section": "已选、课表与详情",
+      "status": "运行期已验证",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/textbook/queryxsjxbbook.do",
+      "description": "教材查询",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "xh": "<studentCode>",
+          "xklcdm": "<batchCode>",
+          "jxbid": "<teachingClassId>"
+        }
+      },
+      "response": {
+        "availability": "runtime-field-summary",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "dataListItemFields": [
+          "wid"
+        ],
+        "notes": "`wid` may contain JSON-encoded textbook fields such as ISBN, SM, ZZZ, JCBH, SFDG."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_elective_volunteer_do",
+      "section": "状态变更",
+      "status": "写操作未执行",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/elective/volunteer.do",
+      "description": "添加选课，表单字段 `addParam`",
+      "stateChanging": true,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "addParam": "{\"data\":{\"operationType\":\"1\",\"studentCode\":\"<studentCode>\",\"electiveBatchCode\":\"<batchCode>\",\"teachingClassId\":\"<teachingClassId>\",\"isMajor\":\"1\",\"campus\":\"<campus>\",\"teachingClassType\":\"<teachingClassType>\"}}"
+        },
+        "variants": [
+          {
+            "name": "withoutTestOrBook",
+            "form": {
+              "addParam": "{\"data\":{\"operationType\":\"1\",\"studentCode\":\"<studentCode>\",\"electiveBatchCode\":\"<batchCode>\",\"teachingClassId\":\"<teachingClassId>\",\"isMajor\":\"1\",\"campus\":\"<campus>\",\"teachingClassType\":\"<teachingClassType>\"}}"
+            }
+          },
+          {
+            "name": "withTest",
+            "form": {
+              "addParam": "{\"data\":{\"operationType\":\"1\",\"studentCode\":\"<studentCode>\",\"electiveBatchCode\":\"<batchCode>\",\"teachingClassId\":\"<teachingClassId>\",\"isMajor\":\"1\",\"campus\":\"<campus>\",\"teachingClassType\":\"<teachingClassType>\",\"testTeachingClassID\":\"<selectedTestTeachingClassID>\"}}"
+            }
+          },
+          {
+            "name": "withBook",
+            "form": {
+              "addParam": "{\"data\":{\"operationType\":\"1\",\"studentCode\":\"<studentCode>\",\"electiveBatchCode\":\"<batchCode>\",\"teachingClassId\":\"<teachingClassId>\",\"isMajor\":\"1\",\"campus\":\"<campus>\",\"teachingClassType\":\"<teachingClassType>\",\"needBook\":\"<bookCode-or-bookCode-reason,...>\"}}"
+            }
+          },
+          {
+            "name": "withTestAndBook",
+            "form": {
+              "addParam": "{\"data\":{\"operationType\":\"1\",\"studentCode\":\"<studentCode>\",\"electiveBatchCode\":\"<batchCode>\",\"teachingClassId\":\"<teachingClassId>\",\"isMajor\":\"1\",\"campus\":\"<campus>\",\"teachingClassType\":\"<teachingClassType>\",\"needBook\":\"<bookCode-or-bookCode-reason,...>\",\"testTeachingClassID\":\"<selectedTestTeachingClassID>\"}}"
+            }
+          }
+        ]
+      },
+      "response": {
+        "availability": "write-not-executed",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "State-changing endpoint; request construction is documented, but no real response was captured."
+      },
+      "executionPolicy": "serialize-only"
+    },
+    {
+      "id": "get_elective_deletevolunteer_do",
+      "section": "状态变更",
+      "status": "写操作未执行",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/deleteVolunteer.do",
+      "description": "退选，表单/查询字段 `deleteParam`",
+      "stateChanging": true,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "timestamp": "<timestamp>",
+          "deleteParam": "{\"data\":{\"operationType\":\"2\",\"studentCode\":\"<studentCode>\",\"electiveBatchCode\":\"<batchCode>\",\"teachingClassId\":\"<teachingClassId>\",\"isMajor\":\"1\"}}"
+        }
+      },
+      "response": {
+        "availability": "write-not-executed",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "State-changing endpoint; request construction is documented, but no real response was captured."
+      },
+      "executionPolicy": "serialize-only"
+    },
+    {
+      "id": "post_elective_studentstatus_do",
+      "section": "状态变更",
+      "status": "静态已定位",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/elective/studentstatus.do",
+      "description": "选课/退选处理状态轮询",
+      "stateChanging": false,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "studentCode": "<studentCode>"
+        }
+      },
+      "response": {
+        "availability": "static-only",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "Polled after add/delete; success/failure status is documented from static flow, real post-operation response not captured."
+      },
+      "executionPolicy": "read-only-callable"
+    },
+    {
+      "id": "post_textbook_addbook_do",
+      "section": "状态变更",
+      "status": "写操作未执行",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/textbook/addbook.do",
+      "description": "订购教材",
+      "stateChanging": true,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "xh": "<studentCode>",
+          "xklcdm": "<batchCode>",
+          "jxbid": "<teachingClassId>"
+        }
+      },
+      "response": {
+        "availability": "write-not-executed",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "State-changing endpoint; request construction is documented, but no real response was captured."
+      },
+      "executionPolicy": "serialize-only"
+    },
+    {
+      "id": "post_textbook_modifybook_do",
+      "section": "状态变更",
+      "status": "写操作未执行",
+      "method": "POST",
+      "endpoint": "/sys/xsxkapp/textbook/modifybook.do",
+      "description": "修改/退订教材",
+      "stateChanging": true,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "contentType": "application/x-www-form-urlencoded; charset=UTF-8",
+        "form": {
+          "xh": "<studentCode>",
+          "xklcdm": "<batchCode>",
+          "jxbid": "<teachingClassId>",
+          "jcxx": "<bookCode-or-bookCode-reason,...>",
+          "czlx": "1"
+        }
+      },
+      "response": {
+        "availability": "write-not-executed",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "State-changing endpoint; request construction is documented, but no real response was captured."
+      },
+      "executionPolicy": "serialize-only"
+    },
+    {
+      "id": "get_elective_submit_unsuccessful_do",
+      "section": "状态变更",
+      "status": "写操作未执行",
+      "method": "GET",
+      "endpoint": "/sys/xsxkapp/elective/submit/unsuccessful.do",
+      "description": "落选提醒确认",
+      "stateChanging": true,
+      "request": {
+        "headers": [
+          "token"
+        ],
+        "query": {
+          "wids": "<wid,...>",
+          "studentCode": "<studentCode>"
+        }
+      },
+      "response": {
+        "availability": "write-not-executed",
+        "envelopeFields": [
+          "code",
+          "msg",
+          "data",
+          "dataList",
+          "totalCount",
+          "map",
+          "keyExpired",
+          "timestamp"
+        ],
+        "notes": "State-changing endpoint; request construction is documented, but no real response was captured."
+      },
+      "executionPolicy": "serialize-only"
+    }
+  ],
+  "pageContract": [
+    {
+      "id": "fragment_departurelog",
+      "endpoint": "./departurelog.do",
+      "kind": "fragment",
+      "method": "GET",
+      "routeParams": [],
+      "source": "static/sidebar.js:466",
+      "functionName": "initTabContent"
+    },
+    {
+      "id": "fragment_selectedcourse",
+      "endpoint": "./selectedcourse.do",
+      "kind": "fragment",
+      "method": "GET",
+      "routeParams": [],
+      "source": "static/sidebar.js:473",
+      "functionName": "initTabContent"
+    },
+    {
+      "id": "fragment_selectedvolunteer",
+      "endpoint": "./selectedvolunteer.do",
+      "kind": "fragment",
+      "method": "GET",
+      "routeParams": [],
+      "source": "static/sidebar.js:452",
+      "functionName": "initTabContent"
+    },
+    {
+      "id": "default_content",
+      "endpoint": "/sys/xsxkapp/*default/content.do?id=",
+      "kind": "detail-page",
+      "method": "GET",
+      "routeParams": [
+        "id"
+      ],
+      "source": "static/index.min.js:1",
+      "functionName": "t"
+    },
+    {
+      "id": "default_coursedetail",
+      "endpoint": "/sys/xsxkapp/*default/coursedetail.do?courseNum=",
+      "kind": "detail-page",
+      "method": "GET",
+      "routeParams": [
+        "courseNum"
+      ],
+      "source": "static/grablessons.js:573",
+      "functionName": ""
+    },
+    {
+      "id": "default_curriculavariable",
+      "endpoint": "/sys/xsxkapp/*default/curriculavariable.do?token=",
+      "kind": "page",
+      "method": "GET",
+      "routeParams": [
+        "token"
+      ],
+      "source": "static/index.min.js:1",
+      "functionName": "t"
+    },
+    {
+      "id": "default_curriculum",
+      "endpoint": "/sys/xsxkapp/*default/curriculum.do",
+      "kind": "curriculum-page",
+      "method": "GET",
+      "routeParams": [],
+      "source": "static/sidebar.js:113",
+      "functionName": ""
+    },
+    {
+      "id": "default_departurelog",
+      "endpoint": "/sys/xsxkapp/*default/departurelog.do",
+      "kind": "page",
+      "method": "GET",
+      "routeParams": [],
+      "source": "static/grablessons.js:4870",
+      "functionName": "departureLogClickBinding"
+    },
+    {
+      "id": "default_expcurriculavariable",
+      "endpoint": "/sys/xsxkapp/*default/expcurriculavariable.do?token=",
+      "kind": "page",
+      "method": "GET",
+      "routeParams": [
+        "token"
+      ],
+      "source": "static/index.min.js:1",
+      "functionName": "t"
+    },
+    {
+      "id": "default_expcurriculum",
+      "endpoint": "/sys/xsxkapp/*default/expcurriculum.do",
+      "kind": "curriculum-page",
+      "method": "GET",
+      "routeParams": [],
+      "source": "static/sidebar.js:111",
+      "functionName": ""
+    },
+    {
+      "id": "default_grablessons",
+      "endpoint": "/sys/xsxkapp/*default/grablessons.do?token=",
+      "kind": "primary-page",
+      "method": "GET",
+      "routeParams": [
+        "token"
+      ],
+      "source": "static/index.min.js:1",
+      "functionName": "t"
+    },
+    {
+      "id": "default_index",
+      "endpoint": "/sys/xsxkapp/*default/index.do",
+      "kind": "primary-page",
+      "method": "GET",
+      "routeParams": [],
+      "source": "static/departurelog.js:66",
+      "functionName": "initTable"
+    },
+    {
+      "id": "default_jcdetail",
+      "endpoint": "/sys/xsxkapp/*default/jcdetail.do?jxbid=",
+      "kind": "detail-page",
+      "method": "GET",
+      "routeParams": [
+        "jxbid"
+      ],
+      "source": "static/grablessons.js:1051",
+      "functionName": ""
+    },
+    {
+      "id": "default_jssimple",
+      "endpoint": "/sys/xsxkapp/*default/jssimple.do?jsh=",
+      "kind": "detail-page",
+      "method": "GET",
+      "routeParams": [
+        "jsh"
+      ],
+      "source": "static/grablessons.js:3736",
+      "functionName": ""
+    },
+    {
+      "id": "default_jssimple1",
+      "endpoint": "/sys/xsxkapp/*default/jssimple1.do?jsh=",
+      "kind": "detail-page",
+      "method": "GET",
+      "routeParams": [
+        "jsh"
+      ],
+      "source": "static/grablessons.js:3738",
+      "functionName": ""
+    },
+    {
+      "id": "default_publicinfo",
+      "endpoint": "/sys/xsxkapp/*default/publicinfo.do?type=",
+      "kind": "detail-page",
+      "method": "GET",
+      "routeParams": [
+        "type"
+      ],
+      "source": "static/index.min.js:1",
+      "functionName": "i"
+    },
+    {
+      "id": "default_scoredetail",
+      "endpoint": "/sys/xsxkapp/*default/scoredetail.do",
+      "kind": "detail-page",
+      "method": "GET",
+      "routeParams": [],
+      "source": "static/sidebar.js:188",
+      "functionName": ""
+    }
+  ]
+}

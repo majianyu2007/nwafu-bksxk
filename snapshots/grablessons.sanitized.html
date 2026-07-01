@@ -1,0 +1,1403 @@
+<!--
+Sanitized offline snapshot generated from artifacts/latest/snapshot/dom.html.
+Scripts are disabled intentionally; linked resources point to ../static-snapshot/.
+Course numbers, teaching-class ids, tokens, login fields, and student identifiers are redacted.
+-->
+<html lang="zh-CN"><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="renderer" content="webkit">
+<meta name="format-detection" content="telephone=no">
+<meta http-equiv="X-UA-Compatible" content="IE=edge,Chrome=1">
+<meta name="viewport" content="width=device-width, initial-scale=0.1">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Cache-Control" content="no-cache">
+<meta http-equiv="Expires" content="0">
+
+
+
+
+
+    <title>选课</title>
+    <link rel="stylesheet" href="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/bhTip.css">
+    <link rel="stylesheet" href="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/grablessons/grablessons.css">
+    <link rel="stylesheet" href="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/curriculavariable/bhwindow.css">
+    <link rel="stylesheet" href="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/curriculavariable/jqxTabs.css">
+    <link rel="stylesheet" href="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/electiveBatchAndXz.css">
+    <link rel="stylesheet" href="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/css/messageQueueTable.css">
+</head>
+<body class="bh-has-modal-body">
+	<div class="main no-zfx" style="min-width: 1344px;">
+        <!--头部-->
+        <header class="cv-page-header cv-bg-color-primary cv-clearfix-child">
+            <!--logo-->
+            <img title="返回主页" src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/index/logo-mini.png" id="cv-log-img">
+
+            <!--选课类型tab-->
+            <div class="cv-pull-left" cv-role="tabs">
+                <ul id="cvPageHeadTab" class="cv-tabs" cv-role="tabList">
+                    <li class="cv-active">
+                        <a href="#cvRecommendCourse" id="aRecommendCourse" cv-role="tab" teachingclasstype="TJKC">系统推荐课程</a>
+                    </li>
+                    <li>
+                        <a href="#cvProgramCourse" id="aProgramCourse" cv-role="tab" teachingclasstype="FANKC">方案内课程</a>
+                    </li>
+                    <li>
+                        <a href="#cvUnProgramCourse" id="aUnProgramCourse" cv-role="tab" disabled="disabled" teachingclasstype="FAWKC">方案外课程</a>
+                    </li>
+                    <li>
+                        <a href="#cvPublicCourse" id="aPublicCourse" cv-role="tab" disabled="disabled" teachingclasstype="XGXK">通识类选修课选课</a>
+                    </li>
+                    <li>
+                        <a href="#cvRetakeCourse" id="aRetakeCourse" cv-role="tab" disabled="disabled" teachingclasstype="CXKC">重修课程报名</a>
+                    </li>
+                    <li>
+                        <a href="#cvSportCourse" id="aSportCourse" cv-role="tab" teachingclasstype="TYKC">体育课选课</a>
+                    </li>
+                    <li>
+                        <a href="#cvMinorCourse" id="aMinorCourse" cv-role="tab" disabled="disabled" teachingclasstype="FXKC">辅修</a>
+                    </li>
+                    <li>
+                        <a href="#cvSchoolCourse" id="aSchoolCourse" cv-role="tab" teachingclasstype="QXKC">全校课程查询</a>
+                    </li>
+                </ul>
+            </div>
+            <nav>
+                <span id="goHome">返回主页</span>
+                <span id="logout">退出</span>
+            </nav>
+        </header>
+      
+        <!--推荐选课模块-->
+        <article id="cvRecommendCourse" class=" cv-pb-38" style="min-height: 523px;">
+            <header class="cv-course-header cv-clearfix-child">
+                <div class="">
+                    <!-- <h3 class="cv-mb-8" id="recommendTitle">推荐选课</h3> -->
+                    <span class="cv-caption-text" id="recommendSpan">2026-2027学年 秋&nbsp;1-18周<span style="margin-left: 8px;">北校区<span><span class="home-change-campus" style="margin-left: 4px;color: #047ADC;cursor: pointer;">切换<span></span></span></span></span></span>
+                    <div style="padding-top:5px;padding-bottom:5px">
+                        <label>是否冲突 : </label>
+                        <select class="cv-search-input search_sfct" id="recommend_sfct" coursetype="TJKC">
+                            <option value="2" selected="selected">--请选择--</option>
+                            <option value="1">冲突</option>
+                            <option value="0">不冲突</option>
+                        </select>
+                        <label>是否已满 : </label>
+                        <select class="cv-search-input search_sfym" id="recommend_sfym" coursetype="TJKC">
+                            <option value="2" selected="selected">--请选择--</option>
+                            <option value="1">已满</option>
+                            <option value="0">未满</option>
+                        </select>   
+                        <label>课程性质 : </label>
+                        <select class="cv-search-input search_kcxz" id="recommend_kcxz" coursetype="TJKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        <option value="02">选修</option><option value="03">任选</option><option value="01">必修</option></select>
+                        <label class="search_kclb_label">课程类别 : </label>
+                        <select class="cv-search-input search_kclb" id="recommend_kclb" coursetype="TJKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        <option value="01">通识教育</option><option value="0101">公共必修课</option><option value="02">学科教育</option><option value="0201">大类平台课程</option><option value="0202">专业基础课程</option><option value="03">专业教育</option><option value="0301">专业必修课</option><option value="0302">专业选修课</option><option value="04">综合实践</option><option value="0401">公共实践</option><option value="0403">专业综合实践</option><option value="07">通识类选修课</option><option value="09">学科基础课</option><option value="10">专业课</option><option value="11">综合实践</option><option value="12">创新创业与素质教育</option><option value="20">专业选修课-2025版</option><option value="25">综合实践-2025版</option></select> 
+                        <input id="recommendSearch" class="cv-search-input" placeholder="请输入关键字" type="text" coursetype="TJKC" style="width: 235px; margin-left: 10px;">
+                    </div>
+                </div>
+                
+            </header>
+
+            <!--专家模式模块-->
+            <div id="cvExpertMode" class="cv-expert-mode">
+                <div id="cvCanSelectRecommendCourse" class="cv-tab-pane cv-active">
+	    <div class="cv-list recommend-list">
+	        <div class="cv-head">
+                <div class="cv-normal cv-num">课程号</div>
+                <div class="cv-normal cv-course">课程名称</div>
+                <div class="cv-sort cv-class" id="recommendSort">可选班级数</div>
+                <div class="cv-normal cv-type">课程类别</div>
+                <div class="cv-normal cv-nature">课程性质</div>
+                <div class="cv-normal cv-department-col">开课单位</div>
+                <div class="cv-normal cv-credit-col">学分</div>
+	        </div>
+	        <div class="cv-body" id="recommendBody">
+	            
+	    <div class="cv-row cv-active" coursenumber="COURSE_NUMBER" index="0" ischoose="1">
+	        <div class="cv-num">
+				<span class="cv-courseFlag cv-hide"></span>
+				<span class="num-value">COURSE_NUMBER</span>
+				<div style="display: block;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: none;font-size:8px">可替代课程:</div>
+			</div>
+            <div class="cv-course">课程示例 1</div>
+            <div class="cv-class">1</div>
+            <div class="cv-type">综合实践-2025版</div>
+            <div class="cv-nature">必修</div>
+            <div class="cv-department-col">机械与电子工程学院</div>
+            <div class="cv-credit-col">2</div>
+	    </div>
+	
+	    <div class="cv-row cv-active" coursenumber="COURSE_NUMBER" index="1" ischoose="1">
+	        <div class="cv-num">
+				<span class="cv-courseFlag cv-hide"></span>
+				<span class="num-value">COURSE_NUMBER</span>
+				<div style="display: block;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: none;font-size:8px">可替代课程:</div>
+			</div>
+            <div class="cv-course">课程示例 2</div>
+            <div class="cv-class">1</div>
+            <div class="cv-type">通识教育</div>
+            <div class="cv-nature">必修</div>
+            <div class="cv-department-col">综合素质教育学院</div>
+            <div class="cv-credit-col">1</div>
+	    </div>
+	
+	    <div class="cv-row cv-active" coursenumber="COURSE_NUMBER" index="2" ischoose="1">
+	        <div class="cv-num">
+				<span class="cv-courseFlag cv-hide"></span>
+				<span class="num-value">COURSE_NUMBER</span>
+				<div style="display: block;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: none;font-size:8px">可替代课程:</div>
+			</div>
+            <div class="cv-course">课程示例 3</div>
+            <div class="cv-class">1</div>
+            <div class="cv-type">专业教育</div>
+            <div class="cv-nature">必修</div>
+            <div class="cv-department-col">信息工程学院</div>
+            <div class="cv-credit-col">3</div>
+	    </div>
+	
+	    <div class="cv-row cv-active" coursenumber="COURSE_NUMBER" index="3" ischoose="1">
+	        <div class="cv-num">
+				<span class="cv-courseFlag cv-hide"></span>
+				<span class="num-value">COURSE_NUMBER</span>
+				<div style="display: block;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: none;font-size:8px">可替代课程:</div>
+			</div>
+            <div class="cv-course">课程示例 4</div>
+            <div class="cv-class">1</div>
+            <div class="cv-type">专业教育</div>
+            <div class="cv-nature">必修</div>
+            <div class="cv-department-col">信息工程学院</div>
+            <div class="cv-credit-col">0.5</div>
+	    </div>
+	
+	    <div class="cv-row cv-active" coursenumber="COURSE_NUMBER" index="4" ischoose="1">
+	        <div class="cv-num">
+				<span class="cv-courseFlag cv-hide"></span>
+				<span class="num-value">COURSE_NUMBER</span>
+				<div style="display: block;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: none;font-size:8px">可替代课程:</div>
+			</div>
+            <div class="cv-course">课程示例 5</div>
+            <div class="cv-class">1</div>
+            <div class="cv-type">专业教育</div>
+            <div class="cv-nature">必修</div>
+            <div class="cv-department-col">信息工程学院</div>
+            <div class="cv-credit-col">2.5</div>
+	    </div>
+	
+	    <div class="cv-row cv-active" coursenumber="COURSE_NUMBER" index="5" ischoose="1">
+	        <div class="cv-num">
+				<span class="cv-courseFlag cv-hide"></span>
+				<span class="num-value">COURSE_NUMBER</span>
+				<div style="display: block;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: none;font-size:8px">可替代课程:</div>
+			</div>
+            <div class="cv-course">课程示例 6</div>
+            <div class="cv-class">1</div>
+            <div class="cv-type">-</div>
+            <div class="cv-nature">-</div>
+            <div class="cv-department-col">信息工程学院</div>
+            <div class="cv-credit-col">2.5</div>
+	    </div>
+	
+	    <div class="cv-row cv-active" coursenumber="COURSE_NUMBER" index="6" ischoose="1">
+	        <div class="cv-num">
+				<span class="cv-courseFlag cv-hide"></span>
+				<span class="num-value">COURSE_NUMBER</span>
+				<div style="display: block;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: none;font-size:8px">可替代课程:</div>
+			</div>
+            <div class="cv-course">课程示例 7</div>
+            <div class="cv-class">1</div>
+            <div class="cv-type">综合实践-2025版</div>
+            <div class="cv-nature">必修</div>
+            <div class="cv-department-col">信息工程学院</div>
+            <div class="cv-credit-col">2</div>
+	    </div>
+	
+	    <div class="cv-row cv-active" coursenumber="COURSE_NUMBER" index="7" ischoose="1">
+	        <div class="cv-num">
+				<span class="cv-courseFlag cv-hide"></span>
+				<span class="num-value">COURSE_NUMBER</span>
+				<div style="display: block;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: none;font-size:8px">可替代课程:</div>
+			</div>
+            <div class="cv-course">课程示例 8</div>
+            <div class="cv-class">1</div>
+            <div class="cv-type">通识教育</div>
+            <div class="cv-nature">必修</div>
+            <div class="cv-department-col">理学院</div>
+            <div class="cv-credit-col">1</div>
+	    </div>
+	
+	    <div class="cv-row cv-active" coursenumber="COURSE_NUMBER" index="8" ischoose="1">
+	        <div class="cv-num">
+				<span class="cv-courseFlag cv-hide"></span>
+				<span class="num-value">COURSE_NUMBER</span>
+				<div style="display: block;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: none;font-size:8px">可替代课程:</div>
+			</div>
+            <div class="cv-course">课程示例 9</div>
+            <div class="cv-class">1</div>
+            <div class="cv-type">通识教育</div>
+            <div class="cv-nature">必修</div>
+            <div class="cv-department-col">理学院</div>
+            <div class="cv-credit-col">4</div>
+	    </div>
+	
+	    <div class="cv-row cv-active" coursenumber="COURSE_NUMBER" index="9" ischoose="1">
+	        <div class="cv-num">
+				<span class="cv-courseFlag cv-hide"></span>
+				<span class="num-value">COURSE_NUMBER</span>
+				<div style="display: block;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: none;font-size:8px">可替代课程:</div>
+			</div>
+            <div class="cv-course">课程示例 10</div>
+            <div class="cv-class">1</div>
+            <div class="cv-type">通识教育</div>
+            <div class="cv-nature">必修</div>
+            <div class="cv-department-col">马克思主义学院</div>
+            <div class="cv-credit-col">2.5</div>
+	    </div>
+	
+	        </div>
+            <div class="cv-foot" style="padding-top:20px">
+                <a class="" href="javascript:void(0);" id="recommendUp">上一页</a>
+               	<span style="padding: 0 10px;"> 共<span id="recommendTotalPage">2</span>页数据，当前第<span id="recommendPageNumber">1</span>页。</span>
+                <a class="" href="javascript:void(0);" id="recommendDown">下一页</a>
+            </div>
+	    </div>
+	</div>
+            </div>
+        </article>
+
+        <!-- 方案内课程模块 -->
+        <article id="cvProgramCourse" class="cv-block-hide cv-pb-38" style="min-height: 523px;">
+            <header class="cv-course-header cv-clearfix-child">
+                <div>
+                    <div class="">
+                        <!-- <h3 class="cv-mb-8" id="programTitle">方案内选课</h3> -->
+                        <span class="cv-caption-text" id="programSpan"></span>
+                        <div style="padding-top:5px;padding-bottom:5px">
+                            <label>是否冲突 : </label>
+                            <select class="cv-search-input search_sfct" id="program_sfct" coursetype="FANKC">
+                                <option value="2" selected="selected">--请选择--</option>
+                                <option value="1">冲突</option>
+                                <option value="0">不冲突</option>
+                            </select>
+                            <label>是否已满 : </label>
+                            <select class="cv-search-input search_sfym" id="program_sfym" coursetype="FANKC">
+                                <option value="2" selected="selected">--请选择--</option>
+                                <option value="1">已满</option>
+                                <option value="0">未满</option>
+                            </select>   
+                            <label>课程性质 : </label>
+                            <select class="cv-search-input search_kcxz" id="program_kcxz" coursetype="FANKC">
+                                <option value="" selected="selected">--请选择--</option>
+                            <option value="02">选修</option><option value="03">任选</option><option value="01">必修</option></select>
+                            <label class="search_kclb_label">课程类别 : </label>
+                            <select class="cv-search-input search_kclb" id="program_kclb" coursetype="FANKC">
+                                <option value="" selected="selected">--请选择--</option>
+                            <option value="01">通识教育</option><option value="0101">公共必修课</option><option value="02">学科教育</option><option value="0201">大类平台课程</option><option value="0202">专业基础课程</option><option value="03">专业教育</option><option value="0301">专业必修课</option><option value="0302">专业选修课</option><option value="04">综合实践</option><option value="0401">公共实践</option><option value="0403">专业综合实践</option><option value="07">通识类选修课</option><option value="09">学科基础课</option><option value="10">专业课</option><option value="11">综合实践</option><option value="12">创新创业与素质教育</option><option value="20">专业选修课-2025版</option><option value="25">综合实践-2025版</option></select> 
+                            <input id="programSearch" class="cv-search-input" placeholder="请输入关键字" type="text" coursetype="FANKC" style="width: 235px; margin-left: 10px;">
+                        </div>
+                    </div>
+                    
+                </div>                       
+            </header>
+            
+            <div id="cvProgramExpertMode" class="cv-expert-mode">
+                <div id="cvCanSelectProgramCourse" class="cv-tab-pane cv-active"></div>
+            </div>
+        </article>
+
+        <!-- 方案外课程模块 -->
+        <article id="cvUnProgramCourse" class="cv-block-hide cv-pb-38" style="min-height: 523px;">
+            <header class="cv-course-header cv-clearfix-child">
+                <div class="">
+                    <!-- <h3 class="cv-mb-8" id="unProgramTitle">方案外选课</h3> -->
+                    <span class="cv-caption-text" id="unProgramSpan"></span>
+                    <div style="padding-top:5px;">
+                        <label>是否冲突 : </label>
+                        <select class="cv-search-input search_sfct" id="unprogram_sfct" coursetype="FAWKC">
+                            <option value="2" selected="selected">--请选择--</option>
+                            <option value="1">冲突</option>
+                            <option value="0">不冲突</option>
+                        </select>
+                        <label>是否已满 : </label>
+                        <select class="cv-search-input search_sfym" id="unprogram_sfym" coursetype="FAWKC">
+                            <option value="2" selected="selected">--请选择--</option>
+                            <option value="1">已满</option>
+                            <option value="0">未满</option>
+                        </select>   
+                        <label>课程性质 : </label>
+                        <select class="cv-search-input search_kcxz" id="unprogram_kcxz" coursetype="FAWKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        <option value="02">选修</option><option value="03">任选</option><option value="01">必修</option></select>
+                        <label class="search_kclb_label">课程类别 : </label>
+                        <select class="cv-search-input search_kclb" id="unprogram_kclb" coursetype="FAWKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        <option value="01">通识教育</option><option value="0101">公共必修课</option><option value="02">学科教育</option><option value="0201">大类平台课程</option><option value="0202">专业基础课程</option><option value="03">专业教育</option><option value="0301">专业必修课</option><option value="0302">专业选修课</option><option value="04">综合实践</option><option value="0401">公共实践</option><option value="0403">专业综合实践</option><option value="07">通识类选修课</option><option value="09">学科基础课</option><option value="10">专业课</option><option value="11">综合实践</option><option value="12">创新创业与素质教育</option><option value="20">专业选修课-2025版</option><option value="25">综合实践-2025版</option></select> 
+                        <input id="unProgramSearch" class="cv-search-input" placeholder="请输入关键字" type="text" coursetype="FAWKC" style="width: 235px; margin-left: 10px;">
+                    </div>
+                    <div class="cv-minor-sknjyxzy">
+                        <label>上课年级 : </label>
+                        <select class="cv-search-input search_nj" id="unprogram_nj" coursetype="FAWKC"><option value="">请选择</option><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option><option value="2023">2023</option><option value="2022">2022</option></select>
+                        <label>上课院系 : </label>
+                        <select class="cv-search-input search_yx" id="unprogram_yx" coursetype="FAWKC"><option value="">请选择</option><option value="001">农学院</option><option value="002">植物保护学院</option><option value="003">园艺学院</option><option value="004">动物科技学院</option><option value="005">动物医学院</option><option value="006">林学院</option><option value="007">资源环境学院</option><option value="008">水利与建筑工程学院</option><option value="009">机械与电子工程学院</option><option value="010">信息工程学院</option><option value="011">食品科学与工程学院</option><option value="012">葡萄酒学院</option><option value="013">生命科学学院</option><option value="014">理学院</option><option value="015">经济管理学院</option><option value="016">人文社会发展学院</option><option value="017">未来农业学院</option><option value="018">语言文化学院</option><option value="021">水土保持科学与工程学院（水土保持研究所）</option><option value="024">风景园林艺术学院</option><option value="025">化学与药学院</option><option value="026">草业与草原学院</option></select>
+                        <label>上课专业 : </label>
+                        <select class="cv-search-input search_zy" id="unprogram_zy" coursetype="FAWKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        </select>
+                    </div>
+                </div>  
+                
+            </header>
+
+            <div id="cvUnProgramExpertMode" class="cv-expert-mode">
+                <div id="cvCanSelectUnProgramCourse" class="cv-tab-pane cv-active"></div>
+            </div>
+        </article>
+
+        <!--公选课模块-->
+        <article id="cvPublicCourse" class="cv-block-hide cv-pb-38" style="min-height: 523px;">
+            <!--头部-->
+            <header class="cv-course-header cv-clearfix-child">
+                <div class="">
+                    <!--标题-->
+                    <!-- <h3 class="cv-mb-8" id="publicTitle">公选课</h3> -->
+                    <!--说明-->
+                    <span class="cv-caption-text" id="publicSpan"></span>
+                    <div style="padding-top:5px;padding-bottom:5px">
+                        <label>是否冲突 : </label>
+                        <select class="cv-search-input search_sfct" id="public_sfct" coursetype="XGXK">
+                            <option value="2" selected="selected">--请选择--</option>
+                            <option value="1">冲突</option>
+                            <option value="0">不冲突</option>
+                        </select>
+                        <label>是否已满 : </label>
+                        <select class="cv-search-input search_sfym" id="public_sfym" coursetype="XGXK">
+                            <option value="2" selected="selected">--请选择--</option>
+                            <option value="1">已满</option>
+                            <option value="0">未满</option>
+                        </select>   
+                        <label class="search_xgxklb_label"><span class="tskxm">通识课</span>类别 : </label>
+                        <select class="cv-search-input search_xgxklb" id="public_xgxklb" coursetype="XGXK">
+                            <option value="" selected="selected">--请选择--</option>
+                        </select>
+                        
+                        
+                        <input id="publicSearch" class="cv-search-input" placeholder="请输入关键字" type="text" coursetype="XGXK" style="width: 235px; margin-left: 10px;">
+                        <div id="publicCourseTip" style="color:red;"></div>
+                    </div>
+                </div>
+                
+            </header>
+
+            <!--公共课列表-->
+            <div class="cv-public-course" cv-role="tabs">
+                <div id="cvCanSelectPublicCourse" class="cv-tab-pane cv-active"></div>
+            </div>
+        </article>
+
+        <!-- 重修模块 -->
+        <article id="cvRetakeCourse" class="cv-block-hide cv-pb-38" style="min-height: 523px;">
+            <!--头部-->
+            <header class="cv-course-header cv-clearfix-child">
+                <div class="">
+                    <!--标题-->
+                    <!-- <h3 class="cv-mb-8" id="retakeTitle">重修选课</h3> -->
+                    <!--说明-->
+                    <span class="cv-caption-text" id="retakeSpan"></span>
+                    <div style="padding-top:5px;padding-bottom:5px">
+                        <label>是否冲突 : </label>
+                        <select class="cv-search-input search_sfct" id="retake_sfct" coursetype="CXKC">
+                            <option value="2" selected="selected">--请选择--</option>
+                            <option value="1">冲突</option>
+                            <option value="0">不冲突</option>
+                        </select>
+                        <label>是否已满 : </label>
+                        <select class="cv-search-input search_sfym" id="retake_sfym" coursetype="CXKC">
+                            <option value="2" selected="selected">--请选择--</option>
+                            <option value="1">已满</option>
+                            <option value="0">未满</option>
+                        </select>   
+                        <label>课程性质 : </label>
+                        <select class="cv-search-input search_kcxz" id="retake_kcxz" coursetype="CXKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        <option value="02">选修</option><option value="03">任选</option><option value="01">必修</option></select>
+                        <label class="search_xklx_label">选课类型 : </label>
+                        <select class="cv-search-input search_xklx" id="retake_xklx" coursetype="CXKC">
+                            <option value="" selected="selected">--请选择--</option>
+                            <option value="1">缓考首修</option>
+                            <option value="2">重修</option>
+                        </select>
+                        <label class="search_kclb_label">课程类别 : </label>
+                        <select class="cv-search-input search_kclb" id="retake_kclb" coursetype="CXKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        <option value="01">通识教育</option><option value="0101">公共必修课</option><option value="02">学科教育</option><option value="0201">大类平台课程</option><option value="0202">专业基础课程</option><option value="03">专业教育</option><option value="0301">专业必修课</option><option value="0302">专业选修课</option><option value="04">综合实践</option><option value="0401">公共实践</option><option value="0403">专业综合实践</option><option value="07">通识类选修课</option><option value="09">学科基础课</option><option value="10">专业课</option><option value="11">综合实践</option><option value="12">创新创业与素质教育</option><option value="20">专业选修课-2025版</option><option value="25">综合实践-2025版</option></select>
+                        <input id="retakeSearch" class="cv-search-input" placeholder="请输入关键字" type="text" coursetype="CXKC" style="width: 235px; margin-left: 10px;">
+                    </div>
+                </div>
+                
+            </header>
+
+            <!--重修课列表-->
+            <div class="cv-public-course" cv-role="tabs">
+                <div id="cvCanSelectRetakeCourse" class="cv-tab-pane cv-active"></div>
+            </div>
+        </article>
+
+        <!-- 体育课模块 -->
+        <article id="cvSportCourse" class="cv-block-hide cv-pb-38" style="min-height: 523px;">
+            <!--头部-->
+            <header class="cv-course-header cv-clearfix-child">
+                <div class="">
+                    <!--标题-->
+                    <!-- <h3 class="cv-mb-8" id="sportTitle">体育选课</h3> -->
+                    <!--说明-->
+                    <span class="cv-caption-text" id="sportSpan"></span>
+                    <div style="padding-top:5px;padding-bottom:5px">
+                        <label>是否冲突 : </label>
+                        <select class="cv-search-input search_sfct" id="sport_sfct" coursetype="TYKC">
+                            <option value="2" selected="selected">--请选择--</option>
+                            <option value="1">冲突</option>
+                            <option value="0">不冲突</option>
+                        </select>
+                        <label>是否已满 : </label>
+                        <select class="cv-search-input search_sfym" id="sport_sfym" coursetype="TYKC">
+                            <option value="2" selected="selected">--请选择--</option>
+                            <option value="1">已满</option>
+                            <option value="0">未满</option>
+                        </select>   
+                        <label>课程性质 : </label>
+                        <select class="cv-search-input search_kcxz" id="sport_kcxz" coursetype="TYKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        <option value="02">选修</option><option value="03">任选</option><option value="01">必修</option></select>
+                        <label class="search_kclb_label">课程类别 : </label>
+                        <select class="cv-search-input search_kclb" id="sport_kclb" coursetype="TYKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        <option value="01">通识教育</option><option value="0101">公共必修课</option><option value="02">学科教育</option><option value="0201">大类平台课程</option><option value="0202">专业基础课程</option><option value="03">专业教育</option><option value="0301">专业必修课</option><option value="0302">专业选修课</option><option value="04">综合实践</option><option value="0401">公共实践</option><option value="0403">专业综合实践</option><option value="07">通识类选修课</option><option value="09">学科基础课</option><option value="10">专业课</option><option value="11">综合实践</option><option value="12">创新创业与素质教育</option><option value="20">专业选修课-2025版</option><option value="25">综合实践-2025版</option></select> 
+                         <input id="sportSearch" class="cv-search-input" placeholder="请输入关键字" type="text" coursetype="TYKC" style="width: 235px; margin-left: 10px;">
+                    </div>
+                </div>
+                
+            </header>
+
+            <!--体育课列表-->
+            <div class="cv-sport-course" cv-role="tabs">
+                <div id="cvCanSelectSportCourse" class="cv-tab-pane cv-active"></div>
+            </div>
+        </article>
+
+        <!-- 辅修课模块 -->
+        <article id="cvMinorCourse" class="cv-block-hide cv-pb-38" style="min-height: 523px;">
+            <!--头部-->
+            <header class="cv-course-header cv-clearfix-child">
+                <div class="">
+                    <!--标题-->
+                    <!-- <h3 class="cv-mb-8" id="minorTitle">辅修选课</h3> -->
+                    <!--说明-->
+                    <span class="cv-caption-text" id="minorSpan"></span>
+                    <div style="padding-top:5px;padding-bottom:5px">
+                        <label>是否冲突 : </label>
+                        <select class="cv-search-input search_sfct" id="minor_sfct" coursetype="FXKC">
+                            <option value="2" selected="selected">--请选择--</option>
+                            <option value="1">冲突</option>
+                            <option value="0">不冲突</option>
+                        </select>
+                        <label>是否已满 : </label>
+                        <select class="cv-search-input search_sfym" id="minor_sfym" coursetype="FXKC">
+                            <option value="2" selected="selected">--请选择--</option>
+                            <option value="1">已满</option>
+                            <option value="0">未满</option>
+                        </select>   
+                        <label>课程性质 : </label>
+                        <select class="cv-search-input search_kcxz" id="minor_kcxz" coursetype="FXKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        <option value="02">选修</option><option value="03">任选</option><option value="01">必修</option></select>
+                        <label class="search_kclb_label">课程类别 : </label>
+                        <select class="cv-search-input search_kclb" id="minor_kclb" coursetype="FXKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        <option value="01">通识教育</option><option value="0101">公共必修课</option><option value="02">学科教育</option><option value="0201">大类平台课程</option><option value="0202">专业基础课程</option><option value="03">专业教育</option><option value="0301">专业必修课</option><option value="0302">专业选修课</option><option value="04">综合实践</option><option value="0401">公共实践</option><option value="0403">专业综合实践</option><option value="07">通识类选修课</option><option value="09">学科基础课</option><option value="10">专业课</option><option value="11">综合实践</option><option value="12">创新创业与素质教育</option><option value="20">专业选修课-2025版</option><option value="25">综合实践-2025版</option></select>
+                        <input id="minorSearch" class="cv-search-input" placeholder="请输入关键字" type="text" coursetype="FXKC" style="width: 235px; margin-left: 10px;">
+                    </div>
+                    <div class="cv-minor-njyxzy" style="padding-top:5px;padding-bottom:5px;">
+                        <label>年级 : </label>
+                        <select class="cv-search-input search_nj" id="minor_nj" coursetype="FXKC"><option value="">请选择</option></select>
+                        <label>院系 : </label>
+                        <select class="cv-search-input search_yx" id="minor_yx" coursetype="FXKC"><option value="">请选择</option></select>
+                        <label>专业 : </label>
+                        <select class="cv-search-input search_zy" id="minor_zy" coursetype="FXKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        </select>
+                    </div>
+                </div>                
+            </header>
+
+            <!--辅修课列表-->
+            <div class="cv-minor-course" cv-role="tabs">
+                <div id="cvCanSelectMinorCourse" class="cv-tab-pane cv-active"></div>
+            </div>
+        </article>
+
+        <!--全校课程模块-->
+        <article id="cvSchoolCourse" class="cv-block-hide cv-pb-38" style="min-height: 523px;">
+            <!--头部-->
+            <header class="cv-course-header cv-clearfix-child">
+                <div class="">
+                    <!--标题-->
+                    <!-- <h3 class="cv-mb-8" id="schoolTitle">全校课程</h3> -->
+                    <!--说明-->
+                    <span class="cv-caption-text" id="schoolSpan"></span>
+                    <div style="padding-top:5px;padding-bottom:5px">
+                    	<label class="cv-search-label">开课单位 : </label>
+                        <select class="cv-search-input search_kkdw" id="school_kkdw" coursetype="QXKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        <option value="001">农学院</option><option value="002">植物保护学院</option><option value="003">园艺学院</option><option value="004">动物科技学院</option><option value="005">动物医学院</option><option value="006">林学院</option><option value="007">资源环境学院</option><option value="008">水利与建筑工程学院</option><option value="009">机械与电子工程学院</option><option value="010">信息工程学院</option><option value="011">食品科学与工程学院</option><option value="012">葡萄酒学院</option><option value="013">生命科学学院</option><option value="014">理学院</option><option value="015">经济管理学院</option><option value="016">人文社会发展学院</option><option value="018">语言文化学院</option><option value="019">体育部</option><option value="021">水土保持科学与工程学院（水土保持研究所）</option><option value="022">马克思主义学院</option><option value="024">风景园林艺术学院</option><option value="025">化学与药学院</option><option value="026">草业与草原学院</option><option value="027">综合素质教育学院</option><option value="302">图书馆</option></select> 
+                        <label class="cv-search-label search_xgxklb_label" style="width:100px"><span class="tskxm">通识课</span>类别 : </label>
+                        <select class="cv-search-input search_xgxklb" id="school_xgxklb" coursetype="QXKC">
+                            <option value="" selected="selected">--请选择--</option>
+                        </select> 
+                        <input id="schoolSearch" class="cv-search-input" placeholder="请输入关键字" type="text" coursetype="QXKC" style="width: 235px; margin-left: 10px;">
+                    </div>
+                </div>
+            </header>
+
+            <!--全校课程列表-->
+            <div class="cv-school-course" cv-role="tabs">
+                <div id="cvCanSelectSchoolCourse" class="cv-tab-pane cv-active"></div>
+            </div>
+        </article>
+
+        <!--侧边栏-->
+        <aside id="cvAside" class="cv-aside">
+            <!--mini条-->
+            <div class="cv-mini">
+                <div class="cv-icons">
+                    <!--用户信息-->
+                    <div class="cv-user-icon cvMiniIconFlag" type="user" title="我的信息">
+                        <img src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/user-icon.png">
+                    </div>
+                    <!--课表-->
+                    <div class="cv-course-icon cvMiniIconFlag" type="course" title="我的课表">
+                        <img src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/course-icon.png">
+                    </div>
+                    <!--落选课程-->
+                    <div class="cv-unsuccessful-icon cvMiniIconFlag" type="unsuccessful" title="落选课程">
+                        <img src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/unsuccessful-icon.png">
+                    </div> 
+                    <!--切换轮次-->
+                    <div class="cv-batch-icon cvMiniIconFlag" type="batch" title="切换轮次">
+                        <img src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/change-electiveBatch.png">
+                    </div>
+                    <!--查看成绩-->
+                    <div class="cv-batch-icon cvMiniIconFlag" type="score" title="查看成绩" style="display: none;">
+                        <img src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/score.png">
+                    </div>
+                    <!--已选志愿/退课日志-->
+                    <div class="cv-choice-icon cvMiniIconFlag cv-active" type="grablessons">
+                        <img src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/choice-icon.png">
+                        <div class="cv-num" id="selectcourse_num">13</div>                
+                        <div class="cv-text" type="grablessons">已选课程</div>                        
+                    </div>
+                </div>
+
+                <!--回到顶部按钮-->
+                <div class="cv-top cvMiniIconFlag" type="top">TOP</div>
+            </div>
+
+            <!-- 侧边栏内容 -->
+            <div class="cv-content">
+                <!-- 学生信息 -->
+                <div id="cvAsideUser" class="cv-user"></div>
+                <!--课表模块-->
+                <div id="cvAsideCourse" class="cv-aside-course"></div>
+                <!--落选课程-->
+                <div id="cvUnsuccessfulCourse" class="cv-aside-selected-course" style="height:100%"></div>
+                <!--已选课程模块-->
+                <div id="cvAsideChoice" class="cv-aside-choice"></div>
+                <!-- 切换轮次 -->
+                <div id="cvAsideChangeBatch" class="cv-aside-change-batch"></div>
+            </div>
+        </aside>
+
+        
+        <!--页脚-->
+        <footer class="cv-page-footer">
+            <div class="cv-copyright" id="cv-copyright">
+            	<div id="noline-tip">（当前选课在线人数 328人）</div>	
+            	<div>版权信息：© 2016 江苏金智教育信息股份有限公司 苏ICP备10204514号</div>
+            </div>
+        </footer>
+
+        <div class="cv-dialog" style="display: none">
+            <div>
+                <div class="cv-body">
+                    <img class="cv-mb-16" src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/dialog-icon.png">
+                    <h2 class="cv-mb-8">确认退选</h2>
+                    <div class="cv-mb-8">《<span>数字媒体装置艺术构成</span>》</div>
+                    <div>这门课程吗？</div>
+                </div>
+                <div class="cv-foot">
+                    <div class="cv-sure">退选</div>
+                    <div class="cv-cancel">取消</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 引导页 -->
+    <div class="jszp" style="display:none;">
+        <div class="step1">
+            <div>
+              <img src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/01.png">  
+            </div>
+            <div class="btns">
+                <div class="cv-btn">我知道了</div>
+            </div>
+        </div>
+        <div class="step2" style="display: none;">
+            <div>
+              <img src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/images/curriculaVariable/02.png">  
+            </div>
+            <div class="btns">
+                <div class="cv-btn">我知道了</div>
+            </div>
+        </div>
+    </div>
+
+	<!--推荐选课的专家模式列表外框的模板-->
+	<script type="text/template" id="tpl-recommend-list">
+	    <div class="cv-list recommend-list">
+	        <div class="cv-head">
+                <div class="cv-normal cv-num">课程号</div>
+                <div class="cv-normal cv-course">课程名称</div>
+                <div class="cv-sort cv-class" id="recommendSort">可选班级数</div>
+                <div class="cv-normal cv-type">课程类别</div>
+                <div class="cv-normal cv-nature">课程性质</div>
+                <div class="cv-normal cv-department-col">开课单位</div>
+                <div class="cv-normal cv-credit-col">学分</div>
+	        </div>
+	        <div class="cv-body" id="recommendBody">
+	            @body
+	        </div>
+            <div class="cv-foot" style="padding-top:20px">
+                <a class="" href="javascript:void(0);" id="recommendUp">上一页</a>
+               	<span style="padding: 0 10px;"> 共<span id="recommendTotalPage">@totalPage</span>页数据，当前第<span id="recommendPageNumber">@pageNumber</span>页。</span>
+                <a class="" href="javascript:void(0);" id="recommendDown">下一页</a>
+            </div>
+	    </div>
+	</script>
+	<!--推荐选课的专家模式列表每行的内容模板-->
+	<script type="text/template" id="tpl-recommend-list-row">
+	    <div class="cv-row @selectedClass" coursenumber="COURSE_NUMBER" index="@index" isChoose="@isChoose">
+	        <div class="cv-num">
+				<span class="cv-courseFlag @courseFlagDisplay">@courseFlag</span>
+				<span class="num-value">@number</span>
+				<div style="display: @hascourseDetail;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: @hasCxkc;font-size:8px">可替代课程:@cxkcCode</div>
+			</div>
+            <div class="cv-course">课程示例 11</div>
+            <div class="cv-class">@class</div>
+            <div class="cv-type">@type</div>
+            <div class="cv-nature">@nature</div>
+            <div class="cv-department-col">@department</div>
+            <div class="cv-credit-col">@credit</div>
+	    </div>
+	</script>
+
+    <!--辅修选课的列表外框的模板-->
+    <script type="text/template" id="tpl-minor-list">
+        <div class="cv-list minor-list">
+            <div class="cv-head">
+                <div class="cv-normal cv-num">课程号</div>
+                <div class="cv-normal cv-course">课程名称</div>
+                <div class="cv-sort cv-class" id="minorSort">可选班级数</div>
+                <div class="cv-normal cv-type">课程类别</div>
+                <div class="cv-normal cv-nature">课程性质</div>
+                <div class="cv-normal cv-department-col">开课单位</div>
+                <div class="cv-normal cv-credit-col">学分</div>
+            </div>
+            <div class="cv-body" id="minorBody">
+                @body
+            </div>
+            <div class="cv-foot" style="padding-top:20px">
+                <a class="" href="javascript:void(0);" id="minorUp">上一页</a>
+                <span style="padding: 0 10px;"> 共<span id="minorTotalPage">@totalPage</span>页数据，当前第<span id="minorPageNumber">@pageNumber</span>页。</span>
+                <a class="" href="javascript:void(0);" id="minorDown">下一页</a>
+            </div>
+        </div>
+    </script>
+    <!--辅修选课的列表每行的内容模板-->
+    <script type="text/template" id="tpl-minor-list-row">
+        <div class="cv-row @selectedClass" coursenumber="COURSE_NUMBER" index="@index" isChoose="@isChoose">
+			<div class="cv-num">
+				<span class="cv-courseFlag @courseFlagDisplay">@courseFlag</span>
+				<span class="num-value">@number</span>
+				<div style="display: @hascourseDetail;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+			</div>
+            <div class="cv-course">课程示例 12</div>
+            <div class="cv-class">@class</div>
+            <div class="cv-type">@type</div>
+            <div class="cv-nature">@nature</div>
+            <div class="cv-department-col">@department</div>
+            <div class="cv-credit-col">@credit</div>
+        </div>
+    </script>
+
+    <!--方案内选课列表外框的模板 -->
+    <script type="text/template" id="tpl-program-list">
+        <div class="cv-list program-list">
+            <div class="cv-head">
+                <div class="cv-normal cv-num">课程号</div>
+                <div class="cv-normal cv-course">课程名称</div>
+                <div class="cv-sort cv-class" id="programSort">可选班级数</div>
+                <div class="cv-normal cv-type">课程类别</div>
+                <div class="cv-normal cv-nature">课程性质</div>
+                <div class="cv-normal cv-department-col">开课单位</div>
+                <div class="cv-normal cv-credit-col">学分</div>
+            </div>
+            <div class="cv-body" id="programBody">
+                @body
+            </div>
+            <div class="cv-foot" style="padding-top:20px">
+                <a class="" href="javascript:void(0);" id="programUp">上一页</a>
+                <span style="padding: 0 10px;"> 共<span id="programTotalPage">@totalPage</span>页数据，当前第<span id="programPageNumber">@pageNumber</span>页。</span>
+                <a class="" href="javascript:void(0);" id="programDown">下一页</a>
+            </div>
+        </div>
+    </script>
+    <!--方案内选课列表每行的内容模板-->
+    <script type="text/template" id="tpl-program-list-row">
+        <div class="cv-row @selectedClass" coursenumber="COURSE_NUMBER" index="@index" isChoose="@isChoose">
+            <div class="cv-num">
+				<span class="cv-courseFlag @courseFlagDisplay">@courseFlag</span>
+				<span class="num-value">@number</span>
+				<div style="display: @hascourseDetail;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: @hasCxkc;font-size:8px">可替代课程:@cxkcCode</div>
+			</div>
+            <div class="cv-course">课程示例 13</div>
+            <div class="cv-class">@class</div>
+            <div class="cv-type">@type</div>
+            <div class="cv-nature">@nature</div>
+            <div class="cv-department-col">@department</div>
+            <div class="cv-credit-col">@credit</div>
+        </div>
+    </script>
+
+    <!--方案外选课列表外框的模板 -->
+    <script type="text/template" id="tpl-unprogram-list">
+        <div class="cv-list unprogram-list">
+            <div class="cv-head">
+                <div class="cv-normal cv-num">课程号</div>
+                <div class="cv-normal cv-course">课程名称</div>
+                <div class="cv-sort cv-class" id="unProgramSort">可选班级数</div>
+                <div class="cv-normal cv-type">课程类别</div>
+                <div class="cv-normal cv-nature">课程性质</div>
+				<div class="cv-normal cv-Major">主辅修</div>
+                <div class="cv-normal cv-department-col">开课单位</div>
+                <div class="cv-normal cv-credit-col">学分</div>
+            </div>
+            <div class="cv-body" id="unProgramBody">
+                @body
+            </div>
+            <div class="cv-foot" style="padding-top:20px">
+                <a class="" href="javascript:void(0);" id="unProgramUp">上一页</a>
+                <span style="padding: 0 10px;"> 共<span id="unProgramTotalPage">@totalPage</span>页数据，当前第<span id="unProgramPageNumber">@pageNumber</span>页。</span>
+                <a class="" href="javascript:void(0);" id="unProgramDown">下一页</a>
+            </div>
+        </div>
+    </script>
+    <!--方案外选课列表每行的内容模板-->
+    <script type="text/template" id="tpl-unprogram-list-row">
+        <div class="cv-row @selectedClass" coursenumber="COURSE_NUMBER" index="@index" isChoose="@isChoose">
+            <div class="cv-num">
+				<span class="cv-courseFlag @courseFlagDisplay">@courseFlag</span>
+				<span class="num-value">@number</span>
+				<div style="display: @hascourseDetail;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+			</div>
+            <div class="cv-course">课程示例 14</div>
+            <div class="cv-class">@class</div>
+            <div class="cv-type">@type</div>
+            <div class="cv-nature">@nature</div>
+			<div class="cv-Major">@majorFlag</div>
+            <div class="cv-department-col">@department</div>
+            <div class="cv-credit-col">@credit</div>
+        </div>
+    </script>
+
+    <!--所属方案内容模板-->
+    <script type="text/template" id="tpl-syfa-list">
+        <table class="syfa-table">
+            <thead>			
+                <tr>
+				    <th class="nj">年级 </th>
+				    <th class="kclb">课程类别 </th>
+				    <th class="kcxz">课程性质 </th>
+				    <th class="famc">方案 </th>
+			    </tr>
+            </thead>
+            <tbody>
+			    @syfabody
+            </tbody>
+		</table>
+		<div class="cv-syfa-foot">
+            <a class="" href="javascript:void(0);" id="unProgramFalistUp">上一页</a>
+            <span style="padding: 0 10px;"> 共<span id="unProgramFalistTotalPage"></span>页数据，当前第<span id="unProgramFalistPageNumber"></span>页。</span>
+            <a class="" href="javascript:void(0);" id="unProgramFalistDown">下一页</a>
+        </div>
+    </script>
+
+    <!--重修选课列表外框的模板 -->
+    <script type="text/template" id="tpl-retake-list">
+        <div class="cv-list retake-list">
+            <div class="cv-head">
+                <div class="cv-normal cv-num">课程号</div>
+                <div class="cv-normal cv-course">课程名称</div>
+                <div class="cv-sort cv-class" id="retakeSort">可选班级数</div>
+                <div class="cv-normal cv-type">课程类别</div>
+                <div class="cv-normal cv-nature">课程性质</div>
+                <div class="cv-normal cv-department-col">开课单位</div>
+                <div class="cv-normal cv-credit-col">学分</div>
+                <div class="cv-normal cv-cxxklx">选课类型</div>
+            </div>
+            <div class="cv-body" id="retakeBody">
+                @body
+            </div>
+            <div class="cv-foot" style="padding-top:20px">
+                <a class="" href="javascript:void(0);" id="retakeUp">上一页</a>
+                <span style="padding: 0 10px;"> 共<span id="retakeTotalPage">@totalPage</span>页数据，当前第<span id="retakePageNumber">@pageNumber</span>页。</span>
+                <a class="" href="javascript:void(0);" id="retakeDown">下一页</a>
+            </div>
+        </div>
+    </script>
+    <!--重修选课列表每行的内容模板-->
+    <script type="text/template" id="tpl-retake-list-row">
+        <div class="cv-row @selectedClass" coursenumber="COURSE_NUMBER" index="@index" isChoose="@isChoose">
+            <div class="cv-num">
+				<span class="cv-courseFlag @courseFlagDisplay">@courseFlag</span>
+				<span class="num-value">@number</span>
+				<div style="display: @hascourseDetail;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+				<div style="display: @hasCxkc;font-size:8px">可替代课程:@cxkcCode</div>
+			</div>
+            <div class="cv-course">课程示例 15</div>
+            <div class="cv-class">@class</div>
+            <div class="cv-type">@type</div>
+            <div class="cv-nature">@nature</div>
+            <div class="cv-department-col">@department</div>
+            <div class="cv-credit-col">@credit</div>
+            <div class="cv-cxxklx">@cxxklx</div>
+        </div>
+    </script>
+
+    <!--体育选课列表外框的模板 -->
+    <script type="text/template" id="tpl-sport-list">
+        <div class="cv-list sport-list">
+            <div class="cv-head">
+                <div class="cv-normal cv-num">课程号</div>
+                <div class="cv-normal cv-course">课程名称</div>
+                <div class="cv-sort cv-class" id="sportSort">可选班级数</div>
+                <div class="cv-normal cv-type">课程类别</div>
+                <div class="cv-normal cv-nature">课程性质</div>
+                <div class="cv-normal cv-department-col">开课单位</div>
+                <div class="cv-normal cv-credit-col">学分</div>
+            </div>
+            <div class="cv-body" id="sportBody">
+                @body
+            </div>
+            <div class="cv-foot" style="padding-top:20px">
+                <a class="" href="javascript:void(0);" id="sportUp">上一页</a>
+                <span style="padding: 0 10px;"> 共<span id="sportTotalPage">@totalPage</span>页数据，当前第<span id="sportPageNumber">@pageNumber</span>页。<span>
+                <a class="" href="javascript:void(0);" id="sportDown">下一页</a>
+            </div>
+        </div>
+    </script>
+    <!--体育选课列表每行的内容模板-->
+    <script type="text/template" id="tpl-sport-list-row">
+        <div class="cv-row @selectedClass" coursenumber="COURSE_NUMBER" index="@index" isChoose="@isChoose">
+            <div class="cv-num">
+				<span class="cv-courseFlag @courseFlagDisplay">@courseFlag</span>
+				<span class="num-value">@number</span>
+				<div style="display: @hascourseDetail;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+			</div>
+            <div class="cv-course">课程示例 16</div>
+            <div class="cv-class">@class</div>
+            <div class="cv-type">@type</div>
+            <div class="cv-nature">@nature</div>
+            <div class="cv-department-col">@department</div>
+            <div class="cv-credit-col">@credit</div>
+        </div>
+    </script>
+
+	<!--公选课的列表外框的模板-->
+	<script type="text/template" id="tpl-public-list">
+	    <div class="cv-list public-list">
+	        <div class="cv-head">
+	            <div class="cv-normal cv-number-col">课程编号</div>
+	            <div class="cv-normal cv-title-col">课程名称</div>
+	            <div class="cv-normal cv-teacher-col">上课教师</div>
+	            <div class="cv-normal cv-time-col">上课时间地点</div>
+	            <div class="cv-normal cv-capcity-col">课容量</div>
+	            <div class="cv-sort cv-firstVolunteer-col" id="publicSort">已选人数</div>
+	            <div class="cv-normal cv-type-col"><span class="tskxm">通识课</span>类别</div>
+	            <div class="cv-normal cv-credit-col">学分</div>
+				<div class="cv-normal cv-jcbook-col @jcdgShow">教材订购</div>
+	            <div class="cv-normal cv-setting-col">操作</div>
+	        </div>
+	        <div class="cv-body" id="publicBody">
+	            @body
+	        </div>
+            <div class="cv-foot" style="padding-top:20px">
+                <a class="" href="javascript:void(0);" id="publicUp">上一页</a>
+                <span style="padding: 0 10px;"> 共<span id="publicTotalPage">@totalPage</span>页数据，当前第<span id="publicPageNumber">@pageNumber</span>页。</span>
+                <a class="" href="javascript:void(0);" id="publicDown">下一页</a>
+            </div>
+	    </div>
+	</script>
+	<!--公选课的列表每行的内容模板-->
+	<script type="text/template" id="tpl-public-list-row">
+	    <div class="cv-row">
+	        <div class="cv-number-col" title="@numberTitle">
+				<span class="cv-courseFlag @courseFlagDisplay">@courseFlag</span>
+                <span style="">@number1</span>
+				<div style="display: @hascourseDetail;">
+					<a class="cv-detail" data-num="COURSE_NUMBER" href="javascript:void(0);">课程详情</a>
+				</div>
+                <div class="public-jxbxq" style="margin-top: 5px;">
+                	<a class="cv-jxbdetail" data-hasCourseUrl="@hasCourseUrl" data-courseUrl="@courseUrl" tcId="TEACHING_CLASS_ID" href="#">教学班详情</a>
+				</div>
+            </div>
+	        <div class="cv-title-col">@title</div>
+	        <div class="cv-teacher-col">@teacher</div>
+	        <div class="cv-time-col" title="@timeTitle">@time</div>
+	        <div class="cv-capcity-col">@capacity</div>
+	        <div class="cv-firstVolunteer-col">@firstVolunteer</div>
+	        <div class="cv-type-col">@type<br/>@courseSection</div>
+	        <div class="cv-credit-col">@credit</div>
+			<div class="cv-jcbook-col @jcdgShow">
+				@needbook
+				<div>
+					<a class="cv-jcDetail" tcid="TEACHING_CLASS_ID" href="javascript:void(0);">教材信息</a>
+				</div>
+			</div>
+	        <div class="cv-setting-col @selectedClass">
+	            <button class="cv-btn cv-tag">@volunteerText</button>
+	            <a class="cv-choice @cv-disabled" hasBook="@hasBook" retakeTypeDetail="@retakeTypeDetail" retakeType="@retakeType" campus="@campus" teachCampus="@teachCampus" number="@number" tcId="TEACHING_CLASS_ID" capacitySuffix="@capacitySuffix" isFull="@isFull" isConflict="@isConflict" limitGender="@limitGender" capacityOfMale="@capacityOfMale" capacityOfFemale="@capacityOfFemale" numberOfMale="@numberOfMale" numberOfFemale="@numberOfFemale" hasTest="@hasTest" href="javascript:void(0);" @isDisabled>选择</a>
+	        </div>
+	    </div>
+	</script>
+
+    <!--全校课程的列表外框的模板-->
+    <script type="text/template" id="tpl-school-list">
+        <div class="cv-list school-list">
+            <div class="cv-head cv-school" style="height:48px;padding:5px 0">
+				<div class="cv-normal cv-school-cz-col">操作</div>
+                <div class="cv-normal cv-school-number-col">课程编号</div>
+                <div class="cv-normal cv-school-title-col">课程名称</div>
+                <div class="cv-normal cv-school-index-col">课序号</div>
+                <div class="cv-normal cv-school-department-col">开课单位</div>
+                <div class="cv-normal cv-school-nature-col">课程性质</div>
+                <div class="cv-normal cv-school-type-col">课程类别</div>
+                <div class="cv-normal cv-school-credit-col">学分</div>
+                <div class="cv-normal cv-school-hours-col">学时</div>
+                <div class="cv-normal cv-school-teacher-col">上课教师</div>
+            </div>
+            <div class="cv-body" id="schoolBody">
+                @body
+            </div>
+            <div class="cv-foot" style="padding-top:20px">
+                <a class="" href="javascript:void(0);" id="schoolUp">上一页</a>
+                <span style="padding: 0 10px;"> 共<span id="schoolTotalPage">@totalPage</span>页数据，当前第<span id="schoolPageNumber">@pageNumber</span>页。</span>
+                <a class="" href="javascript:void(0);" id="schoolDown">下一页</a>
+            </div>
+        </div>
+    </script>
+    <!--全校课程的列表每行的内容模板-->
+    <script type="text/template" id="tpl-school-list-row">
+        <div class="cv-row row-school-link">
+			<div class="cv-school-cz-col"><a href="javascript:void(0)" class="row-school-index" index="@index">检查</a></div>
+            <div class="cv-school-number-col">@courseNumber</div>
+            <div class="cv-school-title-col">
+				@courseName
+				<span class="cv-courseFlag @courseFlagDisplay">@courseFlag</span>
+			</div>
+            <div class="cv-school-index-col">@courseIndex</div>
+            <div class="cv-school-department-col">@departmentName</div>
+            <div class="cv-school-nature-col">@courseNatureName</div>
+            <div class="cv-school-type-col">@courseTypeName</div>
+            <div class="cv-school-credit-col">@credit</div>
+            <div class="cv-school-hours-col">@hours</div>
+            <div class="cv-school-teacher-col">@teacherName</div>
+        </div>
+    </script>
+
+    <!-- 侧边栏学生信息模板 -->
+	<script type="text/template" id="tpl-stundent-information">        
+        <div class="cv-clearfix-child">
+            <!--用户头像-->
+            <div class="cv-user-info-img">
+                <img src="@headImageUrl">
+            </div>
+            <!--个人信息详情-->
+            <div class="cv-user-info-option">
+                <h5 class="cv-mb-8">
+                    欢迎你
+                    <span>@name</span>
+                </h5>
+                <div class="cv-mb-4">@college/@department</div>
+                <div>@grade</div>
+            </div>
+        </div>
+        <!--图表部分-->
+        <div class="cv-credit-chart">
+            <!--所修学分占比-->
+            <!--<div>@getCreditProportion</div>-->
+            <!--图表初始化占位-->
+            <canvas id="cvCreditChart"></canvas>
+        </div>
+        <!--学分情况部分-->
+        <div id="cvCreditInfo" class="cv-credit-info cv-clearfix-child cv-mb-8">
+            <div>
+                <div class="cv-credit-num">@totalCredit</div>
+                <div class="cv-credit-caption">总学分</div>
+                <div class="cv-credit-color cv-all"></div>
+            </div>
+
+            <div>
+                <div class="cv-credit-num">@needCredit</div>
+                <div class="cv-credit-caption">已选学分</div>
+                <div class="cv-credit-color cv-not"></div>
+            </div>
+        </div>
+        <!--进入选课按钮-->
+        <button class="cv-btn cv-ghost cv-mb-8 cv-select" type="button" id="changeCampus" code="@code">@campusName</button>
+	</script>
+
+    <!-- 侧边栏 - 学生落选结果 -->
+    <script type="text/template" id="tpl-stundent-unsuccessful">
+        <div style="height:100%"> 
+            <h5>落选课程</h5>
+            <div class="cv-list">
+                <div class="cv-head">
+                    <div class="cv-normal" style="width:20%">日期</div>
+                    <div class="cv-normal" style="width:40%">课程名称</div>
+                    <div class="cv-normal" style="width:20%">上课教师</div>
+                    <div class="cv-normal" style="width:20%">选课结果</div>
+                </div>
+                <div class="cv-body">
+                    @body
+                </div>
+            </div>    
+        </div>
+    </script>
+
+    <script type="text/template" id="tpl-stundent-unsuccessful-row">
+        <div class="cv-row">
+            <div class="cv-normal" style="width:20%">@date</div>
+            <div class="cv-normal" style="width:40%">@courseName</div>
+            <div class="cv-normal" style="width:20%">@teacherName</div>
+            <div class="cv-normal" style="width:20%">@result</div>
+        </div>
+    </script>
+    
+    <!--教学班详情模板-->
+    <script type="text/template" id="tpl-jxbDetail-model">
+        <div class="cv-jxbdatail">
+            <div class="title">教师信息</div>
+			<div class="jsxx">@jsxx</div>
+			<div class="title">推荐班级</div>
+			<div class="tjbjxx">@tjbjxx</div>
+			<div class="title">教学班信息</div>
+			<div class="jxbxx">@jxbxx</div>
+			<div class="title" style="display: @display">考试时间</div>
+			<div class="kssj" style="display: @display">@kssj</div>
+			<div class="title" style="display: @courseDisplay"><a class="" target="_blank" href="@courseUrl">课程详情</a></div>
+			<div class="kssj" style="display: @courseDisplay"><a class="" target="_blank" href="@courseUrl">教学大纲</a></div>
+        </div>
+    </script>
+
+    <!-- 实验课程表格模板 -->
+    <script type="text/template" id="tpl-test-course-table">
+        <div class="table syk-table">
+            <h3>@theoryClassInfo</h3>
+            <p>@theoryClassTeachingPlace</p>
+			<div class="table-container">
+            	<table>
+               	 	<thead>
+                   	 	<tr>
+                        	<th style="width:40px;">操作</th>
+                        	<th style="width:60px;">课序号</th>
+                       	 	<th style="width:100px;">上课教师</th>
+                        	<th>时间地点</th>
+							<th style="width:100px;">选课说明</th>
+                        	<th style="width:140px;">已选人数/课容量</th>                      
+                        	<th style="width:100px;">不可选原因</th>                      
+                    	</tr>
+                	</thead>
+                	<tbody>@tbody</tbody>
+            	</table>
+			</div>
+			<p></p>
+			<div>@jcxxHtml</div>
+			<p></p>
+            <a class="cv-btn cv-btn-chose" href="#" id="testCourse_choice_btn">确定</a>
+        </div>
+    </script>
+    <script type="text/template" id="tpl-test-course-table-row">
+        <tr>
+            <td>@radioHtml</td>
+            <td><span>@courseIndex</span></td>
+            <td><span>@teacher</span></td>
+            <td><span>@teachingPlace</span></td>
+			<td><span>@extInfo</span></td>
+            <td><span>@remainingCapacity</span></td>
+            <td><span>@cannotSelectReason</span></td>
+        </tr>
+    </script>
+
+<!-- 教材表格模板 -->
+    <script type="text/template" id="tpl-test-course-table-jc">
+        <div class="table syk-table">
+			<h3 id="testCourse_choice_title_jc">@theoryClassInfo</h3>
+            <p>如果订购教材请选择【是】；如果不订购教材请选择【否】并选择不订购原因，否则无法确认；</p>
+			<div class="table-container">
+            	<table>
+               	 	<thead>
+                   	 	<tr>
+                        	<th style="width:100px;">是否订购教材</th>
+                        	<th style="width:100px;">不订购教材原因</th>
+                       	 	<th style="width:150px;">ISBN</th>
+                        	<th>教材名称</th>
+							<th style="width:100px;">著作者</th>
+                    	</tr>
+                	</thead>
+                	<tbody>@tbody</tbody>
+            	</table>
+			</div>
+			<a class="cv-btn cv-btn-chose" href="#" id="testCourse_choice_btn_jc">确认</a>
+        </div>
+    </script>
+    <script type="text/template" id="tpl-test-course-table-row-jc">
+        <tr>
+            <td>@checkboxHtml</td>
+            <td>@wdgyy</td>
+            <td><span>@isbn</span></td>
+            <td><span>@mc</span></td>
+			<td><span>@zzz</span></td>
+        </tr>
+    </script>
+    
+    <script type="text/template" id="tpl-schoolcourse-view">
+        <div class="schoolcourse-view-table">
+			<h2>@courseTitle</h2>
+			<h4>能否选课原因分析</h4>
+			<div>
+				@chooseBody
+			</div>
+            <h4>教学班详情</h4>
+            <table class="table-all">
+                <tr>
+                    <td>开课单位</td>
+                    <td>@departmentName</td>
+                </tr>
+                <tr>
+                    <td>校区</td>
+                    <td>@campusName</td>
+                </tr>
+                <tr>
+                    <td>课程性质</td>
+                    <td>@courseNatureName</td>
+                </tr>
+                <tr>
+                    <td>课程类别</td>
+                    <td>@courseTypeName</td>
+                </tr>
+                <tr>
+                    <td>学分/学时</td>
+                    <td>@credit学分/@hours学时</td>
+                </tr>
+                <tr>
+                    <td>上课教师</td>
+                    <td>@teacherName</td>
+                </tr>
+                <tr>
+                    <td>上课时间地点</td>
+                    <td>@teachingPlace</td>
+                </tr>
+                <tr>
+                    <td>面向班级</td>
+                    <td>@scStr</td>
+                </tr>
+                <tr>
+                    <td>限制信息</td>
+                    <td>@lkStr</td>
+                </tr>
+                <tr>
+                    <td>选课说明</td>
+                    <td>@extInfo</td>
+                </tr>
+            </table>
+        </div>
+    </script>
+    
+    <script type="text/template" id="electiveBatch_list_select">
+		<div class="xzlc-container electiveBatch">
+			<div class="lc-container">
+	        	<table class="electiveBatch-list-table" cellspacing="0">
+					<thead class="electiveBatch-head">
+	            		<th class="cv-electiveBatch-operate">操作</th>
+	            		<th class="cv-electiveBatch-name">轮次名称</th>
+						<th class="cv-electiveBatch-kssj">开始时间</th>
+						<th class="cv-electiveBatch-jssj">结束时间</th>
+						<th class="cv-electiveBatch-sfkkxq">是否可跨校区</th>
+						<th class="cv-electiveBatch-sfkct">是否可冲突</th>
+	            		<th class="cv-electiveBatch-cause">不可选原因</th>
+					</thead>
+					<tbody class="electiveBatch-body">@electiveBatchBody</tbody>
+	        	</table>
+			</div>
+			<div class="electiveBatchXznr @electiveBatchDisplay">
+				<div class="xznr-title">轮次须知</div>
+				<div class="xznr-content" style="margin-top: 5px;">
+					@confirmInfo
+				</div>
+				<div class="tyxz">
+					<label for="tyxz-input">
+						<input id="tyxz-input" type="checkbox" name="tyxz" value="" />已阅读须知，并同意
+					</label>
+				</div>
+			</div>
+		</div>
+    </script>
+    <script type="text/template" id="expElectiveBatch_list_select">
+		<div class="xzlc-container expElectiveBatch">
+			<div class="lc-container">
+				<div style="width:100%;font-weight:bold;padding:5px 0px;">实验课选课轮次</div>
+	        	<table class="electiveBatch-list-table" cellspacing="0">
+					<thead class="electiveBatch-head">
+	            		<th class="cv-electiveBatch-operate">操作</th>
+	            		<th class="cv-electiveBatch-name">轮次名称</th>
+	            		<th class="cv-electiveBatch-kssj">开始时间</th>
+						<th class="cv-electiveBatch-jssj">结束时间</th>
+						<th class="cv-electiveBatch-sfkkxq">是否可跨校区</th>
+						<th class="cv-electiveBatch-sfkct">是否可冲突</th>
+						<th class="cv-electiveBatch-cause">最大冲突时间（分钟）</th>
+					</thead>
+					<tbody class="electiveBatch-body">@expElectiveBatchBody</tbody>
+	        	</table>
+			</div>
+		</div>
+	</script>
+    <script type="text/template" id="message_queue_list">
+		<div class="queue-container">
+        	<table class="queue-list-table" cellspacing="0">
+				<thead class="queue-head">
+            		<th class="cv-queue-state">状态</th>
+            		<th class="cv-queue-czlx">操作类型</th>
+            		<th class="cv-queue-kch">课程号</th>
+            		<th class="cv-queue-kcm">课程名称</th>
+            		<th class="cv-queue-kxh">课序号</th>
+            		<th class="cv-queue-skjs">上课教师</th>
+            		<th class="cv-queue-sksj">上课时间</th>
+            		<th class="cv-queue-kclb">课程类别</th>
+            		<th class="cv-queue-kcxz">课程性质</th>
+            		<th class="cv-queue-xf">学分</th>
+				</thead>
+				<tbody class="queue-body">@queueBody</tbody>
+        	</table>
+		</div>
+    </script>
+    <script type="text/template" id="message_queue_list_row">
+		<tr class="queue-row">
+       		<td class="cv-queue-state">@state</td>
+       		<td class="cv-queue-czlx">@czlx</td>
+       		<td class="cv-queue-kch">@kch</td>
+       		<td class="cv-queue-kcm">@kcm</td>
+       		<td class="cv-queue-kxh">@kxh</td>
+       		<td class="cv-queue-skjs">@skjs</td>
+       		<td class="cv-queue-sksj">@sksj</td>
+       		<td class="cv-queue-kclb">@kclb</td>
+       		<td class="cv-queue-kcxz">@kcxz</td>
+       		<td class="cv-queue-xf">@xf</td>
+		</tr>
+    </script>
+
+    <script type="text/plain" data-bksxk-disabled="inline-script" type="text/javascript">
+        var BaseUrl = "about:blank#bksxk-offline";
+        var length = BaseUrl.length;
+        if(BaseUrl.indexOf(length - 1, length) == '/') {
+            BaseUrl = BaseUrl.substring(0, length - 1);
+        }
+        
+        var uid = 'null';
+   		var loginType = 'ldap';
+		var casUrl = "about:blank#cas-offline";
+		var casUrlOut = 'null';
+		var resUrl = "../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp";
+        var socketUrl = 'null';
+        var pageType = 'grablessons';
+    </script>
+	<script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/plugins/jquery.min.js" type="text/javascript" ></script>
+    <script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jqxwidget/jquery.nicescroll.min.js" type="text/javascript" ></script>
+    <script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jqxcore.js" type="text/javascript" ></script>
+    <script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jqxtabs.js" type="text/javascript" ></script>
+    <script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/jqxwindow.js" type="text/javascript" ></script>
+
+	<script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/bh_utils.js" type="text/javascript" ></script>
+	<script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/plugins/sortable/Sortable-1.3.0.js" type="text/javascript" ></script>
+	<script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/xfimage.js" type="text/javascript" ></script>
+	<script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/bhTip.js" type="text/javascript" ></script>
+
+    <script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/loginInUserRegister.js" type="text/javascript" ></script>
+	<script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/index/indexBS.js" type="text/javascript" ></script>
+    <script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/grablessons/grablessons.js" type="text/javascript" ></script>
+	<script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/curriculavariable/sidebar.js" type="text/javascript" ></script>
+	<script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/grablessons/grablessonsBS.js" type="text/javascript" ></script>
+
+    <script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/departurelog/departurelog.js" type="text/javascript" ></script>
+    <script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/departurelog/departurelogBS.js" type="text/javascript" ></script>
+
+    <script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/selectedcourse/selectedcourse.js" type="text/javascript" ></script>
+    <script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/selectedcourse/selectedcourseBS.js" type="text/javascript" ></script>
+    <script type="text/plain" data-bksxk-disabled="external-script" data-src="../static-snapshot/xkres.nwafu.edu.cn/products/jwfw/xsxkapp/public/js/xsxkpub.js" type="text/javascript" ></script>
+    
+    <iframe id="iflogout" src="" style="display:none;">
+</body>
+</html>

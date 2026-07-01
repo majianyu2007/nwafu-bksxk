@@ -1,0 +1,15 @@
+node_modules/
+
+# Runtime captures can contain personal data, session tokens, screenshots, and
+# request/response bodies. Keep them local and out of git.
+artifacts/
+playwright/.auth/
+*.har
+*.mhtml
+extensions/bksxk-guard/bksxk-guard.user.js
+
+.DS_Store
+.playwright-mcp/
+.env
+.env.*
+npm-debug.log*
