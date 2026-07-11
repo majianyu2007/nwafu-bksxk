@@ -18,23 +18,23 @@ import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 
+import '../core/constants.dart';
+import '../core/errors.dart';
 import 'models.dart';
 
-/// Signals that the server reported the session/token is no longer valid.
-class SessionExpiredException implements Exception {
-  SessionExpiredException(this.message);
-  final String message;
-  @override
-  String toString() => 'SessionExpiredException: $message';
-}
+/// Result of a lightweight reachability probe (for the diagnostics page).
+class ReachabilityResult {
+  ReachabilityResult({
+    required this.reachable,
+    required this.detail,
+    this.latency,
+    this.error,
+  });
 
-/// Thrown for transport-level failures (timeouts, no network, 5xx).
-class TransportException implements Exception {
-  TransportException(this.message, {this.cause});
-  final String message;
-  final Object? cause;
-  @override
-  String toString() => 'TransportException: $message';
+  final bool reachable;
+  final String detail;
+  final Duration? latency;
+  final AppError? error;
 }
 
 class ApiClient {
@@ -156,7 +156,7 @@ class ApiClient {
       );
       return resp.data ?? const [];
     } on DioException catch (e) {
-      throw TransportException('图片请求失败: ${e.message}', cause: e);
+      throw AppError.fromDio(e);
     }
   }
 
@@ -172,7 +172,7 @@ class ApiClient {
     try {
       resp = await send();
     } on DioException catch (e) {
-      throw TransportException('网络请求失败: ${e.message}', cause: e);
+      throw AppError.fromDio(e);
     }
 
     final result = _parse(resp);
@@ -182,7 +182,12 @@ class ApiClient {
       if (fresh != null) {
         return retry();
       }
-      throw SessionExpiredException('会话已过期，且自动重新登录失败');
+      throw AppError(
+        AppErrorKind.sessionExpired,
+        message: '会话已过期，且自动重新登录失败',
+        hint: '请重新登录。',
+        retryable: false,
+      );
     }
     return result;
   }
@@ -256,4 +261,35 @@ class ApiClient {
   }
 
   Future<void> clearCookies() => _cookieJar.deleteAll();
+
+  /// Lightweight reachability probe for the diagnostics page. Hits a cheap
+  /// public endpoint (batch list) and classifies the outcome. Never throws.
+  Future<ReachabilityResult> probe() async {
+    final start = DateTime.now();
+    try {
+      await _dio.get(
+        _url(Api.batch),
+        queryParameters: {'timestamp': nowStamp()},
+        options: Options(
+          headers: _headers(auth: false),
+          // Short timeout so the diagnostics page feels responsive.
+          receiveTimeout: const Duration(seconds: 6),
+          sendTimeout: const Duration(seconds: 6),
+        ),
+      );
+      final latency = DateTime.now().difference(start);
+      return ReachabilityResult(
+        reachable: true,
+        detail: '可以连接到 $_origin',
+        latency: latency,
+      );
+    } on DioException catch (e) {
+      final err = AppError.fromDio(e);
+      return ReachabilityResult(
+        reachable: false,
+        detail: err.message,
+        error: err,
+      );
+    }
+  }
 }

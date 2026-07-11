@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../app/theme.dart';
+import 'diagnostics_page.dart';
 import 'widgets.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -128,15 +129,33 @@ class SettingsPage extends ConsumerWidget {
           title: '高级',
           children: [
             _OriginSetting(),
+            _DiagnosticsEntry(),
             ListTile(
               leading: Icon(Icons.info_outline),
               title: Text('关于'),
-              subtitle: Text('西农抢课 · 选课/抢课快人一步。登录密码使用与官网一致的 DES 加密，仅发送到学校服务器。'),
+              subtitle: Text('西农本科选课 · 选课/抢课快人一步。仅连接 bksxk.nwafu.edu.cn，登录密码使用与官网一致的 DES 加密。'),
               isThreeLine: true,
             ),
           ],
         ),
       ],
+    );
+  }
+}
+
+class _DiagnosticsEntry extends StatelessWidget {
+  const _DiagnosticsEntry();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: const Icon(Icons.network_check),
+      title: const Text('连接诊断'),
+      subtitle: const Text('检测能否连到选课服务器、查看会话状态、导出脱敏日志'),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const DiagnosticsPage()),
+      ),
     );
   }
 }

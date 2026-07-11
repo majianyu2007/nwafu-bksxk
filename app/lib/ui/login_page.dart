@@ -11,8 +11,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../core/errors.dart';
 import '../data/auth_service.dart';
 import '../data/storage.dart';
+import 'diagnostics_page.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
@@ -32,6 +34,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _submitting = false;
   bool _remember = true;
   bool _obscure = true;
+  bool _showCampusHint = false;
   String? _error;
 
   /// Expected captcha length for auto-submit; the site uses 4.
@@ -74,6 +77,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       if (!mounted) return;
       setState(() => _challenge = challenge);
       _captchaFocus.requestFocus();
+    } on AppError catch (e) {
+      if (!mounted) return;
+      // A captcha fetch failing is the first signal of an unreachable backend —
+      // surface the campus-network hint prominently.
+      setState(() {
+        _error = e.hint != null ? '${e.message}：${e.hint}' : e.message;
+        _showCampusHint = e.kind == AppErrorKind.campusNetwork || e.kind == AppErrorKind.timeout;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = '验证码加载失败，请点击刷新');
@@ -237,6 +248,42 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(_error!, style: TextStyle(color: scheme.onErrorContainer)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (_showCampusHint) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: scheme.tertiaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.wifi_off, color: scheme.onTertiaryContainer, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('连不上选课服务器？',
+                                    style: TextStyle(color: scheme.onTertiaryContainer, fontWeight: FontWeight.w700)),
+                                const SizedBox(height: 2),
+                                Text('本系统仅在校园网内可用。请连接校园网，或用 VPN 接入校园网后重试。',
+                                    style: TextStyle(color: scheme.onTertiaryContainer, fontSize: 13)),
+                                TextButton(
+                                  style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 32)),
+                                  onPressed: () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(builder: (_) => const DiagnosticsPage()),
+                                  ),
+                                  child: const Text('打开连接诊断'),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),

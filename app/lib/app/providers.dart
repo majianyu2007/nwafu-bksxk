@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/errors.dart';
 import '../data/api_client.dart';
 import '../data/auth_service.dart';
 import '../data/captcha.dart';
@@ -241,9 +242,8 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   String _describe(Object e) {
+    if (e is AppError) return e.hint != null ? '${e.message} · ${e.hint}' : e.message;
     if (e is LoginException) return e.message;
-    if (e is SessionExpiredException) return e.message;
-    if (e is TransportException) return e.message;
     return e.toString();
   }
 }
