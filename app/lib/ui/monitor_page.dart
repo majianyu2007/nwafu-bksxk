@@ -37,6 +37,7 @@ class MonitorPage extends ConsumerWidget {
           ),
         ),
         const _RunningBanner(),
+        const _HaltReasonBanner(),
         Expanded(
           child: watches.isEmpty
               ? const EmptyState(
@@ -79,6 +80,37 @@ class _RunningBanner extends ConsumerWidget {
           Expanded(
             child: Text('正在监控课程容量变动，发现空位将立即抢占',
                 style: TextStyle(color: scheme.onSurface, fontSize: 13)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HaltReasonBanner extends ConsumerWidget {
+  const _HaltReasonBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(monitorChangesProvider);
+    final engine = ref.read(monitorEngineProvider);
+    final reason = engine.stopReason;
+    final scheme = Theme.of(context).colorScheme;
+    if (reason == null || engine.isRunning) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.pause_circle, color: scheme.onErrorContainer, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text('监控已自动停止：$reason。请稍后手动重新启动。',
+                style: TextStyle(color: scheme.onErrorContainer, fontSize: 13)),
           ),
         ],
       ),
@@ -150,6 +182,11 @@ class _WatchCard extends ConsumerWidget {
             if (watch.lastCheckedAt != null) ...[
               const SizedBox(height: 4),
               Text('上次检查：${_fmtTime(watch.lastCheckedAt!)} · 已尝试 ${watch.attempts} 次',
+                  style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+            ],
+            if (watch.lastResultAt != null && watch.lastRawResult != null) ...[
+              const SizedBox(height: 2),
+              Text('服务器回执：${watch.lastRawResult} (${_fmtTime(watch.lastResultAt!)})',
                   style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
             ],
             const SizedBox(height: 8),

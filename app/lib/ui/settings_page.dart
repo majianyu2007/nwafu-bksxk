@@ -200,13 +200,13 @@ class _MonitorSettings extends ConsumerWidget {
         ListTile(
           leading: Icon(Icons.speed),
           title: Text('轮询节奏'),
-          subtitle: Text('普通课程约每 3 秒检查一次余量，标记为「优先」的课程更快。发现空位立即以预构建的选课结构体提交。'),
+          subtitle: Text('普通课程约每 3 秒检查一次余量，优先课程更快（不低于约 1 秒）。发现空位立即以预构建的选课结构体提交，出错时自动退避，避免高频轰炸学校服务器。'),
           isThreeLine: true,
         ),
         ListTile(
-          leading: Icon(Icons.flash_on),
-          title: Text('零延迟抢课'),
-          subtitle: Text('实验课与教材选择在加入监控时即已确定，空位出现时只需一次网络请求。'),
+          leading: Icon(Icons.verified),
+          title: Text('结果确认与自动保护'),
+          subtitle: Text('提交后读取服务器最终回执才算成功；遇到验证码、账号异常、系统维护或限流会立即停止，不会重复提交同一空位。'),
           isThreeLine: true,
         ),
       ],

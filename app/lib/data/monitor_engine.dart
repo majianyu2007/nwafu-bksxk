@@ -21,6 +21,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import '../core/constants.dart';
+import '../core/errors.dart';
 import 'course_service.dart';
 import 'enroll_service.dart';
 import 'models.dart';
@@ -88,6 +89,19 @@ class Watch {
   /// Higher priority watches are polled slightly more aggressively.
   int priority;
 
+  /// Consecutive transient errors, used to grow the backoff delay. Reset on any
+  /// successful poll.
+  int consecutiveErrors = 0;
+
+  /// True while a submit is in flight, so a fast second tick can't double-submit
+  /// the same seat.
+  bool submitInFlight = false;
+
+  /// When the last add/drop result was recorded, and the raw server text — kept
+  /// so the user can confirm the outcome and to aid dispute troubleshooting.
+  DateTime? lastResultAt;
+  String? lastRawResult;
+
   String get title => '${teachingClass.courseName} · ${teachingClass.displayTitle}';
 
   Map<String, dynamic> toJson() => {
@@ -143,20 +157,22 @@ class MonitorEvent {
   final DateTime at;
 }
 
-/// Config knobs for polling cadence.
+/// Config knobs for polling cadence and safety.
 class MonitorConfig {
   const MonitorConfig({
     this.basePollInterval = const Duration(seconds: 3),
-    this.minPollInterval = const Duration(milliseconds: 800),
-    this.jitter = const Duration(milliseconds: 600),
+    this.minPollInterval = const Duration(milliseconds: 1200),
+    this.jitter = const Duration(milliseconds: 800),
     this.maxAttemptsPerWatch = 0,
     this.confirmAfterGrab = true,
+    this.maxBackoff = const Duration(minutes: 2),
+    this.backoffBase = const Duration(seconds: 2),
   });
 
   /// Baseline seconds between capacity polls for a watch.
   final Duration basePollInterval;
 
-  /// Floor for high-priority watches.
+  /// Floor for high-priority watches. Kept >= ~1s so we never hammer the server.
   final Duration minPollInterval;
 
   /// Random spread added to each interval to avoid synchronized bursts.
@@ -167,6 +183,12 @@ class MonitorConfig {
 
   /// Whether to poll studentstatus.do after a successful submit.
   final bool confirmAfterGrab;
+
+  /// Ceiling for exponential backoff after consecutive errors.
+  final Duration maxBackoff;
+
+  /// Backoff unit; delay = backoffBase * 2^(consecutiveErrors-1), capped.
+  final Duration backoffBase;
 }
 
 class MonitorEngine {
@@ -188,6 +210,11 @@ class MonitorEngine {
   final Map<String, Watch> _watches = {};
   final Map<String, Timer> _timers = {};
   bool _running = false;
+
+  /// Set when the engine auto-halted (e.g. server maintenance/throttle), so the
+  /// UI can explain why monitoring stopped. Cleared on the next start().
+  String? _stopReason;
+  String? get stopReason => _stopReason;
 
   final _events = StreamController<MonitorEvent>.broadcast();
   final _changes = StreamController<void>.broadcast();
@@ -274,7 +301,10 @@ class MonitorEngine {
   void start() {
     if (_running) return;
     _running = true;
+    _stopReason = null; // fresh start clears any prior auto-halt reason
+    // Reset backoff so a restart after an error storm probes promptly.
     for (final w in _watches.values) {
+      w.consecutiveErrors = 0;
       if (w.status == WatchStatus.watching) _schedule(w, immediate: true);
     }
     _emit('', '监控已启动');
@@ -296,7 +326,17 @@ class MonitorEngine {
     final base = w.priority > 0 ? _config.minPollInterval : _config.basePollInterval;
     final jitterMs = _config.jitter.inMilliseconds;
     final extra = jitterMs == 0 ? 0 : _rng.nextInt(jitterMs);
-    return base + Duration(milliseconds: extra);
+    var interval = base + Duration(milliseconds: extra);
+
+    // Exponential backoff after consecutive errors so a flaky link or a
+    // struggling server is not hammered.
+    if (w.consecutiveErrors > 0) {
+      final factor = 1 << (w.consecutiveErrors - 1); // 2^(n-1)
+      final backoff = _config.backoffBase * factor;
+      final capped = backoff > _config.maxBackoff ? _config.maxBackoff : backoff;
+      if (capped > interval) interval = capped;
+    }
+    return interval;
   }
 
   void _schedule(Watch w, {bool immediate = false}) {
@@ -313,19 +353,61 @@ class MonitorEngine {
       w.teachingClass = fresh;
       w.lastRemaining = fresh.remaining;
       w.lastCheckedAt = DateTime.now();
+      w.consecutiveErrors = 0; // healthy poll resets backoff
       _changes.add(null);
 
       if (fresh.isGrabbable) {
         await _attemptGrab(w);
       }
-    } catch (_) {
-      // Transient — just reschedule.
+    } on AppError catch (e) {
+      _onWatchError(w, e);
+    } catch (e) {
+      // Unknown/transient — count it toward backoff but keep watching.
+      w.consecutiveErrors++;
+      w.note = '$e';
     } finally {
       if (_running && w.status == WatchStatus.watching) _schedule(w);
     }
   }
 
+  /// Handles a classified error during polling: hard-stop conditions halt the
+  /// watch (or the whole engine); everything else backs off and retries.
+  void _onWatchError(Watch w, AppError e) {
+    w.note = e.message;
+    if (e.kind == AppErrorKind.maintenanceOrThrottle) {
+      // The server is telling us to stop. Halt the ENTIRE engine, not just this
+      // watch — continuing would hammer a system that is already struggling.
+      _emit(w.id, '系统繁忙/维护，已停止全部监控以免加重负载：${e.message}', success: false);
+      _haltAll('系统繁忙或维护中');
+      return;
+    }
+    if (e.isHardStop) {
+      // Captcha / account / session problems can't be fixed by retrying blindly.
+      w.status = WatchStatus.failed;
+      _timers.remove(w.id)?.cancel();
+      _emit(w.id, '需要人工处理，已停止该监控：${e.message}', success: false);
+      _changes.add(null);
+      return;
+    }
+    // Retryable: grow backoff.
+    w.consecutiveErrors++;
+  }
+
+  /// Stops every watch and the engine (used on maintenance/throttle signals).
+  void _haltAll(String reason) {
+    _running = false;
+    for (final t in _timers.values) {
+      t.cancel();
+    }
+    _timers.clear();
+    _stopReason = reason;
+    _changes.add(null);
+  }
+
   Future<void> _attemptGrab(Watch w) async {
+    // De-dup guard: never let two ticks submit the same seat concurrently.
+    if (w.submitInFlight) return;
+    w.submitInFlight = true;
     w.status = WatchStatus.grabbing;
     w.attempts++;
     _changes.add(null);
@@ -343,31 +425,60 @@ class MonitorEngine {
       );
       final outcome = await _enroll.submitAdd(plan);
 
+      // Trust the server's final word, not just HTTP success. Confirm via
+      // studentstatus.do before declaring victory.
       if (outcome.success) {
+        var confirmed = true;
         if (_config.confirmAfterGrab) {
-          await _enroll.confirmStatus(w.studentCode);
+          final status = await _enroll.confirmStatus(w.studentCode);
+          // A non-ok confirmation means the seat did not actually stick.
+          confirmed = status.ok;
+          if (status.msg.isNotEmpty) w.note = status.msg;
         }
-        w.status = WatchStatus.grabbed;
-        w.note = '已抢到 (${outcome.shape != null ? plan.shapeLabel : ''})'.trim();
-        _timers.remove(w.id)?.cancel();
-        _emit(w.id, '🎉 抢课成功：${w.title}', success: true);
-      } else {
-        // Seat vanished or server rejected; keep watching unless capped.
-        w.note = outcome.message;
-        if (_capReached(w)) {
-          w.status = WatchStatus.failed;
-          _emit(w.id, '抢课失败次数过多，已停止：${w.title}', success: false);
+        if (confirmed) {
+          w.status = WatchStatus.grabbed;
+          w.note = '已抢到 · ${plan.shapeLabel}${w.note.isNotEmpty ? ' · ${w.note}' : ''}';
+          w.lastResultAt = DateTime.now();
+          w.lastRawResult = outcome.message;
+          _timers.remove(w.id)?.cancel();
+          _emit(w.id, '🎉 抢课成功：${w.title}', success: true);
         } else {
           w.status = WatchStatus.watching;
-          _emit(w.id, '空位已被抢走或提交失败：${outcome.message}', success: false);
+          _emit(w.id, '提交后未确认成功，继续监控：${w.note}', success: false);
+        }
+      } else {
+        // Classify the business rejection to decide stop-vs-continue.
+        final err = AppError.fromBusiness(outcome.code, outcome.message);
+        w.lastResultAt = DateTime.now();
+        w.lastRawResult = '${outcome.code}: ${outcome.message}';
+        if (err.kind == AppErrorKind.maintenanceOrThrottle) {
+          _emit(w.id, '系统繁忙/维护，已停止全部监控：${err.message}', success: false);
+          _haltAll('系统繁忙或维护中');
+        } else if (err.isHardStop) {
+          w.status = WatchStatus.failed;
+          w.note = err.message;
+          _timers.remove(w.id)?.cancel();
+          _emit(w.id, '需要人工处理，已停止该监控：${err.message}', success: false);
+        } else if (_capReached(w)) {
+          w.status = WatchStatus.failed;
+          w.note = err.message;
+          _emit(w.id, '抢课失败次数过多，已停止：${w.title}', success: false);
+        } else {
+          // Seat vanished (courseFull) or a soft rejection — keep watching.
+          w.status = WatchStatus.watching;
+          w.note = err.message;
+          _emit(w.id, '空位已被抢走或提交失败：${err.message}', success: false);
         }
       }
     } on MissingSelectionError catch (e) {
       w.status = WatchStatus.needsSetup;
       w.note = e.reason;
       _emit(w.id, '需要先完成选择：${e.reason}', success: false);
+    } on AppError catch (e) {
+      _onWatchError(w, e);
     } catch (e) {
       w.note = '$e';
+      w.consecutiveErrors++;
       if (_capReached(w)) {
         w.status = WatchStatus.failed;
       } else {
@@ -375,6 +486,7 @@ class MonitorEngine {
       }
       _emit(w.id, '抢课异常：$e', success: false);
     } finally {
+      w.submitInFlight = false;
       _changes.add(null);
       if (_running && w.status == WatchStatus.watching) _schedule(w);
     }

@@ -1,7 +1,10 @@
 // Verifies the auto-grab engine: it grabs when a seat opens, only once, and
-// blocks watches that lack a required test class / textbook. Uses fakes so no
+// blocks watches that lack a required test class / textbook. Also covers the
+// safety rules: hard-stop on maintenance/throttle, no double-submit, and that a
+// grab is only declared successful when the server confirms it. Uses fakes so no
 // network is involved and timing is deterministic.
 import 'package:nwafu_bksxk/core/constants.dart';
+import 'package:nwafu_bksxk/core/errors.dart';
 import 'package:nwafu_bksxk/data/course_service.dart';
 import 'package:nwafu_bksxk/data/enroll_service.dart';
 import 'package:nwafu_bksxk/data/models.dart';
@@ -9,16 +12,20 @@ import 'package:nwafu_bksxk/data/monitor_engine.dart';
 import 'package:nwafu_bksxk/data/param_builders.dart';
 import 'package:test/test.dart';
 
-/// A CourseService test double that returns scripted capacities.
+/// A CourseService test double that returns scripted capacities, and can throw.
 class FakeCourseService implements CourseService {
-  FakeCourseService(this._script);
+  FakeCourseService(this._script, {this.throwOnPoll});
 
   /// Per teachingClassId: a queue of remaining-seat counts to return in order.
   final Map<String, List<int>> _script;
   final Map<String, int> _calls = {};
 
+  /// If set, refreshCapacity throws this instead of returning.
+  final AppError? throwOnPoll;
+
   @override
   Future<TeachingClass> refreshCapacity(TeachingClass tc, String studentCode) async {
+    if (throwOnPoll != null) throw throwOnPoll!;
     final id = tc.teachingClassId;
     final seq = _script[id] ?? const [0];
     final i = (_calls[id] ?? 0).clamp(0, seq.length - 1);
@@ -34,24 +41,31 @@ class FakeCourseService implements CourseService {
 
 /// An EnrollService double that records submissions and returns a scripted result.
 class FakeEnrollService implements EnrollService {
-  FakeEnrollService({this.succeed = true});
+  FakeEnrollService({this.succeed = true, this.outcomeCode, this.outcomeMsg, this.confirmOk = true, this.submitDelay = Duration.zero});
   final bool succeed;
+  final String? outcomeCode;
+  final String? outcomeMsg;
+  final bool confirmOk;
+  final Duration submitDelay;
   final List<AddParamPlan> submitted = [];
+  int confirmCalls = 0;
 
   @override
   Future<EnrollOutcome> submitAdd(AddParamPlan plan) async {
     submitted.add(plan);
+    if (submitDelay > Duration.zero) await Future<void>.delayed(submitDelay);
     return EnrollOutcome(
       success: succeed,
-      code: succeed ? '1' : '0',
-      message: succeed ? 'ok' : 'full',
+      code: outcomeCode ?? (succeed ? '1' : '0'),
+      message: outcomeMsg ?? (succeed ? 'ok' : 'full'),
       shape: plan.shape,
     );
   }
 
   @override
   Future<ApiResult> confirmStatus(String studentCode, {int attempts = 6, Duration interval = const Duration(milliseconds: 400)}) async {
-    return ApiResult(code: '1', msg: 'done', data: null, dataList: const [], totalCount: 0);
+    confirmCalls++;
+    return ApiResult(code: confirmOk ? '1' : '0', msg: confirmOk ? 'done' : '未成功', data: null, dataList: const [], totalCount: 0);
   }
 
   @override
@@ -172,6 +186,66 @@ void main() {
 
     expect(grabbed, isTrue);
     expect(enroll.submitted.single.testTeachingClassId, 'LAB-1');
+    engine.dispose();
+  });
+
+  test('maintenance/throttle response hard-stops the whole engine', () async {
+    // Seat is open, but the submit comes back with a throttle message.
+    final course = FakeCourseService({'TCM': [3, 3, 3, 3]});
+    final enroll = FakeEnrollService(succeed: false, outcomeCode: '0', outcomeMsg: '系统繁忙，请稍后再试');
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+    );
+    engine.addWatch(watchFor(plainTc('TCM')));
+    engine.start();
+
+    final halted = await _waitFor(() => !engine.isRunning, timeout: const Duration(seconds: 2));
+    expect(halted, isTrue, reason: 'engine must stop itself on throttle');
+    expect(engine.stopReason, isNotNull);
+    // It must not keep submitting after being told the system is busy.
+    final submitsAtHalt = enroll.submitted.length;
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    expect(enroll.submitted.length, submitsAtHalt, reason: 'no submits after hard-stop');
+    engine.dispose();
+  });
+
+  test('success is only declared when the server confirms it', () async {
+    // Submit "succeeds" but confirmStatus says it did not stick.
+    final course = FakeCourseService({'TCC': [2, 2, 2, 2]});
+    final enroll = FakeEnrollService(succeed: true, confirmOk: false);
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+    );
+    engine.addWatch(watchFor(plainTc('TCC')));
+    engine.start();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    engine.stop();
+
+    // It must NOT be marked grabbed on an unconfirmed submit.
+    expect(engine.watches.first.status, isNot(WatchStatus.grabbed));
+    expect(enroll.confirmCalls, greaterThan(0), reason: 'confirmStatus must be consulted');
+    engine.dispose();
+  });
+
+  test('a slow submit is not double-fired by the next tick', () async {
+    // Seat stays open and submit is slow; the fast poll interval would fire a
+    // second grab if the in-flight guard were missing.
+    final course = FakeCourseService({'TCD': List.filled(20, 5)});
+    final enroll = FakeEnrollService(succeed: true, submitDelay: const Duration(milliseconds: 60));
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 3), jitter: Duration.zero),
+    );
+    engine.addWatch(watchFor(plainTc('TCD')));
+    engine.start();
+    await _waitFor(() => engine.watches.first.status == WatchStatus.grabbed, timeout: const Duration(seconds: 2));
+    engine.stop();
+    expect(enroll.submitted.length, 1, reason: 'in-flight guard prevents double submit');
     engine.dispose();
   });
 }
