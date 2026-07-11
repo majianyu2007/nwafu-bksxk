@@ -13,7 +13,7 @@ import '../core/errors.dart';
 import '../data/api_client.dart';
 import '../data/auth_service.dart';
 import '../data/captcha.dart';
-import '../data/onnx_captcha_solver.dart';
+import '../data/captcha_solver_factory.dart';
 import '../data/course_service.dart';
 import '../data/enroll_service.dart';
 import '../data/models.dart';
@@ -34,12 +34,13 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 
 /// The pluggable captcha solver. Defaults to no-op (manual entry); Settings can
 /// swap in an OCR-backed solver at runtime.
-/// The OCR captcha solver, backed by the bundled ONNX model. Created once and
-/// reused (the model loads lazily on first solve). If the model is missing or
-/// fails to load, solve() returns null and the UI falls back to manual entry.
+/// The OCR captcha solver, backed by the bundled ONNX model on native platforms
+/// (no-op on web, which can't run dart:ffi). Created once and reused (the model
+/// loads lazily on first solve). If the model is missing or fails to load,
+/// solve() returns null and the UI falls back to manual entry.
 final captchaSolverProvider = StateProvider<CaptchaSolver>((ref) {
-  final solver = OnnxCaptchaSolver();
-  ref.onDispose(solver.dispose);
+  final solver = createCaptchaSolver();
+  ref.onDispose(() => disposeCaptchaSolver(solver));
   return solver;
 });
 
