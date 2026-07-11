@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../core/errors.dart';
+import '../core/web_env.dart';
 import '../data/auth_service.dart';
 import '../data/storage.dart';
 import 'diagnostics_page.dart';
@@ -45,8 +46,33 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _prefillActiveAccount();
+      _maybePromptWebBridge();
       _refreshCaptcha();
     });
+  }
+
+  /// On the web build, if the companion CORS bridge userscript isn't installed,
+  /// direct requests to the school server will be blocked. Prompt the user to
+  /// install it. Native builds skip this entirely.
+  void _maybePromptWebBridge() {
+    if (!isWebRuntime || isWebBridgeReady) return;
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('网页版需要安装配套脚本'),
+        content: const Text(
+          '由于浏览器跨域限制，网页版需要一个配套的浏览器脚本才能访问校园网选课接口。\n\n'
+          '请：\n'
+          '1. 安装篡改猴 (Tampermonkey) 或脚本猫 (ScriptCat) 扩展；\n'
+          '2. 安装「西农本科选课 · Web 跨域桥接」脚本；\n'
+          '3. 刷新本页面。\n\n'
+          '桌面端 / 手机端 App 无需此步骤。',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('我知道了')),
+        ],
+      ),
+    );
   }
 
   @override
