@@ -309,25 +309,42 @@ class SessionManager {
     return null;
   }
 
-  /// The silent path invoked by ApiClient on expiry. Returns a fresh token or
-  /// null. Solves a captcha headlessly via [_solver]; if it can't, returns null.
+  /// The silent path invoked by ApiClient on expiry (e.g. server restart /
+  /// cookie expiry). Re-logins headlessly using the stored credentials + OCR,
+  /// retrying a few times through transient failures (server flaky right after a
+  /// restart) and OCR misreads. Returns a fresh token or null.
   Future<String?> _onExpired() async {
     final name = _loginName;
     final pw = _password;
     if (name == null || pw == null) return null;
-    try {
-      final challenge = await _auth.fetchCaptcha();
-      final solved = await _solver.solve(challenge.imageBytes);
-      if (solved == null || solved.isEmpty) return null;
-      final res = await _auth.login(
-        loginName: name,
-        password: pw,
-        verifyCode: solved,
-        vtoken: challenge.vtoken,
-      );
-      return res.token;
-    } catch (_) {
-      return null;
+
+    const maxTries = 5;
+    for (var attempt = 1; attempt <= maxTries; attempt++) {
+      try {
+        final challenge = await _auth.fetchCaptcha();
+        final solved = await _solver.solve(challenge.imageBytes);
+        if (solved == null || solved.isEmpty) {
+          // OCR couldn't read it — nothing to submit headlessly. Try a fresh one.
+          continue;
+        }
+        final res = await _auth.login(
+          loginName: name,
+          password: pw,
+          verifyCode: solved,
+          vtoken: challenge.vtoken,
+        );
+        return res.token;
+      } on LoginException catch (e) {
+        // Wrong password won't fix itself — stop. Wrong captcha (3) → retry.
+        if (e.code == '2') return null;
+      } on AppError catch (e) {
+        if (e.kind == AppErrorKind.account) return null;
+        // Transient (server restarting / busy) → back off and retry.
+        await Future<void>.delayed(Duration(milliseconds: 500 * attempt));
+      } catch (_) {
+        await Future<void>.delayed(Duration(milliseconds: 500 * attempt));
+      }
     }
+    return null;
   }
 }

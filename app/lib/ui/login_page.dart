@@ -17,6 +17,9 @@ import '../data/auth_service.dart';
 import '../data/storage.dart';
 import 'diagnostics_page.dart';
 
+/// Visual state of the OCR captcha recognizer.
+enum OcrStatus { idle, recognizing, recognized, failed }
+
 class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
 
@@ -38,8 +41,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _showCampusHint = false;
   String? _error;
 
-  /// Expected captcha length for auto-submit; the site uses 4.
-  static const _captchaLength = 4;
+  /// Whether to auto-recognize captchas via OCR. User can turn it off to type.
+  bool _autoRecognize = true;
+  OcrStatus _ocrStatus = OcrStatus.idle;
+  int _ocrRetries = 0;
+  static const _maxOcrRetries = 4;
 
   @override
   void initState() {
@@ -92,17 +98,37 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     }
   }
 
-  Future<void> _refreshCaptcha() async {
+  Future<void> _refreshCaptcha({bool autoRecognize = true}) async {
     setState(() {
       _loadingCaptcha = true;
       _challenge = null;
       _captchaCtrl.clear();
+      _ocrStatus = _autoRecognize ? OcrStatus.recognizing : OcrStatus.idle;
     });
     try {
       final challenge = await ref.read(sessionProvider.notifier).fetchCaptcha();
       if (!mounted) return;
       setState(() => _challenge = challenge);
-      _captchaFocus.requestFocus();
+
+      // Auto-recognize the captcha so the user never types during a rush.
+      if (autoRecognize && _autoRecognize) {
+        final solver = ref.read(captchaSolverProvider);
+        final guess = await solver.solve(challenge.imageBytes);
+        if (!mounted) return;
+        if (guess != null && guess.isNotEmpty) {
+          _captchaCtrl.text = guess;
+          setState(() => _ocrStatus = OcrStatus.recognized);
+          // Auto-submit if we also have credentials — full hands-free login.
+          if (_loginCtrl.text.trim().isNotEmpty && _pwCtrl.text.isNotEmpty) {
+            _submit(fromOcr: true);
+          }
+        } else {
+          setState(() => _ocrStatus = OcrStatus.failed);
+          _captchaFocus.requestFocus();
+        }
+      } else {
+        _captchaFocus.requestFocus();
+      }
     } on AppError catch (e) {
       if (!mounted) return;
       // A captcha fetch failing is the first signal of an unreachable backend —
@@ -110,16 +136,20 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       setState(() {
         _error = e.hint != null ? '${e.message}：${e.hint}' : e.message;
         _showCampusHint = e.kind == AppErrorKind.campusNetwork || e.kind == AppErrorKind.timeout;
+        _ocrStatus = OcrStatus.idle;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '验证码加载失败，请点击刷新');
+      setState(() {
+        _error = '验证码加载失败，请点击刷新';
+        _ocrStatus = OcrStatus.idle;
+      });
     } finally {
       if (mounted) setState(() => _loadingCaptcha = false);
     }
   }
 
-  Future<void> _submit() async {
+  Future<void> _submit({bool fromOcr = false}) async {
     if (_submitting) return;
     final challenge = _challenge;
     if (challenge == null) {
@@ -130,7 +160,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     final password = _pwCtrl.text;
     final code = _captchaCtrl.text.trim();
     if (loginName.isEmpty || password.isEmpty) {
-      setState(() => _error = '请输入学号和密码');
+      if (!fromOcr) setState(() => _error = '请输入学号和密码');
       return;
     }
     if (code.isEmpty) {
@@ -155,22 +185,39 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       // Navigation happens reactively via main.dart's home switch.
     } on LoginException catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.message);
-      // Bad captcha or credentials — get a fresh challenge immediately.
-      await _refreshCaptcha();
+      if (e.code == '3') {
+        // Wrong captcha (often OCR misread). Auto-refresh + re-recognize + retry
+        // — the user shouldn't have to intervene during a rush. Bounded so a
+        // persistently-failing OCR doesn't loop forever.
+        _ocrRetries++;
+        if (_ocrRetries <= _maxOcrRetries) {
+          setState(() => _error = null);
+          await _refreshCaptcha();
+          return;
+        }
+        setState(() => _error = '验证码多次识别失败，请手动输入');
+        _ocrRetries = 0;
+        await _refreshCaptcha(autoRecognize: false);
+      } else {
+        // Wrong credentials or other — stop and show it; refresh the captcha.
+        setState(() => _error = e.message);
+        _ocrRetries = 0;
+        await _refreshCaptcha(autoRecognize: false);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = '$e');
-      await _refreshCaptcha();
+      await _refreshCaptcha(autoRecognize: false);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
 
   void _onCaptchaChanged(String value) {
-    // Auto-submit the instant the expected number of characters is entered.
-    if (value.trim().length == _captchaLength && !_submitting) {
-      _submit();
+    // Manual typing no longer auto-submits — the user presses 登录 (or OCR does
+    // it automatically). This avoids firing a login on every keystroke.
+    if (_ocrStatus != OcrStatus.idle) {
+      setState(() => _ocrStatus = OcrStatus.idle);
     }
   }
 
@@ -241,7 +288,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     loading: _loadingCaptcha,
                     controller: _captchaCtrl,
                     focusNode: _captchaFocus,
-                    onRefresh: _refreshCaptcha,
+                    ocrStatus: _ocrStatus,
+                    onRefresh: () => _refreshCaptcha(),
                     onChanged: _onCaptchaChanged,
                     onSubmit: (_) => _submit(),
                   ),
@@ -254,9 +302,13 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       ),
                       const Text('记住此账号'),
                       const Spacer(),
-                      Text(
-                        '验证码将自动提交',
-                        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                      const Text('自动识别', style: TextStyle(fontSize: 13)),
+                      Switch(
+                        value: _autoRecognize,
+                        onChanged: (v) {
+                          setState(() => _autoRecognize = v);
+                          if (v) _refreshCaptcha();
+                        },
                       ),
                     ],
                   ),
@@ -398,6 +450,7 @@ class _CaptchaRow extends StatelessWidget {
     required this.loading,
     required this.controller,
     required this.focusNode,
+    required this.ocrStatus,
     required this.onRefresh,
     required this.onChanged,
     required this.onSubmit,
@@ -407,6 +460,7 @@ class _CaptchaRow extends StatelessWidget {
   final bool loading;
   final TextEditingController controller;
   final FocusNode focusNode;
+  final OcrStatus ocrStatus;
   final VoidCallback onRefresh;
   final ValueChanged<String> onChanged;
   final ValueChanged<String> onSubmit;
@@ -429,9 +483,10 @@ class _CaptchaRow extends StatelessWidget {
               LengthLimitingTextInputFormatter(6),
               FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
             ],
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: '验证码',
-              prefixIcon: Icon(Icons.pin_outlined),
+              prefixIcon: const Icon(Icons.pin_outlined),
+              suffixIcon: _ocrIndicator(scheme),
             ),
             onChanged: onChanged,
             onSubmitted: onSubmit,
@@ -465,6 +520,22 @@ class _CaptchaRow extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Widget? _ocrIndicator(ColorScheme scheme) {
+    switch (ocrStatus) {
+      case OcrStatus.recognizing:
+        return const Padding(
+          padding: EdgeInsets.all(12),
+          child: SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+        );
+      case OcrStatus.recognized:
+        return const Icon(Icons.auto_awesome, color: Colors.green, size: 20);
+      case OcrStatus.failed:
+        return Icon(Icons.edit_outlined, color: scheme.onSurfaceVariant, size: 20);
+      case OcrStatus.idle:
+        return null;
+    }
   }
 }
 

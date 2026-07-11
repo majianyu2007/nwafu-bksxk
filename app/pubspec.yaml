@@ -25,6 +25,9 @@ dependencies:
   path: ^1.9.0
   # Background & notifications
   flutter_local_notifications: ^17.1.2
+  # Captcha OCR: on-device ONNX inference (android/ios/macos/windows/linux).
+  onnxruntime: ^1.4.1
+  image: ^4.2.0
   # UI niceties
   dynamic_color: ^1.7.0
   cupertino_icons: ^1.0.6
@@ -39,6 +42,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Bundled captcha OCR model (ONNX) + its charset, loaded on-device.
+  assets:
+    - assets/models/
 
   # Fonts are bundled (a GB2312/GBK subset of Noto Sans SC, OFL 1.1) so the app
   # renders Chinese offline and only ever connects to bksxk.nwafu.edu.cn — no
