@@ -331,7 +331,7 @@ class _Brand extends StatelessWidget {
           child: const Icon(Icons.bolt, color: Colors.white, size: 40),
         ),
         const SizedBox(height: 16),
-        Text('西农抢课', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+        Text('西农本科选课', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 4),
         Text('选课 · 抢课，快人一步', style: TextStyle(color: scheme.onSurfaceVariant)),
       ],

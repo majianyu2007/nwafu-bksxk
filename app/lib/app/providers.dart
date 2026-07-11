@@ -15,6 +15,7 @@ import '../data/course_service.dart';
 import '../data/enroll_service.dart';
 import '../data/models.dart';
 import '../data/monitor_engine.dart';
+import '../data/notifications.dart';
 import '../data/storage.dart';
 
 /// Overridden in main() once Storage has been opened.
@@ -205,6 +206,9 @@ class SessionController extends StateNotifier<SessionState> {
         activeBatch: _mgr.activeBatch,
         account: account,
       );
+      // Now that the user is in, ask for notification permission so grab/seat
+      // alerts can reach them when the app is backgrounded.
+      await NotificationService.instance.requestPermission();
     } catch (e) {
       state = state.copyWith(phase: AuthPhase.loggedOut, error: _describe(e));
       rethrow;

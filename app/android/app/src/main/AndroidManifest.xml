@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Reaching the course server requires internet; release builds need this
+         in the main manifest (debug/profile add it automatically). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Android 13+ requires an explicit runtime permission for notifications. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="西农本科选课"
         android:name="${applicationName}"

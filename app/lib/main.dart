@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/providers.dart';
 import 'app/theme.dart';
+import 'data/notifications.dart';
 import 'data/storage.dart';
 import 'ui/login_page.dart';
 import 'ui/root_shell.dart';
@@ -11,6 +12,7 @@ import 'ui/root_shell.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final storage = await Storage.open();
+  await NotificationService.instance.init();
   runApp(
     ProviderScope(
       overrides: [storageProvider.overrideWithValue(storage)],

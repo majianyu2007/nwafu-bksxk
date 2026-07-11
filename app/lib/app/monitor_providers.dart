@@ -5,6 +5,7 @@ library;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/monitor_engine.dart';
+import '../data/notifications.dart';
 import '../data/storage.dart';
 import 'providers.dart';
 
@@ -47,4 +48,38 @@ final monitorRunningProvider = Provider<bool>((ref) {
 final monitorEventsProvider = StreamProvider<MonitorEvent>((ref) {
   final engine = ref.watch(monitorEngineProvider);
   return engine.events;
+});
+
+/// Bridges monitor events to system notifications. Kept alive for the app's
+/// lifetime by a read in the root shell so notifications fire even when the
+/// Monitor tab isn't visible.
+final notificationBridgeProvider = Provider<void>((ref) {
+  final engine = ref.watch(monitorEngineProvider);
+  final sub = engine.events.listen((e) {
+    final w = e.watch;
+    switch (e.kind) {
+      case MonitorEventKind.grabbed:
+        if (w != null) {
+          NotificationService.instance.grabbed(
+            courseName: w.teachingClass.courseName,
+            className: w.teachingClass.displayTitle,
+            place: w.teachingClass.teachingPlace,
+          );
+        }
+      case MonitorEventKind.seatOpen:
+        if (w != null) {
+          NotificationService.instance.seatOpen(
+            courseName: w.teachingClass.courseName,
+            className: w.teachingClass.displayTitle,
+            remaining: w.teachingClass.remaining,
+          );
+        }
+      case MonitorEventKind.stopped:
+        NotificationService.instance.monitorStopped(e.message);
+      case MonitorEventKind.failed:
+      case MonitorEventKind.info:
+        break;
+    }
+  });
+  ref.onDispose(sub.cancel);
 });

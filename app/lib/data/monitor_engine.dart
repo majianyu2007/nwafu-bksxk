@@ -148,13 +148,27 @@ class Watch {
       );
 }
 
+/// The semantic type of a monitor event, for notifications and log styling.
+enum MonitorEventKind { info, seatOpen, grabbed, failed, stopped }
+
 /// An event emitted by the engine for the UI/log.
 class MonitorEvent {
-  MonitorEvent(this.watchId, this.message, {this.success, required this.at});
+  MonitorEvent(
+    this.watchId,
+    this.message, {
+    this.success,
+    required this.at,
+    this.kind = MonitorEventKind.info,
+    this.watch,
+  });
   final String watchId;
   final String message;
   final bool? success;
   final DateTime at;
+  final MonitorEventKind kind;
+
+  /// The watch this event concerns, when applicable (for notification detail).
+  final Watch? watch;
 }
 
 /// Config knobs for polling cadence and safety.
@@ -401,6 +415,7 @@ class MonitorEngine {
     }
     _timers.clear();
     _stopReason = reason;
+    _emit('', reason, success: false, kind: MonitorEventKind.stopped);
     _changes.add(null);
   }
 
@@ -441,7 +456,7 @@ class MonitorEngine {
           w.lastResultAt = DateTime.now();
           w.lastRawResult = outcome.message;
           _timers.remove(w.id)?.cancel();
-          _emit(w.id, '🎉 抢课成功：${w.title}', success: true);
+          _emit(w.id, '🎉 抢课成功：${w.title}', success: true, kind: MonitorEventKind.grabbed, watch: w);
         } else {
           w.status = WatchStatus.watching;
           _emit(w.id, '提交后未确认成功，继续监控：${w.note}', success: false);
@@ -495,8 +510,8 @@ class MonitorEngine {
   bool _capReached(Watch w) =>
       _config.maxAttemptsPerWatch > 0 && w.attempts >= _config.maxAttemptsPerWatch;
 
-  void _emit(String watchId, String message, {bool? success}) {
-    _events.add(MonitorEvent(watchId, message, success: success, at: DateTime.now()));
+  void _emit(String watchId, String message, {bool? success, MonitorEventKind kind = MonitorEventKind.info, Watch? watch}) {
+    _events.add(MonitorEvent(watchId, message, success: success, at: DateTime.now(), kind: kind, watch: watch));
   }
 
   /// Serialises the watch list for persistence.

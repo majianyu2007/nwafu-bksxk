@@ -32,6 +32,8 @@ class _RootShellState extends ConsumerState<RootShell> {
 
   @override
   Widget build(BuildContext context) {
+    // Keep the notification bridge alive for the app's lifetime.
+    ref.watch(notificationBridgeProvider);
     // Badge the Monitor tab with the count of active watches.
     final activeWatches = ref.watch(watchCountProvider);
 
