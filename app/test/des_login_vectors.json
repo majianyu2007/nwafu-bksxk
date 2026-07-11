@@ -1,0 +1,50 @@
+{
+  "1": {
+    "strEncHex": "3EDF2A58AD80BA04",
+    "loginPwd": "M0VERjJBNThBRDgwQkEwNA=="
+  },
+  "": {
+    "strEncHex": "",
+    "loginPwd": ""
+  },
+  "a": {
+    "strEncHex": "9ACA4C42F24CBE08",
+    "loginPwd": "OUFDQTRDNDJGMjRDQkUwOA=="
+  },
+  "ab": {
+    "strEncHex": "F8EE04731F1EDC38",
+    "loginPwd": "RjhFRTA0NzMxRjFFREMzOA=="
+  },
+  "abc": {
+    "strEncHex": "7D20AA3C684417FF",
+    "loginPwd": "N0QyMEFBM0M2ODQ0MTdGRg=="
+  },
+  "abcd": {
+    "strEncHex": "2EB5DFAF45B837E4",
+    "loginPwd": "MkVCNURGQUY0NUI4MzdFNA=="
+  },
+  "abcde": {
+    "strEncHex": "2EB5DFAF45B837E409F9FBF5C275A91F",
+    "loginPwd": "MkVCNURGQUY0NUI4MzdFNDA5RjlGQkY1QzI3NUE5MUY="
+  },
+  "password": {
+    "strEncHex": "5FF567486F85566B86A191999B81C4B3",
+    "loginPwd": "NUZGNTY3NDg2Rjg1NTY2Qjg2QTE5MTk5OUI4MUM0QjM="
+  },
+  "Test1234": {
+    "strEncHex": "12FB62482094E1CC5C28ADDE1FF13A3B",
+    "loginPwd": "MTJGQjYyNDgyMDk0RTFDQzVDMjhBRERFMUZGMTNBM0I="
+  },
+  "P@ssw0rd!": {
+    "strEncHex": "6D40D91C07B0F2EA916D3EEE3000DE58809BC56B57CF9C31",
+    "loginPwd": "NkQ0MEQ5MUMwN0IwRjJFQTkxNkQzRUVFMzAwMERFNTg4MDlCQzU2QjU3Q0Y5QzMx"
+  },
+  "学生123": {
+    "strEncHex": "E26E6095437F91A72BA433275E4ABDE4",
+    "loginPwd": "RTI2RTYwOTU0MzdGOTFBNzJCQTQzMzI3NUU0QUJERTQ="
+  },
+  "longpassword_16+chars_abcdef": {
+    "strEncHex": "34E41220B11052545FF567486F85566B86A191999B81C4B3A9466DE3C41E2D9FCA9E893E22F488DCB46649E69B481F6515CCB3A3C4A40B7E",
+    "loginPwd": "MzRFNDEyMjBCMTEwNTI1NDVGRjU2NzQ4NkY4NTU2NkI4NkExOTE5OTlCODFDNEIzQTk0NjZERTNDNDFFMkQ5RkNBOUU4OTNFMjJGNDg4RENCNDY2NDlFNjlCNDgxRjY1MTVDQ0IzQTNDNEE0MEI3RQ=="
+  }
+}
