@@ -93,7 +93,6 @@ class SettingsPage extends ConsumerWidget {
             _MonitorSettings(),
           ],
         ),
-
         _Group(
           title: '账号',
           children: [
@@ -192,21 +191,55 @@ class _MonitorSettings extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // The engine config is fixed at construction; expose the effective cadence
-    // as guidance. Fine-grained tuning could rebuild the engine — kept simple
-    // here to avoid disrupting active watches.
-    return const Column(
+    final cfg = ref.watch(monitorConfigProvider);
+    final ctrl = ref.read(monitorConfigProvider.notifier);
+    final scheme = Theme.of(context).colorScheme;
+    final baseSecs = cfg.basePollInterval.inMilliseconds / 1000.0;
+
+    return Column(
       children: [
-        ListTile(
-          leading: Icon(Icons.speed),
-          title: Text('轮询节奏'),
-          subtitle: Text('普通课程约每 3 秒检查一次余量，优先课程更快（不低于约 1 秒）。发现空位立即以预构建的选课结构体提交，出错时自动退避，避免高频轰炸学校服务器。'),
-          isThreeLine: true,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(
+            children: [
+              const Icon(Icons.speed),
+              const SizedBox(width: 12),
+              const Expanded(child: Text('检查余量间隔')),
+              Text('${baseSecs.toStringAsFixed(1)} 秒',
+                  style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w700)),
+            ],
+          ),
         ),
-        ListTile(
+        Slider(
+          value: baseSecs.clamp(1.0, 15.0),
+          min: 1,
+          max: 15,
+          divisions: 28,
+          label: '${baseSecs.toStringAsFixed(1)}s',
+          onChanged: (v) => ctrl.update(cfg.copyWith(
+            basePollInterval: Duration(milliseconds: (v * 1000).round()),
+          )),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text(
+            '间隔越短抢课越快，但也更接近学校服务器的频率限制。建议 2–4 秒；抢开模式下会自动提速。',
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile(
+          secondary: const Icon(Icons.rocket_launch_outlined),
+          title: const Text('抢开模式'),
+          subtitle: const Text('选课开放瞬间服务器常因人多而崩溃/繁忙。开启后，遇到 5xx、超时或“系统繁忙”视为临时过载，自动退避重试直到成功，而不是停止。账号或验证码错误仍会停止。'),
+          isThreeLine: true,
+          value: cfg.rushMode,
+          onChanged: (v) => ctrl.update(cfg.copyWith(rushMode: v)),
+        ),
+        const ListTile(
           leading: Icon(Icons.verified),
           title: Text('结果确认与自动保护'),
-          subtitle: Text('提交后读取服务器最终回执才算成功；遇到验证码、账号异常、系统维护或限流会立即停止，不会重复提交同一空位。'),
+          subtitle: Text('提交后读取服务器最终回执才算成功；正常模式下遇到验证码、账号异常、系统维护或限流会立即停止，不会重复提交同一空位。'),
           isThreeLine: true,
         ),
       ],

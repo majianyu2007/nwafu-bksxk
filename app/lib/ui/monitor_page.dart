@@ -27,6 +27,8 @@ class MonitorPage extends ConsumerWidget {
             children: [
               Text('监控', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
               const Spacer(),
+              if (watches.isNotEmpty) const _PlanToggleButton(),
+              if (watches.isNotEmpty) const SizedBox(width: 8),
               if (watches.isNotEmpty)
                 FilledButton.tonalIcon(
                   onPressed: running ? engine.stop : engine.start,
@@ -38,6 +40,7 @@ class MonitorPage extends ConsumerWidget {
         ),
         const _RunningBanner(),
         const _HaltReasonBanner(),
+        const _PlanBanner(),
         Expanded(
           child: watches.isEmpty
               ? const EmptyState(
@@ -85,6 +88,71 @@ class _RunningBanner extends ConsumerWidget {
       ),
     );
   }
+}
+
+class _PlanToggleButton extends ConsumerWidget {
+  const _PlanToggleButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final plan = ref.watch(planControllerProvider);
+    final ctrl = ref.read(planControllerProvider.notifier);
+    if (plan.armed) {
+      return OutlinedButton.icon(
+        onPressed: ctrl.disarm,
+        icon: const Icon(Icons.cancel_outlined, size: 18),
+        label: const Text('退出计划'),
+      );
+    }
+    return FilledButton.tonalIcon(
+      onPressed: () => ctrl.arm(),
+      icon: const Icon(Icons.rocket_launch_outlined, size: 18),
+      label: const Text('计划抢课'),
+    );
+  }
+}
+
+class _PlanBanner extends ConsumerWidget {
+  const _PlanBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final plan = ref.watch(planControllerProvider);
+    final scheme = Theme.of(context).colorScheme;
+    if (!plan.armed) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(plan.checking ? Icons.sync : Icons.schedule, color: scheme.onTertiaryContainer, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('计划模式已就绪',
+                    style: TextStyle(color: scheme.onTertiaryContainer, fontWeight: FontWeight.w700)),
+                Text(
+                  plan.batchOpen
+                      ? '选课已开放，正在提交计划'
+                      : '正在等待选课开放，一旦开放立即提交${plan.lastCheckedAt != null ? '（上次检查 ${_fmtHms(plan.lastCheckedAt!)}）' : ''}',
+                  style: TextStyle(color: scheme.onTertiaryContainer, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _fmtHms(DateTime t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';
 }
 
 class _HaltReasonBanner extends ConsumerWidget {

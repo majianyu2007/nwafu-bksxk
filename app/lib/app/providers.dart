@@ -4,6 +4,8 @@
 /// Kept hand-written (no codegen) so the project builds without build_runner.
 library;
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -51,12 +53,37 @@ final sessionManagerProvider = Provider<SessionManager>((ref) {
 });
 
 final monitorEngineProvider = Provider<MonitorEngine>((ref) {
+  final storage = ref.watch(storageProvider);
+  final saved = storage.monitorConfigJson();
+  final cfg = saved != null
+      ? MonitorConfig.fromJson(jsonDecode(saved) as Map<String, dynamic>)
+      : const MonitorConfig();
   final engine = MonitorEngine(
     courseService: ref.watch(courseServiceProvider),
     enrollService: ref.watch(enrollServiceProvider),
+    config: cfg,
   );
   ref.onDispose(engine.dispose);
   return engine;
+});
+
+/// Reads/updates the monitor config, persisting changes and applying them to
+/// the live engine.
+class MonitorConfigController extends StateNotifier<MonitorConfig> {
+  MonitorConfigController(this._ref, MonitorConfig initial) : super(initial);
+  final Ref _ref;
+
+  Future<void> update(MonitorConfig cfg) async {
+    state = cfg;
+    _ref.read(monitorEngineProvider).config = cfg;
+    await _ref.read(storageProvider).setMonitorConfigJson(jsonEncode(cfg.toJson()));
+  }
+}
+
+final monitorConfigProvider =
+    StateNotifierProvider<MonitorConfigController, MonitorConfig>((ref) {
+  final engine = ref.watch(monitorEngineProvider);
+  return MonitorConfigController(ref, engine.config);
 });
 
 // ---------------------------------------------------------------------------

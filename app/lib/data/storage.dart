@@ -81,6 +81,7 @@ class Storage {
   static const _kThemeMode = 'theme_mode.v1';
   static const _kSeedColor = 'seed_color.v1';
   static const _kOrigin = 'api_origin.v1';
+  static const _kMonitorConfig = 'monitor_config.v1';
   static String _pwKey(String id) => 'pw::$id';
 
   static Future<Storage> open() async => Storage(await SharedPreferences.getInstance());
@@ -157,4 +158,8 @@ class Storage {
 
   String origin() => _prefs.getString(_kOrigin) ?? 'https://bksxk.nwafu.edu.cn';
   Future<void> setOrigin(String v) async => _prefs.setString(_kOrigin, v);
+
+  /// Monitor config JSON (cadence + rush mode). Null until the user customizes.
+  String? monitorConfigJson() => _prefs.getString(_kMonitorConfig);
+  Future<void> setMonitorConfigJson(String v) async => _prefs.setString(_kMonitorConfig, v);
 }

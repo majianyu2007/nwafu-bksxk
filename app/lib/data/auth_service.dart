@@ -18,6 +18,7 @@ library;
 
 import '../core/constants.dart';
 import '../core/crypto/des_login.dart';
+import '../core/errors.dart';
 import 'api_client.dart';
 import 'captcha.dart';
 import 'models.dart';
@@ -205,6 +206,107 @@ class SessionManager {
       if (b.canSelect) return b;
     }
     return list.first;
+  }
+
+  /// Retries login through transient server failures until it succeeds, a hard
+  /// error occurs, or [shouldContinue] returns false (user cancelled).
+  ///
+  /// This is for the opening-rush stampede, when the server is crashing/timing
+  /// out/返回繁忙 under load. Those are transient: we back off and try again.
+  /// Bad credentials or a bad captcha are NOT transient — we stop and rethrow so
+  /// the user can fix them. A captcha is re-fetched (and re-solved via [solver],
+  /// or re-requested via [onNeedCaptcha]) on every attempt.
+  ///
+  /// [onNeedCaptcha] is called when no solver can answer and a human must enter
+  /// the code; it returns (verifyCode, vtoken) or null to abort.
+  Future<void> loginWithRetry({
+    required String loginName,
+    required String password,
+    String? initialVerifyCode,
+    String? initialVtoken,
+    Future<(String, String)?> Function()? onNeedCaptcha,
+    bool Function()? shouldContinue,
+    void Function(int attempt, String message)? onProgress,
+    Duration baseDelay = const Duration(seconds: 2),
+    Duration maxDelay = const Duration(seconds: 20),
+    int maxAttempts = 0, // 0 = unlimited until success/hard-stop/cancel
+  }) async {
+    var attempt = 0;
+    String? verifyCode = initialVerifyCode;
+    String? vtoken = initialVtoken;
+
+    while (true) {
+      if (shouldContinue != null && !shouldContinue()) {
+        throw LoginException('cancelled', '已取消登录');
+      }
+      attempt++;
+
+      // Ensure we have a captcha answer for this attempt.
+      if (verifyCode == null || verifyCode.isEmpty || vtoken == null || vtoken.isEmpty) {
+        final solved = await _obtainCaptcha(onNeedCaptcha);
+        if (solved == null) {
+          throw LoginException('cancelled', '需要验证码，已取消');
+        }
+        verifyCode = solved.$1;
+        vtoken = solved.$2;
+      }
+
+      try {
+        await loginInteractive(
+          loginName: loginName,
+          password: password,
+          verifyCode: verifyCode,
+          vtoken: vtoken,
+        );
+        onProgress?.call(attempt, '登录成功');
+        return;
+      } on LoginException catch (e) {
+        // Bad credentials -> hard stop. Bad captcha -> get a new one and retry
+        // immediately (not a "server down" situation).
+        if (e.code == '2') rethrow; // wrong username/password
+        if (e.code == '3') {
+          onProgress?.call(attempt, '验证码错误，重试');
+          verifyCode = null;
+          vtoken = null;
+          continue;
+        }
+        // Other login codes: treat as transient (server may be flaky at open).
+        onProgress?.call(attempt, e.message.isEmpty ? '登录失败，重试' : e.message);
+      } on AppError catch (e) {
+        if (e.isHardStop && e.kind == AppErrorKind.account) rethrow;
+        // Network/timeout/5xx/maintenance/campus — all transient during a rush.
+        onProgress?.call(attempt, e.message);
+        // Force a fresh captcha next round in case the vtoken expired.
+        verifyCode = null;
+        vtoken = null;
+      }
+
+      if (maxAttempts > 0 && attempt >= maxAttempts) {
+        throw LoginException('exhausted', '重试次数已用尽，仍无法登录');
+      }
+
+      // Exponential backoff, capped, so we don't pile onto a struggling server.
+      final factor = 1 << (attempt - 1).clamp(0, 20);
+      final delayMs = (baseDelay.inMilliseconds * factor).clamp(0, maxDelay.inMilliseconds);
+      onProgress?.call(attempt, '第 $attempt 次重试，${(delayMs / 1000).toStringAsFixed(1)}s 后再试');
+      await Future<void>.delayed(Duration(milliseconds: delayMs));
+    }
+  }
+
+  /// Gets a captcha answer: prefers the headless solver, falls back to the UI
+  /// callback. Returns (verifyCode, vtoken) or null to abort.
+  Future<(String, String)?> _obtainCaptcha(Future<(String, String)?> Function()? onNeedCaptcha) async {
+    try {
+      final challenge = await _auth.fetchCaptcha();
+      final solved = await _solver.solve(challenge.imageBytes);
+      if (solved != null && solved.isNotEmpty) {
+        return (solved, challenge.vtoken);
+      }
+    } catch (_) {
+      // fall through to UI callback
+    }
+    if (onNeedCaptcha != null) return onNeedCaptcha();
+    return null;
   }
 
   /// The silent path invoked by ApiClient on expiry. Returns a fresh token or

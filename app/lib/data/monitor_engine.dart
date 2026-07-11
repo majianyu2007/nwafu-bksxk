@@ -181,6 +181,7 @@ class MonitorConfig {
     this.confirmAfterGrab = true,
     this.maxBackoff = const Duration(minutes: 2),
     this.backoffBase = const Duration(seconds: 2),
+    this.rushMode = false,
   });
 
   /// Baseline seconds between capacity polls for a watch.
@@ -203,22 +204,74 @@ class MonitorConfig {
 
   /// Backoff unit; delay = backoffBase * 2^(consecutiveErrors-1), capped.
   final Duration backoffBase;
+
+  /// Rush mode: for the opening-minutes stampede when the server buckles under
+  /// load. In this mode a "系统繁忙"/throttle or 5xx/timeout is treated as a
+  /// TRANSIENT overload — the watch keeps retrying (with backoff) instead of
+  /// hard-stopping the engine. Account/captcha errors still hard-stop, because
+  /// those genuinely need a human. Off by default (normal mode is conservative).
+  final bool rushMode;
+
+  MonitorConfig copyWith({
+    Duration? basePollInterval,
+    Duration? minPollInterval,
+    Duration? jitter,
+    int? maxAttemptsPerWatch,
+    bool? confirmAfterGrab,
+    Duration? maxBackoff,
+    Duration? backoffBase,
+    bool? rushMode,
+  }) =>
+      MonitorConfig(
+        basePollInterval: basePollInterval ?? this.basePollInterval,
+        minPollInterval: minPollInterval ?? this.minPollInterval,
+        jitter: jitter ?? this.jitter,
+        maxAttemptsPerWatch: maxAttemptsPerWatch ?? this.maxAttemptsPerWatch,
+        confirmAfterGrab: confirmAfterGrab ?? this.confirmAfterGrab,
+        maxBackoff: maxBackoff ?? this.maxBackoff,
+        backoffBase: backoffBase ?? this.backoffBase,
+        rushMode: rushMode ?? this.rushMode,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'basePollMs': basePollInterval.inMilliseconds,
+        'minPollMs': minPollInterval.inMilliseconds,
+        'jitterMs': jitter.inMilliseconds,
+        'maxAttempts': maxAttemptsPerWatch,
+        'confirmAfterGrab': confirmAfterGrab,
+        'maxBackoffMs': maxBackoff.inMilliseconds,
+        'backoffBaseMs': backoffBase.inMilliseconds,
+        'rushMode': rushMode,
+      };
+
+  factory MonitorConfig.fromJson(Map<String, dynamic> j) => MonitorConfig(
+        basePollInterval: Duration(milliseconds: (j['basePollMs'] as num?)?.toInt() ?? 3000),
+        minPollInterval: Duration(milliseconds: (j['minPollMs'] as num?)?.toInt() ?? 1200),
+        jitter: Duration(milliseconds: (j['jitterMs'] as num?)?.toInt() ?? 800),
+        maxAttemptsPerWatch: (j['maxAttempts'] as num?)?.toInt() ?? 0,
+        confirmAfterGrab: j['confirmAfterGrab'] as bool? ?? true,
+        maxBackoff: Duration(milliseconds: (j['maxBackoffMs'] as num?)?.toInt() ?? 120000),
+        backoffBase: Duration(milliseconds: (j['backoffBaseMs'] as num?)?.toInt() ?? 2000),
+        rushMode: j['rushMode'] as bool? ?? false,
+      );
 }
 
 class MonitorEngine {
   MonitorEngine({
     required CourseService courseService,
     required EnrollService enrollService,
-    MonitorConfig config = const MonitorConfig(),
+    this.config = const MonitorConfig(),
     Random? random,
   })  : _course = courseService,
         _enroll = enrollService,
-        _config = config,
         _rng = random ?? Random();
 
   final CourseService _course;
   final EnrollService _enroll;
-  final MonitorConfig _config;
+
+  /// The active cadence/safety config. Replacing it takes effect on the next
+  /// tick (or restart) — in-flight timers keep their current delay.
+  MonitorConfig config;
   final Random _rng;
 
   final Map<String, Watch> _watches = {};
@@ -241,6 +294,32 @@ class MonitorEngine {
 
   List<Watch> get watches => _watches.values.toList(growable: false);
   bool get isRunning => _running;
+
+  /// When false, the engine polls capacity for display but does NOT submit any
+  /// grab — used for pre-open "plan" watches that should fire only once the
+  /// batch opens. Flip to true (via [openGate]) the instant the batch opens.
+  bool _gateOpen = true;
+  bool get gateOpen => _gateOpen;
+
+  /// Opens the grab gate: armed watches sitting on an open seat will grab on
+  /// their next (immediate) tick. Optionally re-arms every watch to fire now.
+  void openGate({bool grabNow = true}) {
+    _gateOpen = true;
+    _emit('', '选课已开放，开始提交', kind: MonitorEventKind.info);
+    if (grabNow && _running) {
+      for (final w in _watches.values) {
+        if (w.status == WatchStatus.watching) _schedule(w, immediate: true);
+      }
+    }
+    _changes.add(null);
+  }
+
+  /// Closes the gate (plans are armed but held). New engines start open; call
+  /// this before adding plan watches you want to hold until batch-open.
+  void closeGate() {
+    _gateOpen = false;
+    _changes.add(null);
+  }
 
   /// Arms a watch. Pre-resolves the add param to catch missing test/textbook
   /// selections up front (sets status=needsSetup instead of failing at grab).
@@ -337,8 +416,8 @@ class MonitorEngine {
   }
 
   Duration _nextInterval(Watch w) {
-    final base = w.priority > 0 ? _config.minPollInterval : _config.basePollInterval;
-    final jitterMs = _config.jitter.inMilliseconds;
+    final base = w.priority > 0 ? config.minPollInterval : config.basePollInterval;
+    final jitterMs = config.jitter.inMilliseconds;
     final extra = jitterMs == 0 ? 0 : _rng.nextInt(jitterMs);
     var interval = base + Duration(milliseconds: extra);
 
@@ -346,8 +425,8 @@ class MonitorEngine {
     // struggling server is not hammered.
     if (w.consecutiveErrors > 0) {
       final factor = 1 << (w.consecutiveErrors - 1); // 2^(n-1)
-      final backoff = _config.backoffBase * factor;
-      final capped = backoff > _config.maxBackoff ? _config.maxBackoff : backoff;
+      final backoff = config.backoffBase * factor;
+      final capped = backoff > config.maxBackoff ? config.maxBackoff : backoff;
       if (capped > interval) interval = capped;
     }
     return interval;
@@ -370,7 +449,7 @@ class MonitorEngine {
       w.consecutiveErrors = 0; // healthy poll resets backoff
       _changes.add(null);
 
-      if (fresh.isGrabbable) {
+      if (fresh.isGrabbable && _gateOpen) {
         await _attemptGrab(w);
       }
     } on AppError catch (e) {
@@ -389,8 +468,15 @@ class MonitorEngine {
   void _onWatchError(Watch w, AppError e) {
     w.note = e.message;
     if (e.kind == AppErrorKind.maintenanceOrThrottle) {
-      // The server is telling us to stop. Halt the ENTIRE engine, not just this
-      // watch — continuing would hammer a system that is already struggling.
+      if (config.rushMode) {
+        // Opening rush: the server is overloaded, not telling us to go away for
+        // good. Keep this watch and back off — do NOT halt the engine. This is
+        // still server-friendly because the backoff grows with each failure.
+        w.consecutiveErrors++;
+        _emit(w.id, '服务器繁忙，稍后重试（抢开模式）：${e.message}', success: false);
+        return;
+      }
+      // Normal mode: the server is telling us to stop. Halt the ENTIRE engine.
       _emit(w.id, '系统繁忙/维护，已停止全部监控以免加重负载：${e.message}', success: false);
       _haltAll('系统繁忙或维护中');
       return;
@@ -444,7 +530,7 @@ class MonitorEngine {
       // studentstatus.do before declaring victory.
       if (outcome.success) {
         var confirmed = true;
-        if (_config.confirmAfterGrab) {
+        if (config.confirmAfterGrab) {
           final status = await _enroll.confirmStatus(w.studentCode);
           // A non-ok confirmation means the seat did not actually stick.
           confirmed = status.ok;
@@ -466,9 +552,15 @@ class MonitorEngine {
         final err = AppError.fromBusiness(outcome.code, outcome.message);
         w.lastResultAt = DateTime.now();
         w.lastRawResult = '${outcome.code}: ${outcome.message}';
-        if (err.kind == AppErrorKind.maintenanceOrThrottle) {
+        if (err.kind == AppErrorKind.maintenanceOrThrottle && !config.rushMode) {
           _emit(w.id, '系统繁忙/维护，已停止全部监控：${err.message}', success: false);
           _haltAll('系统繁忙或维护中');
+        } else if (err.kind == AppErrorKind.maintenanceOrThrottle) {
+          // Rush mode: overload is transient — keep trying with backoff.
+          w.status = WatchStatus.watching;
+          w.note = err.message;
+          w.consecutiveErrors++;
+          _emit(w.id, '服务器繁忙，稍后重试（抢开模式）：${err.message}', success: false);
         } else if (err.isHardStop) {
           w.status = WatchStatus.failed;
           w.note = err.message;
@@ -508,7 +600,7 @@ class MonitorEngine {
   }
 
   bool _capReached(Watch w) =>
-      _config.maxAttemptsPerWatch > 0 && w.attempts >= _config.maxAttemptsPerWatch;
+      config.maxAttemptsPerWatch > 0 && w.attempts >= config.maxAttemptsPerWatch;
 
   void _emit(String watchId, String message, {bool? success, MonitorEventKind kind = MonitorEventKind.info, Watch? watch}) {
     _events.add(MonitorEvent(watchId, message, success: success, at: DateTime.now(), kind: kind, watch: watch));
