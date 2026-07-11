@@ -211,6 +211,35 @@ void main() {
     engine.dispose();
   });
 
+  test('rush mode treats throttle as transient: keeps running and retries', () async {
+    // Same throttle response, but rush mode is on — the opening-stampede case.
+    final course = FakeCourseService({'TCR': List.filled(30, 3)});
+    final enroll = FakeEnrollService(succeed: false, outcomeCode: '0', outcomeMsg: '系统繁忙，请稍后再试');
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(
+        basePollInterval: Duration(milliseconds: 5),
+        minPollInterval: Duration(milliseconds: 5),
+        backoffBase: Duration(milliseconds: 2),
+        maxBackoff: Duration(milliseconds: 20),
+        jitter: Duration.zero,
+        rushMode: true,
+      ),
+    );
+    engine.addWatch(watchFor(plainTc('TCR')));
+    engine.start();
+
+    // Give it time to attempt several times.
+    await _waitFor(() => enroll.submitted.length >= 2, timeout: const Duration(seconds: 2));
+    // The engine must NOT have halted, and must have retried the submit.
+    expect(engine.isRunning, isTrue, reason: 'rush mode must not hard-stop on throttle');
+    expect(enroll.submitted.length, greaterThanOrEqualTo(2), reason: 'rush mode retries the grab');
+    expect(engine.watches.first.status, isNot(WatchStatus.failed));
+    engine.stop();
+    engine.dispose();
+  });
+
   test('success is only declared when the server confirms it', () async {
     // Submit "succeeds" but confirmStatus says it did not stick.
     final course = FakeCourseService({'TCC': [2, 2, 2, 2]});
@@ -246,6 +275,37 @@ void main() {
     await _waitFor(() => engine.watches.first.status == WatchStatus.grabbed, timeout: const Duration(seconds: 2));
     engine.stop();
     expect(enroll.submitted.length, 1, reason: 'in-flight guard prevents double submit');
+    engine.dispose();
+  });
+
+  test('closed gate holds the grab until opened (pre-open plan)', () async {
+    // Seat is open from the start, but the gate is closed: a pre-open plan must
+    // poll capacity for display yet NOT submit until the batch opens.
+    final course = FakeCourseService({'TCG': List.filled(30, 4)});
+    final enroll = FakeEnrollService(succeed: true);
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+    );
+    engine.addWatch(watchFor(plainTc('TCG')));
+    engine.closeGate();
+    engine.start();
+
+    // Let it poll several times; it must NOT have grabbed while gated.
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(enroll.submitted, isEmpty, reason: 'closed gate must hold submission');
+    expect(engine.watches.first.status, isNot(WatchStatus.grabbed));
+
+    // Open the gate — it should grab on the next (immediate) tick.
+    engine.openGate();
+    final grabbed = await _waitFor(
+      () => engine.watches.first.status == WatchStatus.grabbed,
+      timeout: const Duration(seconds: 2),
+    );
+    engine.stop();
+    expect(grabbed, isTrue, reason: 'opening the gate fires the held grab');
+    expect(enroll.submitted.length, 1);
     engine.dispose();
   });
 }
