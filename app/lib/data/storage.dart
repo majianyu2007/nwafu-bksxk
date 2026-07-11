@@ -73,6 +73,13 @@ class Storage {
   final SharedPreferences _prefs;
   static const _secure = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    // macOS: use the legacy file-based keychain instead of the data-protection
+    // keychain. The data-protection keychain requires a real code signature
+    // (Apple Developer team); without one it throws errSecMissingEntitlement
+    // (-34018). The file-based keychain works on unsigned/ad-hoc local builds,
+    // which is what most users of an unsigned .app will run.
+    mOptions: MacOsOptions(useDataProtectionKeyChain: false),
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
   );
 
   static const _kAccounts = 'accounts.v1';
@@ -98,6 +105,42 @@ class Storage {
     await _prefs.setString(_kAccounts, jsonEncode(list.map((e) => e.toJson()).toList()));
   }
 
+  /// Set false when a secure-storage operation throws (e.g. missing keychain
+  /// entitlement on an unsigned macOS build, errSecMissingEntitlement/-34018).
+  /// The app keeps working; the password just isn't persisted this session.
+  bool secureStorageAvailable = true;
+
+  /// The last secure-storage error message, for diagnostics.
+  String? secureStorageError;
+
+  Future<void> _secureWrite(String key, String value) async {
+    try {
+      await _secure.write(key: key, value: value);
+    } catch (e) {
+      secureStorageAvailable = false;
+      secureStorageError = '$e';
+    }
+  }
+
+  Future<String?> _secureRead(String key) async {
+    try {
+      return await _secure.read(key: key);
+    } catch (e) {
+      secureStorageAvailable = false;
+      secureStorageError = '$e';
+      return null;
+    }
+  }
+
+  Future<void> _secureDelete(String key) async {
+    try {
+      await _secure.delete(key: key);
+    } catch (e) {
+      secureStorageAvailable = false;
+      secureStorageError = '$e';
+    }
+  }
+
   /// Upserts an account (matched by id) and stores its password securely when given.
   Future<void> upsertAccount(Account account, {String? password}) async {
     final list = accounts();
@@ -109,20 +152,20 @@ class Storage {
     }
     await _saveAccounts(list);
     if (password != null) {
-      await _secure.write(key: _pwKey(account.id), value: password);
+      await _secureWrite(_pwKey(account.id), password);
     }
   }
 
   Future<void> removeAccount(String id) async {
     final list = accounts()..removeWhere((a) => a.id == id);
     await _saveAccounts(list);
-    await _secure.delete(key: _pwKey(id));
+    await _secureDelete(_pwKey(id));
     if (activeAccountId() == id) {
       await setActiveAccount(list.isEmpty ? null : list.first.id);
     }
   }
 
-  Future<String?> passwordFor(String id) => _secure.read(key: _pwKey(id));
+  Future<String?> passwordFor(String id) => _secureRead(_pwKey(id));
 
   String? activeAccountId() => _prefs.getString(_kActiveAccount);
 
