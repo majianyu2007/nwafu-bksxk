@@ -220,6 +220,40 @@ class TeachingClass {
   /// True when there is at least one open seat and no conflict blocking us.
   bool get isGrabbable => remaining > 0 && !isConflict;
 
+  // --- Detail-only convenience reads (straight from [raw], no ctor churn) ---
+
+  /// Course credit, e.g. "1.5".
+  String get credit => _s(raw['credit']);
+
+  /// Class hours, e.g. "32".
+  String get hours => _s(raw['hours']);
+
+  /// Exam time text, when the server provides it.
+  String get examTime => _s(raw['examTime']);
+
+  /// Exam type/mode label.
+  String get examType => _s(raw['examType']);
+
+  /// Course type name (e.g. 公共必修课).
+  String get courseTypeName => _s(raw['courseTypeName'] ?? raw['courseNatureName']);
+
+  /// Teaching method label.
+  String get teachingMethod => _s(raw['teachingMethod']);
+
+  /// Term label.
+  String get schoolTerm => _s(raw['schoolTerm']);
+
+  /// Selection-limit descriptions (班级/年级/专业限制) from limitKindList.
+  List<String> get limits {
+    final list = raw['limitKindList'];
+    if (list is! List) return const [];
+    return list
+        .whereType<Map>()
+        .map((e) => _s(e['limitDesc'] ?? e['name']))
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
   /// Card title mirroring the site: "[index-track]teacher".
   String get displayTitle {
     final parts = <String>[];

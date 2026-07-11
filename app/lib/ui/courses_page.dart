@@ -240,6 +240,24 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
 
   Future<void> _grab(TeachingClass tc) async {
     final ctrl = ref.read(coursesProvider.notifier);
+    // Immediate conflict feedback: tell the user before we submit, using the
+    // conflict flag the server already put on this row.
+    if (tc.isConflict) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('课程时间冲突'),
+          content: Text(tc.conflictDesc.isNotEmpty
+              ? '该教学班与已选课程冲突：\n${tc.conflictDesc}\n\n仍要尝试选课吗？'
+              : '该教学班与已选课程存在时间冲突。仍要尝试选课吗？'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('仍要选')),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
     try {
       final (testId, book) = await _resolveSelectionsIfNeeded(tc);
       final outcome = await ctrl.grabNow(tc, testTeachingClassId: testId, bookSelection: book);

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../core/constants.dart';
 import '../data/models.dart';
+import 'teaching_class_detail.dart';
 import 'widgets.dart';
 
 class TeachingClassTile extends StatelessWidget {
@@ -55,6 +56,12 @@ class TeachingClassTile extends StatelessWidget {
               ),
               if (tc.isChoose)
                 const StatusPill(label: '已选', color: Colors.green, icon: Icons.check),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: Icon(Icons.info_outline, size: 20, color: scheme.onSurfaceVariant),
+                tooltip: '教学班详情',
+                onPressed: () => showTeachingClassDetail(context, tc),
+              ),
             ],
           ),
           const SizedBox(height: 8),
