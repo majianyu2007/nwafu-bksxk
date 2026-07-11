@@ -1,0 +1,167 @@
+name: Release
+
+# Builds the app for every platform and publishes a GitHub Release when a
+# version tag (v*) is pushed. Also deploys the promo site to GitHub Pages.
+#
+# Trigger: git tag v1.0.0 && git push origin v1.0.0
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # create releases + upload assets
+  pages: write
+  id-token: write
+
+env:
+  FLUTTER_VERSION: "3.44.6"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build apk --release
+      - name: Rename
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/nwafu-bksxk-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/*
+
+  # ---------------------------------------------------------------------------
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build macos --release
+      - name: Package .dmg (fallback to zip)
+        run: |
+          mkdir -p dist
+          APP=$(find build/macos/Build/Products/Release -maxdepth 1 -name "*.app" | head -1)
+          # hdiutil is available on macOS runners
+          hdiutil create -volname "西农本科选课" -srcfolder "$APP" -ov -format UDZO dist/nwafu-bksxk-macos.dmg || \
+            (cd "$(dirname "$APP")" && zip -r -y "$GITHUB_WORKSPACE/dist/nwafu-bksxk-macos.zip" "$(basename "$APP")")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*
+
+  # ---------------------------------------------------------------------------
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build windows --release
+      - name: Zip
+        run: |
+          mkdir dist
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dist/nwafu-bksxk-windows.zip
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+
+  # ---------------------------------------------------------------------------
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build linux --release
+      - name: Tarball
+        run: |
+          mkdir -p dist
+          tar -C build/linux/x64/release/bundle -czf dist/nwafu-bksxk-linux.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+
+  # ---------------------------------------------------------------------------
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - run: flutter create . --platforms web --project-name nwafu_bksxk
+      - run: flutter pub get
+      - run: flutter build web --release --base-href /nwafu-bksxk/app/
+      - name: Assemble site (landing page + web app under /app)
+        run: |
+          mkdir -p public
+          cp -r site/* public/
+          mkdir -p public/app
+          cp -r build/web/* public/app/
+          cp web_bridge/bksxk-web-bridge.user.js public/bksxk-web-bridge.user.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: public/*
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  # ---------------------------------------------------------------------------
+  release:
+    needs: [build-android, build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          name: ${{ github.ref_name }}
+          body: |
+            西农本科选课 ${{ github.ref_name }}
+
+            下载对应平台的安装包。首次使用请阅读仓库 README / DEPLOYMENT.md。
+            本系统仅在校园网内可用（校外需 VPN 接入校园网）。
+
+  # ---------------------------------------------------------------------------
+  deploy-pages:
+    needs: [build-web]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
