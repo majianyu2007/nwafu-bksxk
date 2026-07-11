@@ -1,6 +1,7 @@
-name: nwafu_xk
+name: nwafu_bksxk
 description: >-
-  抢课 · A fast, cross-platform NWAFU course selection and auto-grab client.
+  西农本科选课 · A fast, cross-platform NWAFU (bksxk.nwafu.edu.cn) course
+  selection and auto-grab client.
 publish_to: "none"
 version: 1.0.0+1
 
@@ -26,7 +27,6 @@ dependencies:
   flutter_local_notifications: ^17.1.2
   # UI niceties
   dynamic_color: ^1.7.0
-  google_fonts: ^6.2.1
   cupertino_icons: ^1.0.6
 
 dev_dependencies:
@@ -37,3 +37,14 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Fonts are bundled (a GB2312/GBK subset of Noto Sans SC, OFL 1.1) so the app
+  # renders Chinese offline and only ever connects to bksxk.nwafu.edu.cn — no
+  # font CDN at runtime.
+  fonts:
+    - family: NotoSansSC
+      fonts:
+        - asset: assets/fonts/NotoSansSC-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansSC-Medium.ttf
+          weight: 500

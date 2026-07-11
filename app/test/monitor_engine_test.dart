@@ -1,12 +1,12 @@
 // Verifies the auto-grab engine: it grabs when a seat opens, only once, and
 // blocks watches that lack a required test class / textbook. Uses fakes so no
 // network is involved and timing is deterministic.
-import 'package:nwafu_xk/core/constants.dart';
-import 'package:nwafu_xk/data/course_service.dart';
-import 'package:nwafu_xk/data/enroll_service.dart';
-import 'package:nwafu_xk/data/models.dart';
-import 'package:nwafu_xk/data/monitor_engine.dart';
-import 'package:nwafu_xk/data/param_builders.dart';
+import 'package:nwafu_bksxk/core/constants.dart';
+import 'package:nwafu_bksxk/data/course_service.dart';
+import 'package:nwafu_bksxk/data/enroll_service.dart';
+import 'package:nwafu_bksxk/data/models.dart';
+import 'package:nwafu_bksxk/data/monitor_engine.dart';
+import 'package:nwafu_bksxk/data/param_builders.dart';
 import 'package:test/test.dart';
 
 /// A CourseService test double that returns scripted capacities.

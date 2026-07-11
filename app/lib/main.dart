@@ -30,7 +30,7 @@ class NwafuXkApp extends ConsumerWidget {
     return DynamicColorBuilder(
       builder: (lightDynamic, darkDynamic) {
         return MaterialApp(
-          title: '西农抢课',
+          title: '西农本科选课',
           debugShowCheckedModeBanner: false,
           themeMode: theme.mode,
           theme: AppTheme.build(

@@ -1,12 +1,17 @@
 /// App theme: Material 3, seed-based color, refined surfaces, and typography.
 /// Supports light + dark, plus optional platform dynamic color.
+///
+/// Typography uses the bundled NotoSansSC font (declared in pubspec) so Chinese
+/// renders identically on every platform and the app needs no font CDN.
 library;
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   AppTheme._();
+
+  /// The bundled CJK font family. Declared in pubspec.yaml.
+  static const String fontFamily = 'NotoSansSC';
 
   /// Builds a theme for [brightness] from [seed], optionally using a
   /// platform-provided [dynamicScheme] (Android 12+/macOS accent).
@@ -21,12 +26,13 @@ class AppTheme {
     final baseText = brightness == Brightness.dark
         ? Typography.material2021().white
         : Typography.material2021().black;
-    final textTheme = GoogleFonts.notoSansScTextTheme(baseText);
+    final textTheme = baseText.apply(fontFamily: fontFamily);
 
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
       brightness: brightness,
+      fontFamily: fontFamily,
       scaffoldBackgroundColor: scheme.surface,
       textTheme: textTheme,
       splashFactory: InkSparkle.splashFactory,

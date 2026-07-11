@@ -7,7 +7,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:nwafu_xk/core/crypto/des_login.dart';
+import 'package:nwafu_bksxk/core/crypto/des_login.dart';
 import 'package:test/test.dart';
 
 void main() {

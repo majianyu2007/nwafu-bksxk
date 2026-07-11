@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "cn.edu.nwafu" "\0"
-            VALUE "FileDescription", "nwafu_xk" "\0"
+            VALUE "FileDescription", "nwafu_bksxk" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "nwafu_xk" "\0"
+            VALUE "InternalName", "nwafu_bksxk" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 cn.edu.nwafu. All rights reserved." "\0"
-            VALUE "OriginalFilename", "nwafu_xk.exe" "\0"
-            VALUE "ProductName", "nwafu_xk" "\0"
+            VALUE "OriginalFilename", "nwafu_bksxk.exe" "\0"
+            VALUE "ProductName", "nwafu_bksxk" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

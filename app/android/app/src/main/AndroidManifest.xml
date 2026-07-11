@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="nwafu_xk"
+        android:label="西农本科选课"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

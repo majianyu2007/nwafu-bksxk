@@ -5,9 +5,9 @@
 // an incomplete grab.
 import 'dart:convert';
 
-import 'package:nwafu_xk/core/constants.dart';
-import 'package:nwafu_xk/data/models.dart';
-import 'package:nwafu_xk/data/param_builders.dart';
+import 'package:nwafu_bksxk/core/constants.dart';
+import 'package:nwafu_bksxk/data/models.dart';
+import 'package:nwafu_bksxk/data/param_builders.dart';
 import 'package:test/test.dart';
 
 TeachingClass tc({
