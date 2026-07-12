@@ -1,75 +1,70 @@
-/// On-device captcha OCR using a bundled ONNX model.
+/// On-device captcha OCR, migrated from the AutoVerify Chrome extension
+/// (author-permitted). AutoVerify bundles a quantized ddddocr-style CRNN whose
+/// ArgMax is baked into the graph and whose LSTM is the integer
+/// `DynamicQuantizeLSTM` contrib op — which, unlike the float LSTM, computes
+/// consistently on flutter_onnxruntime's native runtime (verified: identical
+/// non-blank indices to onnxruntime 1.27 in Python). That's what makes an
+/// accurate on-device solver possible here.
 ///
-/// The model (`assets/models/captcha.onnx`) is a small CNN with 4 positional
-/// classification heads, trained on synthetic 4-char alphanumeric captchas that
-/// mimic the common noisy style. It takes a 1×1×48×128 grayscale tensor
-/// (normalized to [-1,1]) and emits logits shaped [1, 4, 36] over the charset
-/// (digits + uppercase). We argmax each position and gate on mean confidence.
+/// Pipeline (matches AutoVerify's model.js exactly):
+///   - resize to height 64, width = round(w * 64/h), grayscale,
+///   - normalize (gray/255 - 0.5)/0.5  → [-1,1], tensor [1,1,64,W],
+///   - model output `output` is [1, seqlen] of int64 class indices,
+///   - CTC-collapse (drop consecutive repeats and blank=index 0), map through
+///     the 8210-entry charset (index 0 = "").
 ///
-/// Accuracy on the school's exact captcha style can only be confirmed on the
-/// campus network, so this is wired as a best-effort default: on low confidence
-/// the caller refreshes the captcha and tries again, and manual entry always
-/// remains available. The whole thing is behind [CaptchaSolver] so a better
-/// model (or a remote solver) can replace it without touching the app.
+/// Behind [CaptchaSolver]; if the model is missing or inference fails, solve()
+/// returns null and the UI falls back to manual entry.
 library;
 
 import 'dart:async';
-import 'dart:math' as math;
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'package:image/image.dart' as img;
-import 'package:onnxruntime/onnxruntime.dart';
 
 import 'captcha.dart';
 
 class OnnxCaptchaSolver implements CaptchaSolver {
   OnnxCaptchaSolver({
-    this.modelAsset = 'assets/models/captcha.onnx',
-    this.charsetAsset = 'assets/models/captcha_charset.txt',
-    this.inputWidth = 128,
-    this.inputHeight = 48,
-    this.numChars = 4,
-    this.minConfidence = 0.5,
-    this.caseInsensitive = true,
+    this.modelAsset = 'assets/models/autoverify.onnx',
+    this.charsetAsset = 'assets/models/autoverify_charset.json',
+    this.targetHeight = 64,
+    this.expectedLength = 4,
+    this.restrictToAlnum = true,
   });
 
   final String modelAsset;
   final String charsetAsset;
-  final int inputWidth;
-  final int inputHeight;
-  final int numChars;
+  final int targetHeight;
 
-  /// Reject predictions whose mean per-char probability is below this, so we
-  /// don't waste a vtoken on a low-confidence guess.
-  final double minConfidence;
+  /// If >0, reject results whose length differs (the site's captcha is 4 chars).
+  final int expectedLength;
 
-  /// The charset is uppercase; if the server's captcha is case-insensitive we
-  /// keep the model's uppercase output. (Kept as a flag for future tuning.)
-  final bool caseInsensitive;
+  /// Captchas here are alphanumeric; drop any stray CJK class the model emits.
+  final bool restrictToAlnum;
 
   OrtSession? _session;
-  String _charset = '';
+  String _inputName = 'input1';
+  List<String> _charset = const [];
   bool _initFailed = false;
   Completer<void>? _initing;
 
-  /// True once we've tried to load the model and it wasn't there / failed. Lets
-  /// the UI know OCR is unavailable so it can stay in manual mode.
   bool get unavailable => _initFailed;
 
-  /// Lazily loads the ONNX runtime + model + charset. Safe to call repeatedly.
   Future<void> _ensureInit() async {
     if (_session != null || _initFailed) return;
     if (_initing != null) return _initing!.future;
     final c = Completer<void>();
     _initing = c;
     try {
-      OrtEnv.instance.init();
-      _charset = (await rootBundle.loadString(charsetAsset)).trim();
-      final raw = await rootBundle.load(modelAsset);
-      final bytes = raw.buffer.asUint8List(raw.offsetInBytes, raw.lengthInBytes);
-      final opts = OrtSessionOptions();
-      _session = OrtSession.fromBuffer(bytes, opts);
+      final csRaw = await rootBundle.loadString(charsetAsset);
+      _charset = (jsonDecode(csRaw) as List).map((e) => e.toString()).toList();
+      final session = await OnnxRuntime().createSessionFromAsset(modelAsset);
+      _session = session;
+      _inputName = session.inputNames.isNotEmpty ? session.inputNames.first : 'input1';
     } catch (_) {
       _initFailed = true;
     } finally {
@@ -84,97 +79,87 @@ class OnnxCaptchaSolver implements CaptchaSolver {
     final session = _session;
     if (session == null || _charset.isEmpty) return null;
 
-    final input = _preprocess(imageBytes);
-    if (input == null) return null;
+    final pre = _preprocess(imageBytes);
+    if (pre == null) return null;
 
-    OrtValueTensor? tensor;
-    OrtRunOptions? runOptions;
+    OrtValue? input;
+    Map<String, OrtValue>? outputs;
     try {
-      tensor = OrtValueTensor.createTensorWithDataList(
-        input,
-        [1, 1, inputHeight, inputWidth],
-      );
-      runOptions = OrtRunOptions();
-      final outputs = session.run(runOptions, {'image': tensor});
-      final logits = outputs.first?.value; // [1, numChars, charsetLen]
-      for (final o in outputs) {
-        o?.release();
-      }
-      if (logits is! List) return null;
-      return _decode(logits);
+      input = await OrtValue.fromList(pre.data, [1, 1, targetHeight, pre.width]);
+      outputs = await session.run({_inputName: input});
+      final indices = await outputs.values.first.asFlattenedList();
+      return _decode(indices);
     } catch (_) {
       return null;
     } finally {
-      tensor?.release();
-      runOptions?.release();
+      await input?.dispose();
+      if (outputs != null) {
+        for (final v in outputs.values) {
+          await v.dispose();
+        }
+      }
     }
   }
 
-  /// Decodes the captcha bytes, resizes to the model input, grayscales, and
-  /// normalizes to [-1,1]. Returns a flat Float32List of length H*W.
-  Float32List? _preprocess(List<int> bytes) {
+  /// Resize to height 64 keeping aspect ratio, grayscale, normalize to [-1,1].
+  _Pre? _preprocess(List<int> bytes) {
     img.Image? im;
     try {
       im = img.decodeImage(Uint8List.fromList(bytes));
     } catch (_) {
       return null;
     }
-    if (im == null) return null;
-    final resized = img.copyResize(im, width: inputWidth, height: inputHeight);
-    final out = Float32List(inputHeight * inputWidth);
+    if (im == null || im.height == 0) return null;
+    final width = (im.width * (targetHeight / im.height)).round().clamp(1, 2000);
+    final resized = img.copyResize(im, width: width, height: targetHeight);
+    final out = Float32List(targetHeight * width);
     var i = 0;
-    for (var y = 0; y < inputHeight; y++) {
-      for (var x = 0; x < inputWidth; x++) {
+    for (var y = 0; y < targetHeight; y++) {
+      for (var x = 0; x < width; x++) {
         final p = resized.getPixel(x, y);
-        final lum = (0.299 * p.r + 0.587 * p.g + 0.114 * p.b) / 255.0;
-        out[i++] = (lum - 0.5) / 0.5;
+        final gray = 0.299 * p.r + 0.587 * p.g + 0.114 * p.b;
+        out[i++] = (gray / 255.0 - 0.5) / 0.5;
       }
     }
-    return out;
+    return _Pre(out, width);
   }
 
-  /// Argmax each of the [numChars] positional heads; gate on mean confidence.
-  /// [logits3d] is [1][numChars][charsetLen].
-  String? _decode(List<dynamic> logits3d) {
-    final rows = logits3d[0];
-    if (rows is! List || rows.isEmpty) return null;
-
-    final chars = <String>[];
-    var confSum = 0.0;
-    for (final rowDyn in rows) {
-      final row = (rowDyn as List).cast<double>();
-      var maxIdx = 0;
-      var maxVal = row[0];
-      for (var k = 1; k < row.length; k++) {
-        if (row[k] > maxVal) {
-          maxVal = row[k];
-          maxIdx = k;
-        }
-      }
-      if (maxIdx < 0 || maxIdx >= _charset.length) return null;
-      chars.add(_charset[maxIdx]);
-      confSum += _softmax(row, maxIdx);
+  /// The model output is a flat sequence of class indices (ArgMax in-graph).
+  /// CTC-collapse: drop consecutive repeats and blank (index 0), map to chars.
+  String? _decode(List<dynamic> indices) {
+    final buf = StringBuffer();
+    var last = 0;
+    for (final raw in indices) {
+      final idx = (raw as num).toInt();
+      if (idx == last) continue;
+      last = idx;
+      if (idx == 0) continue;
+      if (idx < 0 || idx >= _charset.length) continue;
+      final ch = _charset[idx];
+      if (ch.isEmpty) continue;
+      if (restrictToAlnum && !_isAlnum(ch)) continue;
+      buf.write(ch);
     }
-    final text = chars.join();
-    final meanConf = confSum / chars.length;
-    if (meanConf < minConfidence) return null;
+    final text = buf.toString();
+    if (text.isEmpty) return null;
+    if (expectedLength > 0 && text.length != expectedLength) return null;
     return text;
   }
 
-  double _softmax(List<double> logits, int idx) {
-    var maxLogit = logits[0];
-    for (final l in logits) {
-      if (l > maxLogit) maxLogit = l;
-    }
-    var sum = 0.0;
-    for (final l in logits) {
-      sum += math.exp(l - maxLogit);
-    }
-    return math.exp(logits[idx] - maxLogit) / (sum == 0 ? 1 : sum);
+  bool _isAlnum(String ch) {
+    if (ch.length != 1) return false;
+    final code = ch.codeUnitAt(0);
+    return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
   }
 
-  void dispose() {
-    _session?.release();
+  Future<void> dispose() async {
+    await _session?.close();
     _session = null;
   }
+}
+
+class _Pre {
+  _Pre(this.data, this.width);
+  final Float32List data;
+  final int width;
 }

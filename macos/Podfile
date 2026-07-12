@@ -1,4 +1,4 @@
-platform :osx, '12.0'
+platform :osx, '14.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -41,7 +41,7 @@ post_install do |installer|
     # Xcode 27 requires macOS deployment target >= 12.0. Some plugins still
     # declare 10.11/10.14, which fails the build; force them all to 12.0.
     target.build_configurations.each do |config|
-      config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '12.0'
+      config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '14.0'
     end
   end
 end

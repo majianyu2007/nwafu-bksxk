@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../app/theme.dart';
+import '../data/http_ocr_solver.dart';
 import 'diagnostics_page.dart';
 import 'widgets.dart';
 
@@ -91,6 +92,12 @@ class SettingsPage extends ConsumerWidget {
           title: '抢课设置',
           children: [
             _MonitorSettings(),
+          ],
+        ),
+        const _Group(
+          title: '验证码识别',
+          children: [
+            _OcrSettings(),
           ],
         ),
         _Group(
@@ -181,6 +188,183 @@ class _Group extends StatelessWidget {
           ),
           Card(child: Column(children: children)),
         ],
+      ),
+    );
+  }
+}
+
+/// Captcha-recognition settings: built-in on-device model vs a custom OCR API.
+class _OcrSettings extends ConsumerWidget {
+  const _OcrSettings();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final api = ref.watch(ocrApiProvider);
+    final usingApi = api != null && api.isValid;
+    return Column(
+      children: [
+        ListTile(
+          leading: const Icon(Icons.auto_awesome),
+          title: const Text('识别方式'),
+          subtitle: Text(usingApi
+              ? '使用自定义 OCR API：${api.url}'
+              : '使用内置离线模型（自动识别并填写验证码，识别失败自动换一张重试）'),
+          isThreeLine: true,
+        ),
+        ListTile(
+          leading: const Icon(Icons.api),
+          title: const Text('自定义 OCR API'),
+          subtitle: Text(usingApi ? '已配置' : '可选：填入你自己的打码服务地址'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => showModalBottomSheet<void>(
+            context: context,
+            isScrollControlled: true,
+            showDragHandle: true,
+            builder: (_) => const _OcrApiEditor(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OcrApiEditor extends ConsumerStatefulWidget {
+  const _OcrApiEditor();
+  @override
+  ConsumerState<_OcrApiEditor> createState() => _OcrApiEditorState();
+}
+
+class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
+  late final TextEditingController _url;
+  late final TextEditingController _imageField;
+  late final TextEditingController _responseField;
+  OcrRequestFormat _req = OcrRequestFormat.base64Json;
+  OcrResponseFormat _resp = OcrResponseFormat.jsonField;
+
+  @override
+  void initState() {
+    super.initState();
+    final cfg = ref.read(ocrApiProvider);
+    _url = TextEditingController(text: cfg?.url ?? '');
+    _imageField = TextEditingController(text: cfg?.imageField ?? 'image');
+    _responseField = TextEditingController(text: cfg?.responseField ?? 'result');
+    if (cfg != null) {
+      _req = cfg.requestFormat;
+      _resp = cfg.responseFormat;
+    }
+  }
+
+  @override
+  void dispose() {
+    _url.dispose();
+    _imageField.dispose();
+    _responseField.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20, right: 20, top: 8,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('自定义 OCR API', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text('留空并保存即恢复使用内置离线模型。',
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _url,
+              decoration: const InputDecoration(labelText: '接口地址', hintText: 'https://127.0.0.1:8000/ocr'),
+            ),
+            const SizedBox(height: 12),
+            InputDecorator(
+              decoration: const InputDecoration(labelText: '图片发送方式'),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<OcrRequestFormat>(
+                  value: _req,
+                  isExpanded: true,
+                  onChanged: (v) => setState(() => _req = v ?? _req),
+                  items: const [
+                    DropdownMenuItem(value: OcrRequestFormat.base64Json, child: Text('JSON 内 base64')),
+                    DropdownMenuItem(value: OcrRequestFormat.multipart, child: Text('multipart 文件上传')),
+                    DropdownMenuItem(value: OcrRequestFormat.rawBytes, child: Text('原始字节 body')),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (_req != OcrRequestFormat.rawBytes)
+              TextField(
+                controller: _imageField,
+                decoration: const InputDecoration(labelText: '图片字段名', hintText: 'image'),
+              ),
+            const SizedBox(height: 12),
+            InputDecorator(
+              decoration: const InputDecoration(labelText: '返回解析方式'),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<OcrResponseFormat>(
+                  value: _resp,
+                  isExpanded: true,
+                  onChanged: (v) => setState(() => _resp = v ?? _resp),
+                  items: const [
+                    DropdownMenuItem(value: OcrResponseFormat.jsonField, child: Text('JSON 字段')),
+                    DropdownMenuItem(value: OcrResponseFormat.plainText, child: Text('纯文本')),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (_resp == OcrResponseFormat.jsonField)
+              TextField(
+                controller: _responseField,
+                decoration: const InputDecoration(labelText: '结果字段名', hintText: 'result'),
+              ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () async {
+                      await ref.read(ocrApiProvider.notifier).set(null);
+                      if (context.mounted) Navigator.pop(context);
+                    },
+                    child: const Text('恢复内置模型'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () async {
+                      final url = _url.text.trim();
+                      final cfg = url.isEmpty
+                          ? null
+                          : OcrApiConfig(
+                              url: url,
+                              requestFormat: _req,
+                              imageField: _imageField.text.trim().isEmpty ? 'image' : _imageField.text.trim(),
+                              responseFormat: _resp,
+                              responseField: _responseField.text.trim().isEmpty ? 'result' : _responseField.text.trim(),
+                            );
+                      await ref.read(ocrApiProvider.notifier).set(cfg);
+                      if (context.mounted) {
+                        showToast(context, cfg == null ? '已恢复内置模型' : '已保存 OCR API', success: true);
+                        Navigator.pop(context);
+                      }
+                    },
+                    child: const Text('保存'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -89,6 +89,7 @@ class Storage {
   static const _kSeedColor = 'seed_color.v1';
   static const _kOrigin = 'api_origin.v1';
   static const _kMonitorConfig = 'monitor_config.v1';
+  static const _kOcrApi = 'ocr_api.v1';
   static String _pwKey(String id) => 'pw::$id';
 
   static Future<Storage> open() async => Storage(await SharedPreferences.getInstance());
@@ -205,4 +206,14 @@ class Storage {
   /// Monitor config JSON (cadence + rush mode). Null until the user customizes.
   String? monitorConfigJson() => _prefs.getString(_kMonitorConfig);
   Future<void> setMonitorConfigJson(String v) async => _prefs.setString(_kMonitorConfig, v);
+
+  /// OCR-API config JSON. Null means use the built-in on-device model.
+  String? ocrApiConfigJson() => _prefs.getString(_kOcrApi);
+  Future<void> setOcrApiConfigJson(String? v) async {
+    if (v == null) {
+      await _prefs.remove(_kOcrApi);
+    } else {
+      await _prefs.setString(_kOcrApi, v);
+    }
+  }
 }

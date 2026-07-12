@@ -13,6 +13,7 @@ import '../core/errors.dart';
 import '../data/api_client.dart';
 import '../data/auth_service.dart';
 import '../data/captcha.dart';
+import '../data/http_ocr_solver.dart';
 import '../data/captcha_solver_factory.dart';
 import '../data/course_service.dart';
 import '../data/enroll_service.dart';
@@ -34,11 +35,38 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 
 /// The pluggable captcha solver. Defaults to no-op (manual entry); Settings can
 /// swap in an OCR-backed solver at runtime.
-/// The OCR captcha solver, backed by the bundled ONNX model on native platforms
-/// (no-op on web, which can't run dart:ffi). Created once and reused (the model
-/// loads lazily on first solve). If the model is missing or fails to load,
-/// solve() returns null and the UI falls back to manual entry.
+/// The user's OCR-API config, or null to use the built-in on-device model.
+class OcrApiController extends StateNotifier<OcrApiConfig?> {
+  OcrApiController(this._storage) : super(_load(_storage));
+  final Storage _storage;
+
+  static OcrApiConfig? _load(Storage s) {
+    final raw = s.ocrApiConfigJson();
+    if (raw == null) return null;
+    try {
+      return OcrApiConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> set(OcrApiConfig? cfg) async {
+    state = cfg;
+    await _storage.setOcrApiConfigJson(cfg == null ? null : jsonEncode(cfg.toJson()));
+  }
+}
+
+final ocrApiProvider =
+    StateNotifierProvider<OcrApiController, OcrApiConfig?>((ref) => OcrApiController(ref.watch(storageProvider)));
+
+/// The active captcha solver. Uses the user's OCR API if configured and valid,
+/// otherwise the built-in on-device model (no-op on web). Rebuilds when the OCR
+/// API config changes. If solve() returns null the UI falls back to manual entry.
 final captchaSolverProvider = StateProvider<CaptchaSolver>((ref) {
+  final api = ref.watch(ocrApiProvider);
+  if (api != null && api.isValid) {
+    return HttpOcrCaptchaSolver(api);
+  }
   final solver = createCaptchaSolver();
   ref.onDispose(() => disposeCaptchaSolver(solver));
   return solver;

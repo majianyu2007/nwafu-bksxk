@@ -7,5 +7,8 @@ import 'onnx_captcha_solver.dart';
 CaptchaSolver makePlatformCaptchaSolver() => OnnxCaptchaSolver();
 
 void disposePlatformCaptchaSolver(CaptchaSolver solver) {
-  if (solver is OnnxCaptchaSolver) solver.dispose();
+  if (solver is OnnxCaptchaSolver) {
+    // Async cleanup; fire-and-forget on provider disposal.
+    solver.dispose();
+  }
 }

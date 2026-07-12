@@ -26,7 +26,7 @@ dependencies:
   # Background & notifications
   flutter_local_notifications: ^17.1.2
   # Captcha OCR: on-device ONNX inference (android/ios/macos/windows/linux).
-  onnxruntime: ^1.4.1
+  flutter_onnxruntime: ^1.8.0
   image: ^4.2.0
   # UI niceties
   dynamic_color: ^1.7.0

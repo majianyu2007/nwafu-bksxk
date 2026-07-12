@@ -4,12 +4,12 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
+  flutter_onnxruntime
   flutter_secure_storage_linux
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
   jni
-  onnxruntime
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

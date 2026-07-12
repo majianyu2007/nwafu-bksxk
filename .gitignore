@@ -46,3 +46,6 @@ app.*.map.json
 
 # Testing tooling (Playwright, not part of the app)
 node_modules/
+
+# Xcode Swift Package Manager state (auto-generated)
+**/xcshareddata/swiftpm/
