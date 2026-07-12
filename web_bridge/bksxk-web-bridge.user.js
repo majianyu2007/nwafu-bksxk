@@ -4,6 +4,7 @@
 // @version      1.0.0
 // @description  让「西农本科选课」网页版可以直接访问校园网选课接口：把发往 bksxk.nwafu.edu.cn 的请求改走 GM_xmlhttpRequest，绕过浏览器 CORS 与被禁止的请求头限制。仅在校园网内有效。
 // @author       nwafu-bksxk
+// @match        https://mjy.js.org/nwafu-bksxk/*
 // @match        http://localhost:*/*
 // @match        http://127.0.0.1:*/*
 // @match        https://*.github.io/*

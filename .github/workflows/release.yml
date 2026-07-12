@@ -1,26 +1,32 @@
 name: Release
 
-# Builds the app for every platform and publishes a GitHub Release when a
-# version tag (v*) is pushed. Also deploys the promo site to GitHub Pages.
+# On a version tag (v*): build every platform, publish a GitHub Release with the
+# artifacts, and deploy the web app to the `web` branch.
+# On a push to main: (re)deploy the web app to the `web` branch only.
 #
-# Trigger: git tag v1.0.0 && git push origin v1.0.0
+# Trigger a full release: git tag v1.0.0 && git push origin v1.0.0
+#
+# GitHub Pages: enable Settings → Pages → Source = branch `web` (root). With the
+# repo served at majianyu2007.github.io/nwafu-bksxk/ (and the js.org custom domain
+# on the user's Pages site), the landing page is at
+# https://mjy.js.org/nwafu-bksxk/ and the web app at .../nwafu-bksxk/app/.
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    tags: ["v*"]
   workflow_dispatch: {}
 
 permissions:
-  contents: write   # create releases + upload assets
-  pages: write
-  id-token: write
+  contents: write # create releases + push to the web branch
 
 env:
   FLUTTER_VERSION: "3.44.6"
+  IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
-  # ---------------------------------------------------------------------------
+  # ---- Native platform builds (only on a version tag) --------------------------
   build-android:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,17 +36,14 @@ jobs:
           channel: stable
       - run: flutter pub get
       - run: flutter build apk --release
-      - name: Rename
-        run: |
+      - run: |
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-release.apk dist/nwafu-bksxk-android.apk
       - uses: actions/upload-artifact@v4
-        with:
-          name: android
-          path: dist/*
+        with: { name: android, path: dist/* }
 
-  # ---------------------------------------------------------------------------
   build-macos:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,16 +57,13 @@ jobs:
         run: |
           mkdir -p dist
           APP=$(find build/macos/Build/Products/Release -maxdepth 1 -name "*.app" | head -1)
-          # hdiutil is available on macOS runners
           hdiutil create -volname "西农本科选课" -srcfolder "$APP" -ov -format UDZO dist/nwafu-bksxk-macos.dmg || \
             (cd "$(dirname "$APP")" && zip -r -y "$GITHUB_WORKSPACE/dist/nwafu-bksxk-macos.zip" "$(basename "$APP")")
       - uses: actions/upload-artifact@v4
-        with:
-          name: macos
-          path: dist/*
+        with: { name: macos, path: dist/* }
 
-  # ---------------------------------------------------------------------------
   build-windows:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,18 +73,15 @@ jobs:
           channel: stable
       - run: flutter pub get
       - run: flutter build windows --release
-      - name: Zip
-        run: |
+      - run: |
           mkdir dist
           Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dist/nwafu-bksxk-windows.zip
         shell: pwsh
       - uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: dist/*
+        with: { name: windows, path: dist/* }
 
-  # ---------------------------------------------------------------------------
   build-linux:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,51 +95,20 @@ jobs:
           channel: stable
       - run: flutter pub get
       - run: flutter build linux --release
-      - name: Tarball
-        run: |
+      - run: |
           mkdir -p dist
           tar -C build/linux/x64/release/bundle -czf dist/nwafu-bksxk-linux.tar.gz .
       - uses: actions/upload-artifact@v4
-        with:
-          name: linux
-          path: dist/*
+        with: { name: linux, path: dist/* }
 
-  # ---------------------------------------------------------------------------
-  build-web:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-      - run: flutter create . --platforms web --project-name nwafu_bksxk
-      - run: flutter pub get
-      - run: flutter build web --release --base-href /nwafu-bksxk/app/
-      - name: Assemble site (landing page + web app under /app)
-        run: |
-          mkdir -p public
-          cp -r site/* public/
-          mkdir -p public/app
-          cp -r build/web/* public/app/
-          cp web_bridge/bksxk-web-bridge.user.js public/bksxk-web-bridge.user.js
-      - uses: actions/upload-artifact@v4
-        with:
-          name: web
-          path: public/*
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
-
-  # ---------------------------------------------------------------------------
+  # ---- Release (only on a version tag) ----------------------------------------
   release:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [build-android, build-macos, build-windows, build-linux]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+        with: { path: artifacts }
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
@@ -152,16 +118,34 @@ jobs:
           body: |
             西农本科选课 ${{ github.ref_name }}
 
-            下载对应平台的安装包。首次使用请阅读仓库 README / DEPLOYMENT.md。
+            下载对应平台的安装包。网页版：https://mjy.js.org/nwafu-bksxk/
             本系统仅在校园网内可用（校外需 VPN 接入校园网）。
 
-  # ---------------------------------------------------------------------------
-  deploy-pages:
-    needs: [build-web]
+  # ---- Web build + deploy to the `web` branch (on main push AND tags) ---------
+  deploy-web:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      # web/ is committed (custom index.html + bundled onnxruntime-web for OCR).
+      - run: flutter pub get
+      - run: flutter build web --release --base-href /nwafu-bksxk/app/
+      - name: Assemble site (landing at /, web app under /app/, userscript, 404)
+        run: |
+          mkdir -p public/app
+          cp -r site/* public/
+          cp -r build/web/* public/app/
+          cp web_bridge/bksxk-web-bridge.user.js public/bksxk-web-bridge.user.js
+          # SPA fallback so deep links to the app resolve.
+          cp public/index.html public/404.html
+      - name: Deploy to web branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          publish_branch: web
+          force_orphan: true
+          commit_message: "Deploy web: ${{ github.sha }}"

@@ -21,6 +21,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'package:image/image.dart' as img;
@@ -62,7 +63,12 @@ class OnnxCaptchaSolver implements CaptchaSolver {
     try {
       final csRaw = await rootBundle.loadString(charsetAsset);
       _charset = (jsonDecode(csRaw) as List).map((e) => e.toString()).toList();
-      final session = await OnnxRuntime().createSessionFromAsset(modelAsset);
+      // On web, onnxruntime-web fetches the model by URL. Flutter serves bundled
+      // assets under `assets/<declared-path>`, so the URL has a double prefix.
+      // On native, createSessionFromAsset extracts the asset to a temp file.
+      final session = kIsWeb
+          ? await OnnxRuntime().createSession('assets/$modelAsset')
+          : await OnnxRuntime().createSessionFromAsset(modelAsset);
       _session = session;
       _inputName = session.inputNames.isNotEmpty ? session.inputNames.first : 'input1';
     } catch (_) {
