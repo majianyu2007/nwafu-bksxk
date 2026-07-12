@@ -79,6 +79,11 @@ final courseServiceProvider = Provider<CourseService>((ref) => CourseService(ref
 
 final enrollServiceProvider = Provider<EnrollService>((ref) => EnrollService(ref.watch(apiClientProvider)));
 final infoServiceProvider = Provider<InfoService>((ref) => InfoService(ref.watch(apiClientProvider)));
+/// Monotonic signal for server-backed selection data. Every successful
+/// enrollment mutation or batch switch increments it; dependent providers then
+/// refetch instead of leaving stale state until a manual refresh.
+final selectionDataRevisionProvider = StateProvider<int>((ref) => 0);
+
 
 final sessionManagerProvider = Provider<SessionManager>((ref) {
   final mgr = SessionManager(
@@ -315,6 +320,7 @@ class SessionController extends StateNotifier<SessionState> {
         // rejection if the server requires confirmation and this request failed.
       }
     }
+    _ref.read(selectionDataRevisionProvider.notifier).state++;
   }
 
   Future<void> logout() async {

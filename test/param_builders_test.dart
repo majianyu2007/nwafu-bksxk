@@ -267,6 +267,22 @@ void main() {
     });
   });
 
+  group('testTeachingClassIdFromRow', () {
+    test('skips an empty canonical field and uses a valid alias', () {
+      expect(
+        testTeachingClassIdFromRow({
+          'testTeachingClassID': '',
+          'teachingClassID': ' TC-LAB-01 ',
+        }),
+        'TC-LAB-01',
+      );
+    });
+
+    test('returns null when every known field is blank or absent', () {
+      expect(testTeachingClassIdFromRow({'teachingClassId': '  '}), isNull);
+    });
+  });
+
 
   group('buildBatchConfirmParam', () {
     test('matches xklcqr.do form fields', () {

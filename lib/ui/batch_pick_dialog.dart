@@ -3,6 +3,7 @@
 /// student's 已修/还需 credits so they can plan.
 library;
 
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -98,20 +99,31 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    final contentWidth = math.min(600.0, math.max(300.0, viewportWidth - 64));
     return AlertDialog(
-      title: Text(widget.title),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+      contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+      title: Row(
+        children: [
+          Icon(Icons.event_available_outlined, color: scheme.primary),
+          const SizedBox(width: 10),
+          Expanded(child: Text(widget.title)),
+        ],
+      ),
       content: SizedBox(
-        width: double.maxFinite,
+        width: contentWidth,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(widget.subtitle, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
-              const SizedBox(height: 14),
-              // credit summary for the highlighted/selected batch
+              const SizedBox(height: 12),
               _CreditSummary(credit: _credit, loading: _creditLoading),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               RadioGroup<String>(
                 groupValue: _selectedCode,
                 onChanged: (v) {
@@ -123,16 +135,29 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     for (final b in widget.batches)
-                      RadioListTile<String>(
-                        value: b.code,
-                        enabled: widget.canPick && b.canSelect,
-                        title: Text(b.name.isEmpty ? b.code : b.name),
-                        subtitle: b.beginTime.isNotEmpty
-                            ? Text('${b.beginTime}  →  ${b.endTime}', style: const TextStyle(fontSize: 12))
-                            : null,
-                        secondary: StatusPill(
-                          label: b.canSelect ? '开放' : '未开放',
-                          color: b.canSelect ? Colors.green : scheme.error,
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: RadioListTile<String>(
+                          value: b.code,
+                          enabled: widget.canPick && b.canSelect,
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: scheme.outlineVariant),
+                          ),
+                          title: Text(
+                            b.name.isEmpty ? b.code : b.name,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          subtitle: b.beginTime.isNotEmpty
+                              ? Text('${b.beginTime}  →  ${b.endTime}', style: const TextStyle(fontSize: 11))
+                              : null,
+                          secondary: StatusPill(
+                            label: b.canSelect ? '开放' : '未开放',
+                            color: b.canSelect ? Colors.green : scheme.error,
+                          ),
                         ),
                       ),
                   ],
@@ -145,14 +170,15 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
       actions: [
         TextButton(onPressed: widget.onSkip, child: const Text('稍后再说')),
         if (widget.canPick)
-          FilledButton(
+          FilledButton.icon(
             onPressed: _selectedCode == null
                 ? null
                 : () {
                     final b = widget.batches.firstWhere((e) => e.code == _selectedCode);
                     widget.onPick(b);
                   },
-            child: const Text('确认选择'),
+            icon: const Icon(Icons.check, size: 18),
+            label: const Text('确认选择'),
           ),
       ],
     );
@@ -168,19 +194,23 @@ class _CreditSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     if (loading) {
-      return const Row(children: [
-        SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-        SizedBox(width: 8),
-        Text('加载学分信息…', style: TextStyle(fontSize: 13)),
-      ]);
+      return const SizedBox(
+        height: 58,
+        child: Row(children: [
+          SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+          SizedBox(width: 8),
+          Text('加载学分信息…', style: TextStyle(fontSize: 13)),
+        ]),
+      );
     }
     final c = credit;
     if (c == null || c.raw.isEmpty) return const SizedBox.shrink();
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
+        color: scheme.primaryContainer.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.18)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -189,21 +219,20 @@ class _CreditSummary extends StatelessWidget {
             children: [
               Icon(Icons.school_outlined, size: 16, color: scheme.primary),
               const SizedBox(width: 6),
-              Text('选课学分', style: TextStyle(fontWeight: FontWeight.w700, color: scheme.primary, fontSize: 13)),
+              Text(
+                '选课学分',
+                style: TextStyle(fontWeight: FontWeight.w700, color: scheme.primary, fontSize: 13),
+              ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           Row(
             children: [
-              _Stat('已修', c.getCredit.toStringAsFixed(c.getCredit == c.getCredit.roundToDouble() ? 0 : 1)),
-              const SizedBox(width: 16),
-              _Stat('需修', c.needCredit.toStringAsFixed(c.needCredit == c.needCredit.roundToDouble() ? 0 : 1)),
-              const SizedBox(width: 16),
-              _Stat(
-                '还需',
-                c.remainingCredit.toStringAsFixed(c.remainingCredit == c.remainingCredit.roundToDouble() ? 0 : 1),
-                highlight: true,
-              ),
+              Expanded(child: _Stat('已修', _creditText(c.getCredit))),
+              _CreditDivider(color: scheme.outlineVariant),
+              Expanded(child: _Stat('需修', _creditText(c.needCredit))),
+              _CreditDivider(color: scheme.outlineVariant),
+              Expanded(child: _Stat('还需', _creditText(c.remainingCredit), highlight: true)),
             ],
           ),
           if (c.noSelectReason.isNotEmpty) ...[
@@ -214,6 +243,22 @@ class _CreditSummary extends StatelessWidget {
       ),
     );
   }
+
+  static String _creditText(double value) =>
+      value.toStringAsFixed(value == value.roundToDouble() ? 0 : 1);
+}
+
+class _CreditDivider extends StatelessWidget {
+  const _CreditDivider({required this.color});
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 1,
+        height: 28,
+        margin: const EdgeInsets.symmetric(horizontal: 8),
+        color: color,
+      );
 }
 
 class _Stat extends StatelessWidget {

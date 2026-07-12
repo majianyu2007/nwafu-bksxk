@@ -126,7 +126,7 @@ class CoursesController extends StateNotifier<CoursesState> {
     final session = _ref.read(sessionProvider);
     final student = session.student!;
     final batch = session.activeBatch!;
-    return _enroll.addCourse(
+    final outcome = await _enroll.addCourse(
       tc: tc,
       studentCode: student.studentCode,
       batchCode: batch.code,
@@ -135,6 +135,10 @@ class CoursesController extends StateNotifier<CoursesState> {
       selectedTestTeachingClassId: testTeachingClassId,
       bookSelection: bookSelection,
     );
+    if (outcome.success) {
+      _ref.read(selectionDataRevisionProvider.notifier).state++;
+    }
+    return outcome;
   }
 
   /// Adds a teaching class to the monitor for auto-grab.
@@ -172,11 +176,21 @@ class CoursesController extends StateNotifier<CoursesState> {
       tc: tc,
       studentCode: student.studentCode,
       batchCode: batch.code,
+
       campus: student.campus,
       kind: state.kind,
     );
   }
+  void reloadIfLoaded() {
+    if (state.loadedOnce && !state.loading) load();
+  }
+
 }
 
-final coursesProvider =
-    StateNotifierProvider<CoursesController, CoursesState>((ref) => CoursesController(ref));
+final coursesProvider = StateNotifierProvider<CoursesController, CoursesState>((ref) {
+  final controller = CoursesController(ref);
+  ref.listen<int>(selectionDataRevisionProvider, (_, __) {
+    controller.reloadIfLoaded();
+  });
+  return controller;
+});

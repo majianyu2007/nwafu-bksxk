@@ -14,8 +14,6 @@ import 'courses_controller.dart';
 import 'teaching_class_tile.dart';
 import 'widgets.dart';
 
-/// Sentinel returned in [book] field when user cancels textbook selection.
-const _kBookCancelled = '__CANCEL_TEXTBOOK__';
 
 class CoursesPage extends ConsumerStatefulWidget {
   const CoursesPage({super.key});
@@ -78,7 +76,7 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
     return RefreshIndicator(
       onRefresh: ctrl.load,
       child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 88),
         itemCount: state.rows.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (context, i) => _CourseCard(row: state.rows[i], kind: state.kind),
@@ -170,6 +168,7 @@ class _CourseCard extends ConsumerStatefulWidget {
 class _CourseCardState extends ConsumerState<_CourseCard> {
   bool _expanded = false;
 
+  String? _busyClassId;
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -236,6 +235,7 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
                 onGrab: () => _grab(tc),
                 onMonitor: () => _monitor(tc),
                 onRefresh: () => ref.read(coursesProvider.notifier).refresh(tc),
+                busy: _busyClassId == tc.teachingClassId,
               ),
         ],
       ),
@@ -243,9 +243,8 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
   }
 
   Future<void> _grab(TeachingClass tc) async {
+    if (_busyClassId != null) return;
     final ctrl = ref.read(coursesProvider.notifier);
-    // Immediate conflict feedback: tell the user before we submit, using the
-    // conflict flag the server already put on this row.
     if (tc.isConflict) {
       final proceed = await showDialog<bool>(
         context: context,
@@ -262,26 +261,31 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
       );
       if (proceed != true) return;
     }
+    setState(() => _busyClassId = tc.teachingClassId);
     try {
-      final (testId, book) = await _resolveSelectionsIfNeeded(tc);
-      if (book == _kBookCancelled) return; // toast already shown by prompt
+      final selections = await _resolveSelectionsIfNeeded(tc);
+      if (selections == null) return;
+      final (testId, book) = selections;
       final outcome = await ctrl.grabNow(tc, testTeachingClassId: testId, bookSelection: book);
       if (!mounted) return;
       showToast(context, outcome.message, success: outcome.success);
     } on MissingSelectionError catch (e) {
-      if (!mounted) return;
-      showToast(context, e.reason, success: false);
+      if (mounted) showToast(context, e.reason, success: false);
     } catch (e) {
-      if (!mounted) return;
-      showToast(context, '$e', success: false);
+      if (mounted) showToast(context, '$e', success: false);
+    } finally {
+      if (mounted) setState(() => _busyClassId = null);
     }
   }
 
   Future<void> _monitor(TeachingClass tc) async {
+    if (_busyClassId != null) return;
     final ctrl = ref.read(coursesProvider.notifier);
+    setState(() => _busyClassId = tc.teachingClassId);
     try {
-      final (testId, book) = await _resolveSelectionsIfNeeded(tc);
-      if (book == _kBookCancelled) return; // toast already shown by prompt
+      final selections = await _resolveSelectionsIfNeeded(tc);
+      if (selections == null) return;
+      final (testId, book) = selections;
       final watch = ctrl.addToMonitor(tc, testTeachingClassId: testId, bookSelection: book);
       if (!mounted) return;
       final needsSetup = watch.status == WatchStatus.needsSetup;
@@ -291,24 +295,26 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
         success: !needsSetup,
       );
     } catch (e) {
-      if (!mounted) return;
-      showToast(context, '$e', success: false);
+      if (mounted) showToast(context, '$e', success: false);
+    } finally {
+      if (mounted) setState(() => _busyClassId = null);
     }
   }
 
-  /// If the class needs a test class or textbook, prompt for them; otherwise
-  /// return nulls. Returns (testTeachingClassId, bookSelection).
-  Future<(String?, String?)> _resolveSelectionsIfNeeded(TeachingClass tc) async {
+  /// Prompts for every required experiment/textbook choice. A null result means
+  /// the user cancelled, so callers must not submit or create an incomplete watch.
+  Future<(String?, String?)?> _resolveSelectionsIfNeeded(TeachingClass tc) async {
     String? testId;
     String? book;
     if (tc.hasTest && tc.testTeachingClassId.isEmpty) {
       testId = await _pickTestClass(tc);
+      if (testId == null || testId.isEmpty) return null;
     } else if (tc.hasTest) {
       testId = tc.testTeachingClassId;
     }
     if (tc.hasBook) {
       final sel = await _promptTextbookSelection(tc);
-      if (sel == null) return (testId, _kBookCancelled);
+      if (sel == null) return null;
       book = sel.jcxx;
       if (book.isEmpty) book = null;
     }
@@ -323,11 +329,15 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
       showToast(context, '未获取到可选实验教学班', success: false);
       return null;
     }
-    return showModalBottomSheet<String>(
+    final selected = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
-      builder: (context) => _TestClassPicker(list: list),
+      builder: (context) => TestClassPicker(list: list),
     );
+    if (selected != null && selected.isNotEmpty && mounted) {
+      showToast(context, '实验教学班已选择');
+    }
+    return selected;
   }
 
   Future<TextbookSelection?> _promptTextbookSelection(TeachingClass tc) async {
@@ -336,7 +346,6 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
     final batch = session.activeBatch;
     if (student == null || batch == null) return null;
 
-    // Show loading indicator.
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -356,38 +365,33 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
         batchCode: batch.code,
         teachingClassId: tc.teachingClassId,
       );
-
       if (!mounted) return null;
-      Navigator.of(context).pop(); // dismiss loading
-
+      Navigator.of(context).pop();
       if (options.isEmpty) {
         showToast(context, '未获取到教材清单，按默认提交');
-        final book = tc.needBook.isNotEmpty ? tc.needBook : '';
-        return TextbookSelection(book, []);
+        return TextbookSelection(tc.needBook.isNotEmpty ? tc.needBook : '', []);
       }
-
-      final sel = await showModalBottomSheet<TextbookSelection>(
+      final selection = await showModalBottomSheet<TextbookSelection>(
         context: context,
         isScrollControlled: true,
         showDragHandle: true,
-        builder: (ctx) => _TextbookPicker(options: options),
+        builder: (context) => TextbookPicker(options: options),
       );
-      if (sel == null) {
-        if (!mounted) return null;
+      if (selection == null && mounted) {
         showToast(context, '已取消教材选择', success: false);
       }
-      return sel;
-    } catch (e) {
+      return selection;
+    } catch (_) {
       if (!mounted) return null;
-      Navigator.of(context).pop(); // dismiss loading on error
+      Navigator.of(context).pop();
       showToast(context, '获取教材信息失败', success: false);
       return null;
     }
   }
 }
 
-class _TestClassPicker extends StatelessWidget {
-  const _TestClassPicker({required this.list});
+class TestClassPicker extends StatelessWidget {
+  const TestClassPicker({super.key, required this.list});
   final List<Map<String, dynamic>> list;
 
   @override
@@ -404,9 +408,10 @@ class _TestClassPicker extends StatelessWidget {
               title: Text('${item['courseName'] ?? item['teachingClassName'] ?? '实验班'}'),
               subtitle: Text('${item['teacherName'] ?? ''}  ${item['teachingPlace'] ?? ''}'),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context).pop(
-                '${item['testTeachingClassID'] ?? item['teachingClassID'] ?? item['teachingClassId'] ?? ''}',
-              ),
+              onTap: () {
+                final id = testTeachingClassIdFromRow(item);
+                if (id != null) Navigator.of(context).pop(id);
+              },
             ),
         ],
       ),
@@ -414,25 +419,22 @@ class _TestClassPicker extends StatelessWidget {
   }
 }
 
-class _TextbookPicker extends StatefulWidget {
-  const _TextbookPicker({required this.options});
+class TextbookPicker extends StatefulWidget {
+  const TextbookPicker({super.key, required this.options});
   final List<TextbookOption> options;
 
   @override
-  State<_TextbookPicker> createState() => _TextbookPickerState();
+  State<TextbookPicker> createState() => _TextbookPickerState();
 }
 
-class _TextbookPickerState extends State<_TextbookPicker> {
+class _TextbookPickerState extends State<TextbookPicker> {
   late List<bool> _ordered;
   late List<String> _reasonCodes;
 
   @override
   void initState() {
     super.initState();
-    _ordered = List.generate(
-      widget.options.length,
-      (i) => widget.options[i].orderable,
-    );
+    _ordered = List.generate(widget.options.length, (i) => widget.options[i].orderable);
     _reasonCodes = List.generate(widget.options.length, (_) => '');
   }
 
@@ -447,7 +449,6 @@ class _TextbookPickerState extends State<_TextbookPicker> {
           right: 16,
         ),
         child: Column(
-          // mainAxisSize.min → default (max) so Column fills available height
           children: [
             const SizedBox(height: 8),
             Text('选择教材', style: Theme.of(context).textTheme.titleLarge),
@@ -470,8 +471,8 @@ class _TextbookPickerState extends State<_TextbookPicker> {
                         value: _ordered[i],
                         enabled: book.orderable,
                         onChanged: book.orderable
-                            ? (v) => setState(() {
-                                  _ordered[i] = v ?? true;
+                            ? (value) => setState(() {
+                                  _ordered[i] = value ?? true;
                                   if (!_ordered[i] &&
                                       _reasonCodes[i].isEmpty &&
                                       book.reasonCodes.isNotEmpty) {
@@ -486,22 +487,27 @@ class _TextbookPickerState extends State<_TextbookPicker> {
                           child: DropdownButtonFormField<String>(
                             initialValue: _reasonCodes[i].isNotEmpty ? _reasonCodes[i] : null,
                             decoration: const InputDecoration(
-                              labelText: '\u4e0d\u8ba2\u8d2d\u539f\u56e0',
+                              labelText: '不订购原因',
                               border: OutlineInputBorder(),
                               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               isDense: true,
                             ),
                             items: book.reasonCodes
-                                .map((r) => DropdownMenuItem(value: r.code, child: Text(r.name)))
+                                .map((reason) => DropdownMenuItem(
+                                      value: reason.code,
+                                      child: Text(reason.name),
+                                    ))
                                 .toList(),
-                            onChanged: (v) => setState(() => _reasonCodes[i] = v ?? ''),
+                            onChanged: (value) => setState(() => _reasonCodes[i] = value ?? ''),
                           ),
                         ),
                       if (!book.orderable)
                         Padding(
                           padding: const EdgeInsets.only(left: 72, bottom: 8),
-                          child: Text('\u8be5\u6559\u6750\u4e0d\u53ef\u8ba2\u8d2d',
-                              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+                          child: Text(
+                            '该教材不可订购',
+                            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+                          ),
                         ),
                     ],
                   );
@@ -513,7 +519,7 @@ class _TextbookPickerState extends State<_TextbookPicker> {
               child: FilledButton.icon(
                 onPressed: _confirm,
                 icon: const Icon(Icons.check),
-                label: const Text('\u786e\u8ba4\u6559\u6750\u9009\u62e9'),
+                label: const Text('确认教材选择'),
               ),
             ),
           ],

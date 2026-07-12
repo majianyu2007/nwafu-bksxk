@@ -10,6 +10,7 @@ import 'widgets.dart';
 
 /// Loads selected courses for the active session.
 final selectedCoursesProvider = FutureProvider.autoDispose<List<TeachingClass>>((ref) async {
+  ref.watch(selectionDataRevisionProvider);
   final session = ref.watch(sessionProvider);
   final student = session.student;
   final batch = session.activeBatch;
@@ -20,6 +21,7 @@ final selectedCoursesProvider = FutureProvider.autoDispose<List<TeachingClass>>(
 
 /// Loads the full schedule (arranged + unarranged) for the active session.
 final scheduleProvider = FutureProvider.autoDispose<List<ScheduleEntry>>((ref) async {
+  ref.watch(selectionDataRevisionProvider);
   final session = ref.watch(sessionProvider);
   final student = session.student;
   final batch = session.activeBatch;
@@ -34,6 +36,7 @@ final scheduleProvider = FutureProvider.autoDispose<List<ScheduleEntry>>((ref) a
 
 /// Loads unsuccessful selection entries for the active session.
 final unsuccessfulProvider = FutureProvider.autoDispose<List<UnsuccessfulEntry>>((ref) async {
+  ref.watch(selectionDataRevisionProvider);
   final session = ref.watch(sessionProvider);
   final student = session.student;
   final batch = session.activeBatch;
@@ -44,6 +47,7 @@ final unsuccessfulProvider = FutureProvider.autoDispose<List<UnsuccessfulEntry>>
 
 /// Loads drop-log (return-results) entries for the active session.
 final returnResultsProvider = FutureProvider.autoDispose<List<DropLogEntry>>((ref) async {
+  ref.watch(selectionDataRevisionProvider);
   final session = ref.watch(sessionProvider);
   final student = session.student;
   final batch = session.activeBatch;
@@ -337,7 +341,9 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
       );
       if (!mounted) return;
       showToast(context, outcome.message, success: outcome.success);
-      if (outcome.success) ref.invalidate(selectedCoursesProvider);
+      if (outcome.success) {
+        ref.read(selectionDataRevisionProvider.notifier).state++;
+      }
     } catch (e) {
       if (!mounted) return;
       showToast(context, '$e', success: false);

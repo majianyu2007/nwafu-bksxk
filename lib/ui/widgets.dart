@@ -1,6 +1,7 @@
 /// Small shared UI building blocks used across pages.
 library;
 
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 /// A soft status pill.
@@ -132,6 +133,9 @@ void showToast(BuildContext context, String message, {bool? success}) {
     ..showSnackBar(SnackBar(
       content: Text(message),
       backgroundColor: color,
+      behavior: SnackBarBehavior.floating,
+      width: math.min(560, MediaQuery.sizeOf(context).width - 32),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       duration: const Duration(seconds: 3),
     ));
 }

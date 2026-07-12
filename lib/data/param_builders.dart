@@ -233,6 +233,16 @@ String buildBookSelection(List<BookChoice> choices) {
       .join(',');
 }
 
+/// Resolves the experiment teaching-class ID across the response shapes seen
+/// in the official API. Empty values must not shadow a later valid alias.
+String? testTeachingClassIdFromRow(Map<String, dynamic> row) {
+  for (final key in const ['testTeachingClassID', 'teachingClassID', 'teachingClassId']) {
+    final value = row[key]?.toString().trim() ?? '';
+    if (value.isNotEmpty) return value;
+  }
+  return null;
+}
+
 /// One textbook decision within a class.
 class BookChoice {
   BookChoice({required this.bookCode, required this.order, this.reasonCode = ''});

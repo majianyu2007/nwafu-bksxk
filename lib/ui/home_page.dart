@@ -15,6 +15,7 @@ final noticesProvider =
     FutureProvider.autoDispose<List<Notice>>((ref) => ref.read(infoServiceProvider).fetchNotices());
 
 final creditInfoProvider = FutureProvider.autoDispose<CreditInfo>((ref) async {
+  ref.watch(selectionDataRevisionProvider);
   final s = ref.watch(sessionProvider);
   final b = s.activeBatch;
   final st = s.student;

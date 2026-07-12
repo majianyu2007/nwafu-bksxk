@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/monitor_providers.dart';
 import '../app/providers.dart';
 import '../data/monitor_engine.dart';
+import '../data/param_builders.dart';
+import 'courses_page.dart';
 import 'widgets.dart';
 
 class MonitorPage extends ConsumerWidget {
@@ -27,13 +29,13 @@ class MonitorPage extends ConsumerWidget {
             children: [
               Text('监控', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
               const Spacer(),
-              if (watches.isNotEmpty) const _PlanToggleButton(),
+              if (watches.isNotEmpty) const _ModeSelector(),
               if (watches.isNotEmpty) const SizedBox(width: 8),
               if (watches.isNotEmpty)
-                FilledButton.tonalIcon(
+                FilledButton.icon(
                   onPressed: running ? engine.stop : engine.start,
                   icon: Icon(running ? Icons.stop : Icons.play_arrow),
-                  label: Text(running ? '停止全部' : '启动全部'),
+                  label: Text(running ? '停止监控' : '启动监控'),
                 ),
             ],
           ),
@@ -67,6 +69,7 @@ class _RunningBanner extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final running = ref.watch(monitorRunningProvider);
+    final plan = ref.watch(planControllerProvider);
     final scheme = Theme.of(context).colorScheme;
     if (!running) return const SizedBox.shrink();
     return Container(
@@ -81,8 +84,12 @@ class _RunningBanner extends ConsumerWidget {
           const _PulsingDot(),
           const SizedBox(width: 10),
           Expanded(
-            child: Text('正在监控课程容量变动，发现空位将立即抢占',
-                style: TextStyle(color: scheme.onSurface, fontSize: 13)),
+            child: Text(
+              plan.armed && !plan.batchOpen
+                  ? '正在监控容量，等待轮次开放后自动提交'
+                  : '正在监控课程容量，发现空位将立即提交',
+              style: TextStyle(color: scheme.onSurface, fontSize: 13),
+            ),
           ),
         ],
       ),
@@ -90,24 +97,44 @@ class _RunningBanner extends ConsumerWidget {
   }
 }
 
-class _PlanToggleButton extends ConsumerWidget {
-  const _PlanToggleButton();
+class _ModeSelector extends ConsumerWidget {
+  const _ModeSelector();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final plan = ref.watch(planControllerProvider);
-    final ctrl = ref.read(planControllerProvider.notifier);
-    if (plan.armed) {
-      return OutlinedButton.icon(
-        onPressed: ctrl.disarm,
-        icon: const Icon(Icons.cancel_outlined, size: 18),
-        label: const Text('退出计划'),
-      );
-    }
-    return FilledButton.tonalIcon(
-      onPressed: () => ctrl.arm(),
-      icon: const Icon(Icons.rocket_launch_outlined, size: 18),
-      label: const Text('计划抢课'),
+    final controller = ref.read(planControllerProvider.notifier);
+    return PopupMenuButton<String>(
+      tooltip: '选择监控模式',
+      onSelected: (value) {
+        if (value == 'wait') {
+          controller.arm();
+        } else {
+          controller.disarm();
+        }
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: 'now',
+          child: ListTile(
+            leading: Icon(Icons.bolt_outlined),
+            title: Text('立即抢课'),
+            subtitle: Text('发现空位立即提交'),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'wait',
+          child: ListTile(
+            leading: Icon(Icons.schedule),
+            title: Text('等待轮次开放'),
+            subtitle: Text('开放后再自动提交'),
+          ),
+        ),
+      ],
+      child: Chip(
+        avatar: Icon(plan.armed ? Icons.schedule : Icons.bolt_outlined, size: 18),
+        label: Text(plan.armed ? '等待开放' : '立即抢课'),
+      ),
     );
   }
 }
@@ -263,7 +290,7 @@ class _WatchCard extends ConsumerWidget {
                 if (watch.status == WatchStatus.needsSetup)
                   Expanded(
                     child: FilledButton.tonalIcon(
-                      onPressed: () => _showSetupHelp(context, watch),
+                      onPressed: () => _completeSetup(context, ref, watch),
                       icon: const Icon(Icons.build_outlined, size: 18),
                       label: const Text('去完成选择'),
                     ),
@@ -319,17 +346,67 @@ class _WatchCard extends ConsumerWidget {
     }
   }
 
-  void _showSetupHelp(BuildContext context, Watch watch) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('需要完成选择'),
-        content: Text(watch.note.isEmpty
-            ? '该教学班包含实验课或需要教材征订，请回到「选课」页重新加入监控并完成选择。'
-            : watch.note),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('知道了'))],
-      ),
-    );
+  Future<void> _completeSetup(BuildContext context, WidgetRef ref, Watch watch) async {
+    final tc = watch.teachingClass;
+    String? testId = watch.selectedTestTeachingClassId;
+    String? bookSelection = watch.bookSelection;
+    try {
+      final course = ref.read(courseServiceProvider);
+      if (tc.hasTest && (testId == null || testId.isEmpty)) {
+        final rows = await course.fetchTestCourses(
+          tc: tc,
+          studentCode: watch.studentCode,
+          batchCode: watch.batchCode,
+          campus: watch.campus,
+          kind: watch.kind,
+        );
+        if (!context.mounted) return;
+        if (rows.isEmpty) {
+          showToast(context, '未获取到可选实验教学班', success: false);
+          return;
+        }
+        testId = await showModalBottomSheet<String>(
+          context: context,
+          showDragHandle: true,
+          builder: (context) => TestClassPicker(list: rows),
+        );
+        if (testId == null || testId.isEmpty || !context.mounted) return;
+      }
+      if (tc.hasBook && (bookSelection == null || bookSelection.isEmpty)) {
+        final options = await course.fetchTextbookOptions(
+          studentCode: watch.studentCode,
+          batchCode: watch.batchCode,
+          teachingClassId: tc.teachingClassId,
+        );
+        if (!context.mounted) return;
+        if (options.isEmpty) {
+          showToast(context, '未获取到教材清单，暂时无法完成设置', success: false);
+          return;
+        }
+        final selection = await showModalBottomSheet<TextbookSelection>(
+          context: context,
+          isScrollControlled: true,
+          showDragHandle: true,
+          builder: (context) => TextbookPicker(options: options),
+        );
+        if (selection == null || !context.mounted) return;
+        bookSelection = selection.jcxx;
+      }
+      ref.read(monitorEngineProvider).configureWatch(
+            watch.id,
+            testTeachingClassId: testId,
+            bookSelection: bookSelection,
+          );
+      if (!context.mounted) return;
+      final complete = watch.status != WatchStatus.needsSetup;
+      showToast(
+        context,
+        complete ? '选择已保存，课程已恢复监控' : watch.note,
+        success: complete,
+      );
+    } catch (error) {
+      if (context.mounted) showToast(context, '加载选项失败：$error', success: false);
+    }
   }
 
   static String _fmtTime(DateTime t) =>

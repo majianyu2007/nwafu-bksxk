@@ -61,6 +61,7 @@ final notificationBridgeProvider = Provider<void>((ref) {
     final w = e.watch;
     switch (e.kind) {
       case MonitorEventKind.grabbed:
+        ref.read(selectionDataRevisionProvider.notifier).state++;
         if (w != null) {
           NotificationService.instance.grabbed(
             courseName: w.teachingClass.courseName,
@@ -115,12 +116,12 @@ class PlanController extends StateNotifier<PlanState> {
   final Ref _ref;
   Timer? _timer;
 
-  /// Arms plan mode: closes the grab gate, starts the engine (so it polls
-  /// capacity for display), and begins polling batch-open.
+  /// Selects plan mode: closes the grab gate and begins polling batch-open.
+  /// Starting/stopping monitoring remains the sole responsibility of the main
+  /// monitor button, so choosing a mode has no hidden start side effect.
   Future<void> arm({Duration checkInterval = const Duration(seconds: 5)}) async {
     final engine = _ref.read(monitorEngineProvider);
     engine.closeGate();
-    engine.start();
     state = state.copyWith(armed: true, message: '已进入计划模式，等待选课开放…');
     _timer?.cancel();
     _timer = Timer.periodic(checkInterval, (_) => _check());

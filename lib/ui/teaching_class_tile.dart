@@ -17,6 +17,7 @@ class TeachingClassTile extends StatelessWidget {
     required this.onGrab,
     required this.onMonitor,
     required this.onRefresh,
+    this.busy = false,
   });
 
   final TeachingClass teachingClass;
@@ -24,6 +25,7 @@ class TeachingClassTile extends StatelessWidget {
   final VoidCallback onGrab;
   final VoidCallback onMonitor;
   final Future<void> Function() onRefresh;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -90,25 +92,60 @@ class TeachingClassTile extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: onMonitor,
-                  icon: const Icon(Icons.radar, size: 18),
-                  label: const Text('监控抢课'),
-                ),
+          if (tc.isChoose)
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.tonalIcon(
+                onPressed: null,
+                icon: const Icon(Icons.check, size: 18),
+                label: const Text('已选课程'),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: tc.isChoose ? null : onGrab,
-                  icon: const Icon(Icons.bolt, size: 18),
-                  label: Text(tc.isChoose ? '已选' : (tc.isGrabbable ? '立即选' : '尝试选')),
+            )
+          else if (tc.isGrabbable)
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: busy ? null : onMonitor,
+                    icon: const Icon(Icons.radar, size: 18),
+                    label: const Text('监控余量'),
+                  ),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: busy ? null : onGrab,
+                    icon: busy
+                        ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.bolt, size: 18),
+                    label: Text(busy ? '提交中' : '立即选课'),
+                  ),
+                ),
+              ],
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: busy ? null : onGrab,
+                    icon: const Icon(Icons.send_outlined, size: 17),
+                    label: const Text('仍要尝试'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton.icon(
+                    onPressed: busy ? null : onMonitor,
+                    icon: busy
+                        ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.radar, size: 18),
+                    label: Text(busy ? '处理中' : '满员，监控空位'),
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );
