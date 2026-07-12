@@ -4,3 +4,5 @@ library;
 
 bool get isWebRuntime => false;
 bool get isWebBridgeReady => true;
+
+void openWebBridgeInstaller() {}

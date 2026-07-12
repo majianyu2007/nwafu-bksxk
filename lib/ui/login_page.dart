@@ -76,6 +76,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('我知道了')),
+          FilledButton.icon(
+            onPressed: openWebBridgeInstaller,
+            icon: const Icon(Icons.install_desktop),
+            label: const Text('一键安装脚本'),
+          ),
         ],
       ),
     );

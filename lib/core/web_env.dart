@@ -15,3 +15,7 @@ bool get isWebRuntime => impl.isWebRuntime;
 /// its XHR bridge (it sets window.__bksxkBridgeReady). Always true off-web,
 /// since native has no CORS restriction.
 bool get isWebBridgeReady => impl.isWebBridgeReady;
+
+/// Opens the deployed userscript URL so Tampermonkey or ScriptCat can install
+/// the web bridge directly. This is a no-op on native platforms.
+void openWebBridgeInstaller() => impl.openWebBridgeInstaller();

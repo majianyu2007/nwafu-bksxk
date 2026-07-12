@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         西农本科选课 · Web 跨域桥接 (BKSXK Web Bridge)
 // @namespace    cn.edu.nwafu.bksxk.webbridge
-// @version      1.0.0
+// @version      1.0.1
 // @description  让「西农本科选课」网页版可以直接访问校园网选课接口：把发往 bksxk.nwafu.edu.cn 的请求改走 GM_xmlhttpRequest，绕过浏览器 CORS 与被禁止的请求头限制。仅在校园网内有效。
 // @author       nwafu-bksxk
 // @match        https://mjy.js.org/nwafu-bksxk/*
@@ -15,6 +15,8 @@
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @run-at       document-start
+// @downloadURL  https://mjy.js.org/nwafu-bksxk/bksxk-web-bridge.user.js
+// @updateURL    https://mjy.js.org/nwafu-bksxk/bksxk-web-bridge.user.js
 // ==/UserScript==
 
 //
@@ -43,8 +45,25 @@
   // Signal to the app that the bridge is present (used to skip the install prompt).
   try {
     win.__bksxkBridgeReady = true;
-    win.__bksxkBridgeVersion = '1.0.0';
+    win.__bksxkBridgeVersion = '1.0.1';
   } catch (e) { /* ignore */ }
+
+  // Browser extension sandboxes can hide JavaScript globals from page code.
+  // A DOM attribute is visible from both worlds and provides a reliable
+  // fallback for the Flutter app's installation check.
+  function markBridgeReadyInDom() {
+    try {
+      if (win.document && win.document.documentElement) {
+        win.document.documentElement.setAttribute('data-bksxk-bridge-ready', 'true');
+        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.0.1');
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  markBridgeReadyInDom();
+  if (win.document && win.document.readyState === 'loading') {
+    win.document.addEventListener('DOMContentLoaded', markBridgeReadyInDom, { once: true });
+  }
 
   function isApiUrl(url) {
     try {

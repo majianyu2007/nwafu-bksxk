@@ -50,13 +50,43 @@ sudo xcodebuild -runFirstLaunch
 ```bash
 # (仓库根目录就是 Flutter 工程)
 flutter run -d macos          # 调试运行
-flutter build macos           # Release 产物: build/macos/Build/Products/Release/西农本科选课.app
+flutter build macos           # Release 产物: build/macos/Build/Products/Release/nwafu_bksxk.app
 ```
+
+若本机只安装了 `/Applications/Xcode-beta.app`，可在命令前临时指定工具链，
+无需修改全局 `xcode-select`：
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+flutter build macos --debug
+```
+
+Flutter 3.44.6 配合 Xcode 27 beta 构建 universal Release 时，Xcode 27 的
+`lipo -verify_arch` 参数行为变化会导致 Flutter 错误报告框架缺少架构，尽管
+框架实际同时包含 `arm64` 和 `x86_64`。当前 Apple Silicon 机器可直接用
+Xcode 构建 arm64 Release：
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
+  xcodebuild \
+  -workspace macos/Runner.xcworkspace \
+  -scheme Runner \
+  -configuration Release \
+  -derivedDataPath build/macos \
+  ARCHS=arm64 \
+  ONLY_ACTIVE_ARCH=YES \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
+该命令已在 Xcode 27 beta 上验证通过；如需同时发布 Intel 版本，请使用
+Flutter 支持的稳定版 Xcode，或升级到已适配 Xcode 27 `lipo` 行为的 Flutter
+版本后再执行普通的 `flutter build macos`。
 
 已为你配置好的 macOS 工程要点：
 
 - **沙盒网络权限**：`macos/Runner/DebugProfile.entitlements` 与 `Release.entitlements` 均已加入 `com.apple.security.network.client`。缺少它时沙盒会静默拦截所有出站请求，应用连不上服务器。
-- Bundle 标识：`cn.edu.nwafu.nwafuBksxk`；显示名：西农本科选课；最低系统 macOS 10.15。
+- Bundle 标识：`cn.edu.nwafu.nwafuBksxk`；显示名：西农本科选课；最低系统 macOS 14.0（`flutter_onnxruntime` 要求）。
 - 通知：`flutter_local_notifications` 走系统通知中心，首次登录后申请权限。
 
 ---
@@ -127,13 +157,14 @@ git push -u origin web
 网页首次打开会弹窗提示安装脚本。用户需：
 
 1. 安装 **篡改猴 (Tampermonkey)** 或 **脚本猫 (ScriptCat)** 浏览器扩展；
-2. 安装本仓库的 [`userscripts/bksxk-web-bridge.user.js`](../userscripts/bksxk-web-bridge.user.js)（在 Tampermonkey 中新建脚本粘贴，或从托管地址导入）；
+2. 在弹窗中点击 **一键安装脚本**；也可直接打开部署后的 [`bksxk-web-bridge.user.js`](https://mjy.js.org/nwafu-bksxk/bksxk-web-bridge.user.js)，或查看仓库源文件 [`web_bridge/bksxk-web-bridge.user.js`](web_bridge/bksxk-web-bridge.user.js)；
 3. **确认脚本的 `@match` 覆盖你的部署域名**（脚本默认匹配 `localhost`、`*.github.io`、`*.pages.dev`、`*.vercel.app`、`*.netlify.app`；自定义域名需自行添加一条 `@match`）；
 4. 刷新页面。
 
 脚本原理：它把 `window.XMLHttpRequest` 替换为一个转发器——发往 `bksxk.nwafu.edu.cn` 的请求改走 `GM_xmlhttpRequest`（不受 CORS 限制、自动携带浏览器里的选课站 Cookie、可设置被禁止的请求头），其余请求（字体、同源资源等）仍走原生 XHR。安装后应用无需改动即可工作。`@connect` 仅限 `bksxk.nwafu.edu.cn`，脚本只能访问选课主机。
 
-安装后应用检测到 `window.__bksxkBridgeReady` 便不再弹提示。
+安装后应用会同时检查 `window.__bksxkBridgeReady` 与跨扩展隔离域可见的
+`data-bksxk-bridge-ready` DOM 标记，刷新后不再弹出安装提示。
 
 ### Web 限制说明
 
