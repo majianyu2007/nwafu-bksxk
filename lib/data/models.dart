@@ -67,6 +67,7 @@ class StudentInfo {
     this.collegeName = '',
     this.majorName = '',
     this.grade = '',
+    this.schoolClassName = '',
     this.raw = const {},
   });
 
@@ -78,16 +79,54 @@ class StudentInfo {
   final String collegeName;
   final String majorName;
   final String grade;
+  final String schoolClassName;
   final Map<String, dynamic> raw;
 
   factory StudentInfo.fromJson(Map<String, dynamic> j) => StudentInfo(
         studentCode: _s(j['code'] ?? j['studentCode'] ?? j['number'] ?? j['xh']),
         name: _s(j['name'] ?? j['studentName']),
         campus: _s(j['campus'] ?? j['campusCode']),
-        collegeName: _s(j['collegeName']),
-        majorName: _s(j['majorName']),
+        collegeName: _s(j['collegeName'] ?? j['college']),
+        majorName: _s(j['majorName'] ?? j['major'] ?? j['majorDirectionName']),
         grade: _s(j['grade']),
+        schoolClassName: _s(j['schoolClassName'] ?? j['schoolClass']),
         raw: j,
+      );
+
+  /// Returns a copy with any non-null fields from [other] filled in. Used to
+  /// merge the richer xkxf.do payload (which carries name/college/major/
+  /// grade) into a StudentInfo built from the sparser student/<code>.do data.
+  StudentInfo copyWith({
+    String? name,
+    String? campus,
+    String? collegeName,
+    String? majorName,
+    String? grade,
+    String? schoolClassName,
+    Map<String, dynamic>? raw,
+  }) =>
+      StudentInfo(
+        studentCode: studentCode,
+        name: name ?? this.name,
+        campus: campus ?? this.campus,
+        collegeName: collegeName ?? this.collegeName,
+        majorName: majorName ?? this.majorName,
+        grade: grade ?? this.grade,
+        schoolClassName: schoolClassName ?? this.schoolClassName,
+        raw: raw == null ? this.raw : {...this.raw, ...raw},
+      );
+
+  /// Fills blanks from a [CreditInfo] payload. The credit-info endpoint
+  /// (student/xkxf.do) returns name/college/major/grade/campus that the
+  /// student/<code>.do profile omits, so we merge by best-effort.
+  StudentInfo mergeFromCredit(CreditInfo c) => copyWith(
+        name: name.isEmpty ? c.raw['name']?.toString() : null,
+        campus: campus.isEmpty ? (c.raw['campus']?.toString()) : null,
+        collegeName: collegeName.isEmpty ? c.collegeName : null,
+        majorName: majorName.isEmpty ? c.majorName : null,
+        grade: grade.isEmpty ? c.grade : null,
+        schoolClassName: schoolClassName.isEmpty ? c.schoolClassName : null,
+        raw: c.raw,
       );
 }
 
@@ -357,3 +396,319 @@ class ApiResult {
         raw: j,
       );
 }
+
+// ---- New models for the previously-unwired api-branch endpoints ----
+
+/// A notice/announcement row (publicinfo/notice.do).
+class Notice {
+  Notice({
+    required this.wid,
+    required this.title,
+    this.publishTime = '',
+    this.timeDescription = '',
+    this.filename = '',
+    this.content = '',
+    this.raw = const {},
+  });
+
+  final String wid;
+  final String title;
+  final String publishTime;
+  final String timeDescription;
+  final String filename;
+  final String content;
+  final Map<String, dynamic> raw;
+
+  bool get hasAttachment => filename.isNotEmpty;
+
+  factory Notice.fromJson(Map<String, dynamic> j) => Notice(
+        wid: _s(j['wid']),
+        title: _s(j['title']),
+        publishTime: _s(j['publishTime']),
+        timeDescription: _s(j['timeDescription']),
+        filename: _s(j['filename']),
+        content: _s(j['content']),
+        raw: j,
+      );
+}
+
+/// A common-problem entry (publicinfo/problem.do). Same shape as [Notice] plus
+/// a serial number for ordered display.
+class ProblemEntry {
+  ProblemEntry({
+    required this.wid,
+    required this.title,
+    this.serialNumber = '',
+    this.publishTime = '',
+    this.timeDescription = '',
+    this.content = '',
+    this.raw = const {},
+  });
+
+  final String wid;
+  final String title;
+  final String serialNumber;
+  final String publishTime;
+  final String timeDescription;
+  final String content;
+  final Map<String, dynamic> raw;
+
+  factory ProblemEntry.fromJson(Map<String, dynamic> j) => ProblemEntry(
+        wid: _s(j['wid']),
+        title: _s(j['title']),
+        serialNumber: _s(j['serialNumber']),
+        publishTime: _s(j['publishTime']),
+        timeDescription: _s(j['timeDescription']),
+        content: _s(j['content']),
+        raw: j,
+      );
+}
+
+/// A volunteer-grade dictionary row (publicinfo/volunteer.do). Used to label
+/// the `chooseVolunteer` field on a teaching class.
+class VolunteerGrade {
+  VolunteerGrade({required this.grade, required this.name, this.inUse = true});
+  final String grade;
+  final String name;
+  final bool inUse;
+
+  factory VolunteerGrade.fromJson(Map<String, dynamic> j) => VolunteerGrade(
+        grade: _s(j['grade']),
+        name: _s(j['name']),
+        inUse: _flag(j['isUse']),
+      );
+}
+
+/// Student selection credit summary (student/xkxf.do `data`).
+///
+/// The server returns a flat object; we surface the few fields a student
+/// actually reads while planning a round. Unknown/absent degrade to '' / 0.
+class CreditInfo {
+  const CreditInfo({
+    this.totalCredit = 0,
+    this.getCredit = 0,
+    this.needCredit = 0,
+    this.limitElective = '',
+    this.campusName = '',
+    this.collegeName = '',
+    this.majorName = '',
+    this.grade = '',
+    this.schoolClassName = '',
+    this.electiveIsOpen = false,
+    this.noSelectReason = '',
+    this.raw = const {},
+  });
+
+  final double totalCredit;
+  final double getCredit;
+  final double needCredit;
+  final String limitElective;
+  final String campusName;
+  final String collegeName;
+  final String majorName;
+  final String grade;
+  final String schoolClassName;
+  final bool electiveIsOpen;
+  final String noSelectReason;
+  final Map<String, dynamic> raw;
+
+  /// Remaining credits the student still needs to select this round.
+  double get remainingCredit {
+    final r = needCredit - getCredit;
+    return r < 0 ? 0 : r;
+  }
+
+  factory CreditInfo.fromJson(Map<String, dynamic> j) {
+    double toDouble(dynamic v, [double fallback = 0]) {
+      if (v is num) return v.toDouble();
+      final s = _s(v);
+      return double.tryParse(s) ?? fallback;
+    }
+
+    return CreditInfo(
+      totalCredit: toDouble(j['totalCredit']),
+      getCredit: toDouble(j['getCredit']),
+      needCredit: toDouble(j['needCredit']),
+      limitElective: _s(j['limitElective']),
+      campusName: _s(j['campusName']),
+      collegeName: _s(j['collegeName']),
+      majorName: _s(j['majorName']),
+      grade: _s(j['grade']),
+      schoolClassName: _s(j['schoolClassName']),
+      electiveIsOpen: _flag(j['electiveIsOpen']),
+      noSelectReason: _s(j['noSelectReason']),
+      raw: j,
+    );
+  }
+
+  /// Empty placeholder used before the first successful load.
+  static const empty = CreditInfo();
+}
+/// A schedule row from teachingTime.do / noArranged.do.
+///
+/// The response is a list of teaching-class-shaped rows. We keep the raw map
+/// and expose the few fields the schedule grid needs.
+class ScheduleEntry {
+  ScheduleEntry({this.raw = const {}}) {
+    _tc = TeachingClass.fromJson(raw);
+  }
+
+  final Map<String, dynamic> raw;
+  late final TeachingClass _tc;
+
+  String get courseName => _tc.courseName;
+  String get courseNumber => _tc.courseNumber;
+  String get teacherName => _tc.teacherName;
+  String get teachingPlace => _tc.teachingPlace;
+  String get credit => _tc.credit;
+  String get hours => _tc.hours;
+  String get courseIndex => _tc.courseIndex;
+  String get examTime => _tc.examTime;
+  String get schoolTerm => _tc.schoolTerm;
+  String get courseNatureName => _s(raw['courseNatureName']);
+  String get courseTypeName => _tc.courseTypeName;
+  String get displayTitle => _tc.displayTitle;
+  String get teachingClassId => _tc.teachingClassId;
+
+  /// True when this row came from noArranged.do (time/place not yet published).
+  bool get isUnarranged => teachingPlace.isEmpty;
+
+  factory ScheduleEntry.fromJson(Map<String, dynamic> j) => ScheduleEntry(raw: j);
+}
+
+/// A drop-log row from returnResults.do. Carries who/when/ip metadata.
+class DropLogEntry {
+  DropLogEntry({this.raw = const {}});
+  final Map<String, dynamic> raw;
+
+  String get courseName => _s(raw['courseName']);
+  String get courseNumber => _s(raw['courseNumber']);
+  String get teachingClassId => _s(raw['teachingClassID'] ?? raw['teachingClassId']);
+  String get teacherName => _s(raw['teacherName']);
+  String get deleteOperateTime => _s(raw['deleteOperateTime']);
+  String get deleteOperateTypeName => _s(raw['deleteOperateTypeName']);
+  String get deleteOperatePersonName => _s(raw['deleteOperatePersonName']);
+  String get operateIP => _s(raw['operateIP']);
+  String get selectStatus => _s(raw['selectStatus']);
+
+  factory DropLogEntry.fromJson(Map<String, dynamic> j) => DropLogEntry(raw: j);
+}
+
+/// An unsuccessful-selection row from unsuccessful.do.
+class UnsuccessfulEntry {
+  UnsuccessfulEntry({this.raw = const {}});
+  final Map<String, dynamic> raw;
+
+  String get wid => _s(raw['wid']);
+  String get courseName => _s(raw['courseName']);
+  String get courseNumber => _s(raw['courseNumber']);
+  String get teachingClassId => _s(raw['teachingClassID'] ?? raw['teachingClassId']);
+  String get teacherName => _s(raw['teacherName']);
+  String get reason => _s(raw['reason'] ?? raw['unsuccessfulReason']);
+
+  factory UnsuccessfulEntry.fromJson(Map<String, dynamic> j) => UnsuccessfulEntry(raw: j);
+}
+
+/// A queue-position row from queryStudentQueue.do.
+class QueueEntry {
+  QueueEntry({this.raw = const {}});
+  final Map<String, dynamic> raw;
+
+  String get courseName => _s(raw['courseName']);
+  String get teachingClassId => _s(raw['teachingClassID'] ?? raw['teachingClassId']);
+  String get inQueue => _s(raw['inQuene'] ?? raw['inQueue']);
+  String get queueIndex => _s(raw['queueIndex'] ?? raw['queueNo']);
+
+  factory QueueEntry.fromJson(Map<String, dynamic> j) => QueueEntry(raw: j);
+}
+
+/// Online-user stats from onlineUsers.do. The server returns a data object
+/// whose fields vary by deployment; we surface the common count plus the raw.
+class OnlineUserStats {
+  const OnlineUserStats({this.count = 0, this.raw = const {}});
+  final int count;
+  final Map<String, dynamic> raw;
+
+  factory OnlineUserStats.fromJson(Map<String, dynamic> j) {
+    // The endpoint usually returns `data` as a map with a numeric field; we
+    // scan the most common names and fall back to 0.
+    int pick(List<String> keys) {
+      for (final k in keys) {
+        final v = j[k];
+        if (v == null) continue;
+        if (v is num) return v.toInt();
+        final n = int.tryParse(_s(v));
+        if (n != null) return n;
+      }
+      return 0;
+    }
+
+    return OnlineUserStats(
+      count: pick(['onlineUserCount', 'onlineUsers', 'count', 'number', 'total']),
+      raw: j,
+    );
+  }
+
+  static const empty = OnlineUserStats();
+}
+
+/// One textbook option row from textbook/queryxsjxbbook.do.
+///
+/// The same shape drives both the per-book order/decline decision the user
+/// makes before grabbing and the post-grab textbook modification flow.
+class TextbookOption {
+  TextbookOption({
+    required this.bookCode,
+    this.bookName = '',
+    this.isbn = '',
+    this.price = '',
+    this.press = '',
+    this.author = '',
+    this.orderable = true,
+    this.reasonCodes = const [],
+    this.raw = const {},
+  });
+
+  final String bookCode;
+  final String bookName;
+  final String isbn;
+  final String price;
+  final String press;
+  final String author;
+
+  /// False when the server says ordering is closed for this book.
+  final bool orderable;
+
+  /// Decline-reason codes the user may pick when not ordering.
+  final List<TextbookReason> reasonCodes;
+  final Map<String, dynamic> raw;
+
+  factory TextbookOption.fromJson(Map<String, dynamic> j) {
+    final reasons = (j['reasonList'] ?? j['reasonCodeList']) as List? ?? const [];
+    return TextbookOption(
+      bookCode: _s(j['bookCode'] ?? j['jcbm'] ?? j['wid']),
+      bookName: _s(j['bookName'] ?? j['jcmc']),
+      isbn: _s(j['isbn'] ?? j['jisbn']),
+      price: _s(j['price'] ?? j['dj']),
+      press: _s(j['press'] ?? j['cbs']),
+      author: _s(j['author'] ?? j['zz']),
+      orderable: !_flag(j['orderClosed'] ?? j['cannotOrder']),
+      reasonCodes: reasons
+          .whereType<Map>()
+          .map((e) => TextbookReason.fromJson(e.cast<String, dynamic>()))
+          .toList(),
+      raw: j,
+    );
+  }
+}
+
+/// A decline reason for a textbook (resonable default codes per the site).
+class TextbookReason {
+  TextbookReason({required this.code, required this.name});
+  final String code;
+  final String name;
+
+  factory TextbookReason.fromJson(Map<String, dynamic> j) =>
+      TextbookReason(code: _s(j['code'] ?? j['reasonCode']), name: _s(j['name'] ?? j['reasonName']));
+}
+

@@ -152,4 +152,170 @@ class CourseService {
       ),
     );
   }
+
+  // ---- Schedule (teachingTime / noArranged) ----
+
+  /// Fetches the student's arranged schedule (teachingTime.do) for [batchCode].
+  /// Rows are teaching-class-shaped; see [ScheduleEntry].
+  Future<List<ScheduleEntry>> fetchSchedule({
+    required String studentCode,
+    required String batchCode,
+  }) async {
+    final res = await _client.getJson(
+      Api.teachingTime,
+      query: buildScheduleQuery(
+        studentCode: studentCode,
+        electiveBatchCode: batchCode,
+        timestamp: ApiClient.nowStamp(),
+      ),
+    );
+    if (!res.ok) return [];
+    return res.dataList
+        .whereType<Map>()
+        .map((e) => ScheduleEntry.fromJson(e.cast<String, dynamic>()))
+        .toList();
+  }
+
+  /// Fetches courses whose time/place has not been arranged yet
+  /// (noArranged.do). Pairs with [fetchSchedule] for the full "我的课表".
+  Future<List<ScheduleEntry>> fetchUnarranged({
+    required String studentCode,
+    required String batchCode,
+  }) async {
+    final res = await _client.getJson(
+      Api.noArranged,
+      query: buildScheduleQuery(
+        studentCode: studentCode,
+        electiveBatchCode: batchCode,
+        timestamp: ApiClient.nowStamp(),
+      ),
+    );
+    if (!res.ok) return [];
+    return res.dataList
+        .whereType<Map>()
+        .map((e) => ScheduleEntry.fromJson(e.cast<String, dynamic>()))
+        .toList();
+  }
+
+  // ---- Selection records ----
+
+  /// Drop log (returnResults.do): who dropped which class, when, from which IP.
+  Future<List<DropLogEntry>> fetchReturnResults({
+    required String studentCode,
+    required String batchCode,
+  }) async {
+    final res = await _client.getJson(
+      Api.returnResults,
+      query: buildReturnResultsQuery(
+        studentCode: studentCode,
+        electiveBatchCode: batchCode,
+        timestamp: ApiClient.nowStamp(),
+      ),
+    );
+    if (!res.ok) return [];
+    return res.dataList
+        .whereType<Map>()
+        .map((e) => DropLogEntry.fromJson(e.cast<String, dynamic>()))
+        .toList();
+  }
+
+  /// Unsuccessful selections (unsuccessful.do): courses the student tried to
+  /// grab this round but did not get. Pass [isRead] to fetch the unread set.
+  Future<List<UnsuccessfulEntry>> fetchUnsuccessful({
+    required String studentCode,
+    required String batchCode,
+    bool isRead = false,
+  }) async {
+    final res = await _client.getJson(
+      Api.unsuccessful,
+      query: buildUnsuccessfulQuery(
+        studentCode: studentCode,
+        electiveBatchCode: batchCode,
+        isRead: isRead,
+      ),
+    );
+    if (!res.ok) return [];
+    return res.dataList
+        .whereType<Map>()
+        .map((e) => UnsuccessfulEntry.fromJson(e.cast<String, dynamic>()))
+        .toList();
+  }
+
+  /// Queue position info (queryStudentQueue.do): where the student sits in the
+  /// wait queue for full classes they tried to grab.
+  Future<List<QueueEntry>> fetchStudentQueue({
+    required String studentCode,
+    required String batchCode,
+  }) async {
+    final res = await _client.getJson(
+      Api.studentQueue,
+      query: buildStudentQueueQuery(
+        studentCode: studentCode,
+        electiveBatchCode: batchCode,
+      ),
+    );
+    if (!res.ok) return [];
+    return res.dataList
+        .whereType<Map>()
+        .map((e) => QueueEntry.fromJson(e.cast<String, dynamic>()))
+        .toList();
+  }
+
+  // ---- Live detail (queryjxb / querykcxx) ----
+
+  /// Fetches the full teaching-class detail (queryjxb.do). The locally held
+  /// [TeachingClass] already carries most fields; this returns the server's
+  /// authoritative row so the detail sheet can show anything the list row
+  /// omitted. Returns null when the server has nothing beyond what we have.
+  Future<TeachingClass?> fetchTeachingClassDetail({
+    required TeachingClass tc,
+    required String batchCode,
+  }) async {
+    final res = await _client.getJson(
+      Api.teachingClassDetail,
+      query: buildTeachingClassDetailQuery(
+        teachingClassId: tc.teachingClassId,
+        electiveBatchCode: batchCode,
+      ),
+    );
+    if (!res.ok || res.data is! Map) return null;
+    final data = (res.data as Map).cast<String, dynamic>();
+    // Merge so we don't lose list-row fields the detail endpoint omits.
+    return TeachingClass.fromJson({...tc.raw, ...data});
+  }
+
+  /// Fetches course-level detail (querykcxx.do) as the raw map. The shape is
+  /// course-level (credit, hours, syllabus URL, department, etc.) and varies
+  /// by course kind, so the caller reads fields straight from the map.
+  Future<Map<String, dynamic>?> fetchCourseDetail(String courseNumber) async {
+    final res = await _client.getJson(
+      Api.courseDetail,
+      query: buildCourseDetailQuery(courseNumber),
+    );
+    if (!res.ok || res.data is! Map) return null;
+    return (res.data as Map).cast<String, dynamic>();
+  }
+
+  /// Fetches the textbook options for a teaching class (queryxsjxbbook.do).
+  /// Returns the raw rows; [TextbookOption.fromJson] wraps them.
+  Future<List<TextbookOption>> fetchTextbookOptions({
+    required String studentCode,
+    required String batchCode,
+    required String teachingClassId,
+  }) async {
+    final res = await _client.postForm(
+      Api.textbookQuery,
+      buildTextbookQuery(
+        studentCode: studentCode,
+        electiveBatchCode: batchCode,
+        teachingClassId: teachingClassId,
+      ),
+    );
+    if (!res.ok) return [];
+    return res.dataList
+        .whereType<Map>()
+        .map((e) => TextbookOption.fromJson(e.cast<String, dynamic>()))
+        .where((t) => t.bookCode.isNotEmpty)
+        .toList();
+  }
 }

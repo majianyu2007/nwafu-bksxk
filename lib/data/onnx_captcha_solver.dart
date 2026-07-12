@@ -54,6 +54,12 @@ class OnnxCaptchaSolver implements CaptchaSolver {
   Completer<void>? _initing;
 
   bool get unavailable => _initFailed;
+  /// Pre-loads the ONNX session + charset so the first real [solve] is fast.
+  /// Called from main() at app start to hide cold-start model load behind the
+  /// splash / login screen mount.
+  @override
+  Future<void> warmUp() => _ensureInit();
+
 
   Future<void> _ensureInit() async {
     if (_session != null || _initFailed) return;

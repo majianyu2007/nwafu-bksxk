@@ -145,4 +145,6 @@ class HttpOcrCaptchaSolver implements CaptchaSolver {
         return map?[config.responseField]?.toString();
     }
   }
+  @override
+  Future<void> warmUp() async {} // HTTP solver: nothing to pre-load.
 }

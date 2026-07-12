@@ -5,6 +5,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app/providers.dart';
 import '../core/constants.dart';
 import '../data/models.dart';
 import '../data/monitor_engine.dart';
@@ -12,6 +13,9 @@ import '../data/param_builders.dart';
 import 'courses_controller.dart';
 import 'teaching_class_tile.dart';
 import 'widgets.dart';
+
+/// Sentinel returned in [book] field when user cancels textbook selection.
+const _kBookCancelled = '__CANCEL_TEXTBOOK__';
 
 class CoursesPage extends ConsumerStatefulWidget {
   const CoursesPage({super.key});
@@ -260,6 +264,7 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
     }
     try {
       final (testId, book) = await _resolveSelectionsIfNeeded(tc);
+      if (book == _kBookCancelled) return; // toast already shown by prompt
       final outcome = await ctrl.grabNow(tc, testTeachingClassId: testId, bookSelection: book);
       if (!mounted) return;
       showToast(context, outcome.message, success: outcome.success);
@@ -276,6 +281,7 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
     final ctrl = ref.read(coursesProvider.notifier);
     try {
       final (testId, book) = await _resolveSelectionsIfNeeded(tc);
+      if (book == _kBookCancelled) return; // toast already shown by prompt
       final watch = ctrl.addToMonitor(tc, testTeachingClassId: testId, bookSelection: book);
       if (!mounted) return;
       final needsSetup = watch.status == WatchStatus.needsSetup;
@@ -301,10 +307,9 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
       testId = tc.testTeachingClassId;
     }
     if (tc.hasBook) {
-      // Default policy: order all books (empty means "order"). A future screen
-      // can offer per-book decline reasons; for now we order to keep the struct
-      // valid, which is the common case.
-      book = tc.needBook.isNotEmpty ? tc.needBook : '';
+      final sel = await _promptTextbookSelection(tc);
+      if (sel == null) return (testId, _kBookCancelled);
+      book = sel.jcxx;
       if (book.isEmpty) book = null;
     }
     return (testId, book);
@@ -323,6 +328,61 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
       showDragHandle: true,
       builder: (context) => _TestClassPicker(list: list),
     );
+  }
+
+  Future<TextbookSelection?> _promptTextbookSelection(TeachingClass tc) async {
+    final session = ref.read(sessionProvider);
+    final student = session.student;
+    final batch = session.activeBatch;
+    if (student == null || batch == null) return null;
+
+    // Show loading indicator.
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: CircularProgressIndicator(),
+          ),
+        ),
+      ),
+    );
+
+    try {
+      final options = await ref.read(courseServiceProvider).fetchTextbookOptions(
+        studentCode: student.studentCode,
+        batchCode: batch.code,
+        teachingClassId: tc.teachingClassId,
+      );
+
+      if (!mounted) return null;
+      Navigator.of(context).pop(); // dismiss loading
+
+      if (options.isEmpty) {
+        showToast(context, '未获取到教材清单，按默认提交');
+        final book = tc.needBook.isNotEmpty ? tc.needBook : '';
+        return TextbookSelection(book, []);
+      }
+
+      final sel = await showModalBottomSheet<TextbookSelection>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (ctx) => _TextbookPicker(options: options),
+      );
+      if (sel == null) {
+        if (!mounted) return null;
+        showToast(context, '已取消教材选择', success: false);
+      }
+      return sel;
+    } catch (e) {
+      if (!mounted) return null;
+      Navigator.of(context).pop(); // dismiss loading on error
+      showToast(context, '获取教材信息失败', success: false);
+      return null;
+    }
   }
 }
 
@@ -351,6 +411,138 @@ class _TestClassPicker extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _TextbookPicker extends StatefulWidget {
+  const _TextbookPicker({required this.options});
+  final List<TextbookOption> options;
+
+  @override
+  State<_TextbookPicker> createState() => _TextbookPickerState();
+}
+
+class _TextbookPickerState extends State<_TextbookPicker> {
+  late List<bool> _ordered;
+  late List<String> _reasonCodes;
+
+  @override
+  void initState() {
+    super.initState();
+    _ordered = List.generate(
+      widget.options.length,
+      (i) => widget.options[i].orderable,
+    );
+    _reasonCodes = List.generate(widget.options.length, (_) => '');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 16,
+          right: 16,
+        ),
+        child: Column(
+          // mainAxisSize.min → default (max) so Column fills available height
+          children: [
+            const SizedBox(height: 8),
+            Text('选择教材', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            Expanded(
+              child: ListView.builder(
+                itemCount: widget.options.length,
+                itemBuilder: (context, i) {
+                  final book = widget.options[i];
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CheckboxListTile(
+                        title: Text(book.bookName),
+                        subtitle: Text([
+                          if (book.isbn.isNotEmpty) 'ISBN:${book.isbn}',
+                          if (book.press.isNotEmpty) book.press,
+                          '\u00a5${book.price}',
+                        ].join(' \u00b7 ')),
+                        value: _ordered[i],
+                        enabled: book.orderable,
+                        onChanged: book.orderable
+                            ? (v) => setState(() {
+                                  _ordered[i] = v ?? true;
+                                  if (!_ordered[i] &&
+                                      _reasonCodes[i].isEmpty &&
+                                      book.reasonCodes.isNotEmpty) {
+                                    _reasonCodes[i] = book.reasonCodes.first.code;
+                                  }
+                                })
+                            : null,
+                      ),
+                      if (!_ordered[i] && book.reasonCodes.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                          child: DropdownButtonFormField<String>(
+                            initialValue: _reasonCodes[i].isNotEmpty ? _reasonCodes[i] : null,
+                            decoration: const InputDecoration(
+                              labelText: '\u4e0d\u8ba2\u8d2d\u539f\u56e0',
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              isDense: true,
+                            ),
+                            items: book.reasonCodes
+                                .map((r) => DropdownMenuItem(value: r.code, child: Text(r.name)))
+                                .toList(),
+                            onChanged: (v) => setState(() => _reasonCodes[i] = v ?? ''),
+                          ),
+                        ),
+                      if (!book.orderable)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 72, bottom: 8),
+                          child: Text('\u8be5\u6559\u6750\u4e0d\u53ef\u8ba2\u8d2d',
+                              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: FilledButton.icon(
+                onPressed: _confirm,
+                icon: const Icon(Icons.check),
+                label: const Text('\u786e\u8ba4\u6559\u6750\u9009\u62e9'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirm() {
+    final choices = <BookChoice>[];
+    for (var i = 0; i < widget.options.length; i++) {
+      final book = widget.options[i];
+      if (_ordered[i]) {
+        choices.add(BookChoice(bookCode: book.bookCode, order: true));
+      } else {
+        final reason = _reasonCodes[i].trim();
+        if (reason.isEmpty || reason == '***') {
+          showToast(context, '请选择「${book.bookName}」的不订购原因', success: false);
+          return;
+        }
+        choices.add(BookChoice(
+          bookCode: book.bookCode,
+          order: false,
+          reasonCode: reason,
+        ));
+      }
+    }
+    final jcxx = buildBookSelection(choices);
+    Navigator.pop(context, TextbookSelection(jcxx, choices));
   }
 }
 

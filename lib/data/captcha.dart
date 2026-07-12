@@ -20,6 +20,11 @@ import 'dart:async';
 /// Answers a captcha image, or returns null if it cannot.
 abstract class CaptchaSolver {
   Future<String?> solve(List<int> imageBytes);
+
+  /// Pre-load any model/session so the first real solve is fast. Default
+  /// no-op; the ONNX solver overrides to load the model into memory ahead of
+  /// the login screen mount.
+  Future<void> warmUp() async {}
 }
 
 /// A no-op solver used before OCR is configured; always returns null so callers
@@ -28,6 +33,8 @@ class NoopCaptchaSolver implements CaptchaSolver {
   const NoopCaptchaSolver();
   @override
   Future<String?> solve(List<int> imageBytes) async => null;
+  @override
+  Future<void> warmUp() async {}
 }
 
 /// Wraps a user-supplied OCR callback. The callback can call a bundled model, a
@@ -51,6 +58,8 @@ class OcrCaptchaSolver implements CaptchaSolver {
     if (expectedLength > 0 && cleaned.length != expectedLength) return null;
     return cleaned;
   }
+  @override
+  Future<void> warmUp() async {}
 }
 
 /// Tries solvers in order, returning the first non-null answer.
@@ -64,6 +73,10 @@ class ChainCaptchaSolver implements CaptchaSolver {
       if (a != null && a.isNotEmpty) return a;
     }
     return null;
+  }
+  @override
+  Future<void> warmUp() async {
+    await Future.wait(_solvers.map((s) => s.warmUp()));
   }
 }
 

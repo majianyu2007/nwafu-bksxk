@@ -8,7 +8,23 @@ import '../app/monitor_providers.dart';
 import '../app/providers.dart';
 import '../data/models.dart';
 import '../data/monitor_engine.dart';
+import 'batch_pick_dialog.dart';
 import 'widgets.dart';
+
+final noticesProvider =
+    FutureProvider.autoDispose<List<Notice>>((ref) => ref.read(infoServiceProvider).fetchNotices());
+
+final creditInfoProvider = FutureProvider.autoDispose<CreditInfo>((ref) async {
+  final s = ref.watch(sessionProvider);
+  final b = s.activeBatch;
+  final st = s.student;
+  if (st == null || b == null) return CreditInfo.empty;
+  return ref.read(infoServiceProvider).fetchCreditInfo(
+        studentCode: st.studentCode,
+        electiveBatchCode: b.code,
+        batchType: b.batchType,
+      );
+});
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
@@ -43,7 +59,14 @@ class HomePage extends ConsumerWidget {
                 const SizedBox(height: 16),
                 const _SectionLabel('选课轮次'),
                 const SizedBox(height: 8),
+                _BatchClosedBanner(session: session),
                 _BatchSelector(session: session),
+                const SizedBox(height: 16),
+                const _NoticesCard(),
+                const SizedBox(height: 16),
+                const _SectionLabel('选课学分'),
+                const SizedBox(height: 8),
+                const _CreditCard(),
                 const SizedBox(height: 16),
                 const _SectionLabel('抢课监控'),
                 const SizedBox(height: 8),
@@ -67,6 +90,8 @@ class HomePage extends ConsumerWidget {
       if (context.mounted) showToast(context, '轮次已刷新', success: true);
       // Nudge the session state so UI rebuilds.
       ref.read(sessionProvider.notifier).setActiveBatch(mgr.activeBatch ?? (batches.isNotEmpty ? batches.first : ElectiveBatch(code: '', name: '', batchType: '', canSelect: false)));
+      ref.invalidate(noticesProvider);
+      ref.invalidate(creditInfoProvider);
     } catch (e) {
       if (context.mounted) showToast(context, '刷新失败：$e', success: false);
     }
@@ -248,6 +273,294 @@ class _MonitorSummary extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _NoticesCard extends ConsumerWidget {
+  const _NoticesCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final noticesAsync = ref.watch(noticesProvider);
+    final notices = noticesAsync.valueOrNull ?? <Notice>[];
+    if (notices.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Text('选课公告',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right, size: 18),
+                const Spacer(),
+                GestureDetector(
+                  onTap: notices.isNotEmpty
+                      ? () => _showNoticeDetail(context, ref, notices.first.wid)
+                      : null,
+                  child: Text('更多',
+                      style: TextStyle(color: scheme.primary)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 36,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: notices.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (_, i) {
+                  final n = notices[i];
+                  return GestureDetector(
+                    onTap: () => _showNoticeDetail(context, ref, n.wid),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        n.title.length > 14
+                            ? '${n.title.substring(0, 14)}…'
+                            : n.title,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showNoticeDetail(BuildContext context, WidgetRef ref, String wid) {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => _NoticeDetailSheet(wid: wid, ref: ref),
+    );
+  }
+}
+
+class _NoticeDetailSheet extends StatelessWidget {
+  const _NoticeDetailSheet({required this.wid, required this.ref});
+  final String wid;
+  final WidgetRef ref;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Notice?>(
+      future: ref.read(infoServiceProvider).fetchNoticeDetail(wid),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(
+            height: 200,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final notice = snapshot.data;
+        if (notice == null) {
+          return const SizedBox(
+            height: 200,
+            child: Center(child: Text('暂无内容')),
+          );
+        }
+        final scheme = Theme.of(context).colorScheme;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(notice.title,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              if (notice.timeDescription.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(notice.timeDescription,
+                    style: TextStyle(
+                        color: scheme.onSurfaceVariant, fontSize: 12)),
+              ],
+              const SizedBox(height: 16),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Text(notice.content),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CreditCard extends ConsumerWidget {
+  const _CreditCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final creditAsync = ref.watch(creditInfoProvider);
+    final scheme = Theme.of(context).colorScheme;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Text('选课学分',
+                    style:
+                        TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                const Spacer(),
+                SizedBox(
+                  height: 28,
+                  width: 28,
+                  child: InkWell(
+                    onTap: () => ref.invalidate(creditInfoProvider),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Icon(Icons.refresh, size: 18, color: scheme.primary),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            creditAsync.when(
+              data: (info) {
+                final remaining = info.remainingCredit.toStringAsFixed(1);
+                return Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _StatTile(
+                            label: '已修学分',
+                            value: info.getCredit.toStringAsFixed(1),
+                          ),
+                        ),
+                        Expanded(
+                          child: _StatTile(
+                            label: '需修学分',
+                            value: info.needCredit.toStringAsFixed(1),
+                          ),
+                        ),
+                        Expanded(child: _StatTile(label: '还需', value: remaining)),
+                      ],
+                    ),
+                    if (info.noSelectReason.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              info.noSelectReason,
+                              style: TextStyle(
+                                  fontSize: 12, color: scheme.error),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          StatusPill(
+                              label: '无法选课', color: scheme.error),
+                        ],
+                      ),
+                    ],
+                  ],
+                );
+              },
+              loading: () => const SizedBox(
+                height: 40,
+                child: Center(
+                    child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2))),
+              ),
+              error: (e, _) => Text('加载失败',
+                  style: TextStyle(color: scheme.error)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatTile extends StatelessWidget {
+  const _StatTile({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        Text(value,
+            style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+                color: scheme.primary)),
+        const SizedBox(height: 4),
+        Text(label,
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+      ],
+    );
+  }
+}
+
+/// Shows a warning when the active batch is not open, with a re-pick action
+/// that reopens the batch-pick dialog.
+class _BatchClosedBanner extends ConsumerWidget {
+  const _BatchClosedBanner({required this.session});
+  final SessionState session;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final batch = session.activeBatch;
+    final batches = session.batches;
+    if (batches.isEmpty) return const SizedBox.shrink();
+    if (batch != null && batch.canSelect) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: scheme.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.warning_amber, size: 18, color: scheme.onErrorContainer),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              batch == null
+                  ? '尚未选择选课轮次，请先选择一个轮次。'
+                  : '当前轮次「${batch.name.isEmpty ? batch.code : batch.name}」未开放选课。',
+              style: TextStyle(color: scheme.onErrorContainer, fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: () => showBatchPickDialog(context, ref, batches: batches),
+            child: Text(
+              batch == null ? '去选择' : '重新选择',
+              style: TextStyle(color: scheme.onErrorContainer, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
       ),
     );
   }

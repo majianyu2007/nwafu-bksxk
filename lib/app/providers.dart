@@ -13,10 +13,11 @@ import '../core/errors.dart';
 import '../data/api_client.dart';
 import '../data/auth_service.dart';
 import '../data/captcha.dart';
-import '../data/http_ocr_solver.dart';
-import '../data/captcha_solver_factory.dart';
 import '../data/course_service.dart';
 import '../data/enroll_service.dart';
+import '../data/http_ocr_solver.dart';
+import '../data/info_service.dart';
+import '../data/captcha_solver_factory.dart';
 import '../data/models.dart';
 import '../data/monitor_engine.dart';
 import '../data/notifications.dart';
@@ -77,12 +78,14 @@ final authServiceProvider = Provider<AuthService>((ref) => AuthService(ref.watch
 final courseServiceProvider = Provider<CourseService>((ref) => CourseService(ref.watch(apiClientProvider)));
 
 final enrollServiceProvider = Provider<EnrollService>((ref) => EnrollService(ref.watch(apiClientProvider)));
+final infoServiceProvider = Provider<InfoService>((ref) => InfoService(ref.watch(apiClientProvider)));
 
 final sessionManagerProvider = Provider<SessionManager>((ref) {
   final mgr = SessionManager(
     client: ref.watch(apiClientProvider),
     auth: ref.watch(authServiceProvider),
     solver: ref.watch(captchaSolverProvider),
+    info: ref.watch(infoServiceProvider),
   );
   // Keep the manager's solver in sync when the user configures OCR.
   ref.listen<CaptchaSolver>(captchaSolverProvider, (_, next) => mgr.solver = next);
@@ -297,13 +300,35 @@ class SessionController extends StateNotifier<SessionState> {
     );
   }
 
-  void setActiveBatch(ElectiveBatch batch) {
+  Future<void> setActiveBatch(ElectiveBatch batch) async {
     _mgr.activeBatch = batch;
     state = state.copyWith(activeBatch: batch);
+    final studentCode = state.student?.studentCode;
+    if (batch.canSelect && studentCode != null && studentCode.isNotEmpty) {
+      try {
+        await _ref.read(authServiceProvider).confirmBatch(
+              studentCode: studentCode,
+              batchCode: batch.code,
+            );
+      } catch (_) {
+        // Selection remains active for browsing; write calls surface a concrete
+        // rejection if the server requires confirmation and this request failed.
+      }
+    }
   }
 
   Future<void> logout() async {
     _ref.read(monitorEngineProvider).stop();
+    final code = state.student?.studentCode;
+    // Best-effort server-side logout so the school session terminates cleanly;
+    // cookies + token are dropped locally either way.
+    if (code != null && code.isNotEmpty) {
+      try {
+        await _ref.read(authServiceProvider).logout(code);
+      } catch (_) {
+        // local cleanup below is unconditional.
+      }
+    }
     _ref.read(apiClientProvider).token = null;
     await _ref.read(apiClientProvider).clearCookies();
     state = SessionState();

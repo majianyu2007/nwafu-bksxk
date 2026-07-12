@@ -13,9 +13,19 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final storage = await Storage.open();
   await NotificationService.instance.init();
+
+  // Build the ProviderContainer up front so we can pre-warm the ONNX captcha
+  // solver before the login screen mounts. Cold-start model load otherwise
+  // races the first captcha fetch and the user sees "no auto-recognize" even
+  // though the toggle is on. Fire-and-forget: load continues in the background.
+  final container = ProviderContainer(
+    overrides: [storageProvider.overrideWithValue(storage)],
+  );
+  container.read(captchaSolverProvider).warmUp();
+
   runApp(
-    ProviderScope(
-      overrides: [storageProvider.overrideWithValue(storage)],
+    UncontrolledProviderScope(
+      container: container,
       child: const NwafuXkApp(),
     ),
   );

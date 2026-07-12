@@ -21,7 +21,9 @@ import '../core/crypto/des_login.dart';
 import '../core/errors.dart';
 import 'api_client.dart';
 import 'captcha.dart';
+import 'info_service.dart';
 import 'models.dart';
+import 'param_builders.dart';
 
 /// A single captcha challenge: the token to submit with, and the image bytes.
 class CaptchaChallenge {
@@ -136,7 +138,56 @@ class AuthService {
     // Server returns code=1, msg=1 when open.
     return res.ok && (res.msg == '1' || res.msg.isEmpty);
   }
+
+  /// Confirms that the student acknowledged the selected round's notice
+  /// (student/xklcqr.do), matching the official post-login flow.
+  Future<ApiResult> confirmBatch({
+    required String studentCode,
+    required String batchCode,
+  }) =>
+      _client.postForm(
+        Api.batchConfirm,
+        buildBatchConfirmParam(
+          studentCode: studentCode,
+          electiveBatchCode: batchCode,
+        ),
+      );
+
+  /// Logs out on the server (logout.do). Best-effort: the caller clears the
+  /// local session regardless of the outcome, since the cookie/token are gone
+  /// either way.
+  Future<void> logout(String studentCode) async {
+    try {
+      await _client.getJson(
+        Api.logout,
+        auth: false,
+        addTimestamp: false,
+        allowRelogin: false,
+        query: buildLogoutQuery(
+          studentCode: studentCode,
+          timestamp: ApiClient.nowStamp(),
+        ),
+      );
+    } catch (_) {
+      // Swallow: the local session is dropped below regardless.
+    }
+    _client.token = null;
+    await _client.clearCookies();
+  }
 }
+
+/// Pure batch-selection policy used after login and unit-tested independently.
+/// Prefer the first selectable round; if none are open, keep the first visible
+/// round for read-only browsing while reporting [hasSelectable] = false so UI
+/// can warn instead of implying the round is usable.
+({ElectiveBatch? batch, bool hasSelectable}) selectInitialBatch(List<ElectiveBatch> list) {
+  if (list.isEmpty) return (batch: null, hasSelectable: false);
+  for (final b in list) {
+    if (b.canSelect) return (batch: b, hasSelectable: true);
+  }
+  return (batch: list.first, hasSelectable: false);
+}
+
 
 /// Owns the live session and performs silent, captcha-solving re-login.
 ///
@@ -149,14 +200,17 @@ class SessionManager {
     required ApiClient client,
     required AuthService auth,
     required CaptchaSolver solver,
+    InfoService? info,
   })  : _client = client,
         _auth = auth,
-        _solver = solver {
+        _solver = solver,
+        _info = info {
     _client.onSessionExpired = _onExpired;
   }
 
   final ApiClient _client;
   final AuthService _auth;
+  final InfoService? _info;
   CaptchaSolver _solver;
 
   String? _loginName;
@@ -192,20 +246,28 @@ class SessionManager {
       verifyCode: verifyCode,
       vtoken: vtoken,
     );
-    rememberCredentials(loginName, password);
     final (info, batchList) = await _auth.loadContext(res.studentCode);
-    student = info;
-    batches = batchList;
-    activeBatch = _pickDefaultBatch(batchList);
-  }
-
-  ElectiveBatch? _pickDefaultBatch(List<ElectiveBatch> list) {
-    if (list.isEmpty) return null;
-    // Prefer an open/selectable batch.
-    for (final b in list) {
-      if (b.canSelect) return b;
+    final initialChoice = selectInitialBatch(batchList);
+    var merged = info;
+    // The student/<code>.do profile often omits name/college/major/grade;
+    // xkxf.do (credit info) carries them. Best-effort merge so the home page
+    // shows the real name instead of "同学".
+    final initialBatch = initialChoice.batch;
+    if (_info != null && initialBatch != null) {
+      try {
+        final credit = await _info.fetchCreditInfo(
+          studentCode: res.studentCode,
+          electiveBatchCode: initialBatch.code,
+          batchType: initialBatch.batchType,
+        );
+        if (credit.raw.isNotEmpty) merged = info.mergeFromCredit(credit);
+      } catch (_) {
+        // Non-fatal: keep the sparser profile.
+      }
     }
-    return list.first;
+    student = merged;
+    batches = batchList;
+    activeBatch = initialBatch;
   }
 
   /// Retries login through transient server failures until it succeeds, a hard

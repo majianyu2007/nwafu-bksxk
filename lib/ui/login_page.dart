@@ -18,7 +18,7 @@ import '../data/storage.dart';
 import 'diagnostics_page.dart';
 
 /// Visual state of the OCR captcha recognizer.
-enum OcrStatus { idle, recognizing, recognized, failed }
+enum OcrStatus { idle, warming, recognizing, recognized, failed }
 
 class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
@@ -50,6 +50,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   @override
   void initState() {
     super.initState();
+    // Read the persisted auto-recognize toggle (defaults to true).
+    _autoRecognize = ref.read(storageProvider).autoOcr();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _prefillActiveAccount();
       _maybePromptWebBridge();
@@ -108,12 +110,18 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       _loadingCaptcha = true;
       _challenge = null;
       _captchaCtrl.clear();
-      _ocrStatus = _autoRecognize ? OcrStatus.recognizing : OcrStatus.idle;
+      // "warming" while the ONNX model is still loading (cold start); solve()
+      // will await it. Distinguishes "not yet ready" from "tried and failed".
+      _ocrStatus = _autoRecognize ? OcrStatus.warming : OcrStatus.idle;
     });
     try {
       final challenge = await ref.read(sessionProvider.notifier).fetchCaptcha();
       if (!mounted) return;
       setState(() => _challenge = challenge);
+      // Model finished loading (or was already warm): now actually recognizing.
+      if (_ocrStatus == OcrStatus.warming) {
+        setState(() => _ocrStatus = OcrStatus.recognizing);
+      }
 
       // Auto-recognize the captcha so the user never types during a rush.
       if (autoRecognize && _autoRecognize) {
@@ -312,6 +320,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         value: _autoRecognize,
                         onChanged: (v) {
                           setState(() => _autoRecognize = v);
+                          ref.read(storageProvider).setAutoOcr(v);
                           if (v) _refreshCaptcha();
                         },
                       ),
@@ -529,6 +538,14 @@ class _CaptchaRow extends StatelessWidget {
 
   Widget? _ocrIndicator(ColorScheme scheme) {
     switch (ocrStatus) {
+      case OcrStatus.warming:
+        return const Tooltip(
+          message: '识别模型加载中…',
+          child: Padding(
+            padding: EdgeInsets.all(12),
+            child: SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          ),
+        );
       case OcrStatus.recognizing:
         return const Padding(
           padding: EdgeInsets.all(12),

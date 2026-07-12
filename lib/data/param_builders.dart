@@ -217,8 +217,21 @@ Map<String, String> buildDeleteVolunteerParam({
 ///
 /// Per docs/api.notes.md getSelectJcxx(): ordered book: `<bookCode>`,
 /// declined book: `<bookCode>-<reasonCode>`, joined by commas.
-String buildBookSelection(List<BookChoice> choices) =>
-    choices.map((c) => c.order ? c.bookCode : '${c.bookCode}-${c.reasonCode}').join(',');
+String buildBookSelection(List<BookChoice> choices) {
+  for (final choice in choices) {
+    if (!choice.order &&
+        (choice.reasonCode.trim().isEmpty || choice.reasonCode.trim() == '***')) {
+      throw ArgumentError.value(
+        choice.reasonCode,
+        'reasonCode',
+        '拒订教材 ${choice.bookCode} 必须选择有效原因',
+      );
+    }
+  }
+  return choices
+      .map((c) => c.order ? c.bookCode : '${c.bookCode}-${c.reasonCode.trim()}')
+      .join(',');
+}
 
 /// One textbook decision within a class.
 class BookChoice {
@@ -232,6 +245,13 @@ class BookChoice {
 
 /// Params for the add/delete status poll (studentstatus.do).
 Map<String, String> buildStudentStatusParam(String studentCode) => {'studentCode': studentCode};
+
+/// Params for student/xklcqr.do: confirms the selected round's notice.
+Map<String, String> buildBatchConfirmParam({
+  required String studentCode,
+  required String electiveBatchCode,
+}) =>
+    {'studentCode': studentCode, 'electiveBatchCode': electiveBatchCode};
 
 /// Params for the capacity-refresh endpoint.
 Map<String, String> buildCapacityQuery({
@@ -275,3 +295,178 @@ Map<String, String> buildSelectedCourseParam({
   required String electiveBatchCode,
 }) =>
     {'studentCode': studentCode, 'electiveBatchCode': electiveBatchCode};
+
+
+// ---- Schedule / records / detail queries ----
+
+/// Params for teachingTime.do / noArranged.do.
+Map<String, String> buildScheduleQuery({
+  required String studentCode,
+  required String electiveBatchCode,
+  required String timestamp,
+}) =>
+    {
+      'studentCode': studentCode,
+      'electiveBatchCode': electiveBatchCode,
+      'timestamp': timestamp,
+    };
+
+/// Params for returnResults.do (drop log).
+Map<String, String> buildReturnResultsQuery({
+  required String studentCode,
+  required String electiveBatchCode,
+  required String timestamp,
+}) =>
+    {
+      'studentCode': studentCode,
+      'electiveBatchCode': electiveBatchCode,
+      'timestamp': timestamp,
+    };
+
+/// Params for unsuccessful.do (落选课程).
+Map<String, String> buildUnsuccessfulQuery({
+  required String studentCode,
+  required String electiveBatchCode,
+  bool isRead = false,
+}) {
+  final q = <String, String>{
+    'studentCode': studentCode,
+    'electiveBatchCode': electiveBatchCode,
+  };
+  if (isRead) q['isRead'] = '1';
+  return q;
+}
+
+/// Params for queryStudentQueue.do.
+Map<String, String> buildStudentQueueQuery({
+  required String studentCode,
+  required String electiveBatchCode,
+}) =>
+    {
+      'studentCode': studentCode,
+      'electiveBatchCode': electiveBatchCode,
+    };
+
+/// Params for queryjxb.do (教学班详情).
+Map<String, String> buildTeachingClassDetailQuery({
+  required String teachingClassId,
+  required String electiveBatchCode,
+}) =>
+    {'jxbid': teachingClassId, 'xklcdm': electiveBatchCode};
+
+/// Params for querykcxx.do (课程详情).
+Map<String, String> buildCourseDetailQuery(String courseNumber) => {'kch': courseNumber};
+
+/// Builds the `queryParam` form field for course/volunteer.do (课程可选志愿等级).
+Map<String, String> buildCourseVolunteerParam({
+  required String studentCode,
+  required String electiveBatchCode,
+  required String courseNumber,
+}) =>
+    {
+      'queryParam': jsonEncode({
+        'data': {
+          'studentCode': studentCode,
+          'electiveBatchCode': electiveBatchCode,
+          'courseNumber': courseNumber,
+        },
+      }),
+    };
+
+// ---- Public-info queries ----
+
+/// Params for notice.do (公告列表). The frontend sends pageSize/pageNumber.
+Map<String, String> buildNoticeListQuery({
+  required String timestamp,
+  int pageSize = 10,
+  int pageNumber = 0,
+}) =>
+    {
+      'pageSize': '$pageSize',
+      'pageNumber': '$pageNumber',
+      'timestamp': timestamp,
+    };
+
+/// Params for notice/view.do (公告详情).
+Map<String, String> buildNoticeViewQuery({
+  required String wid,
+  required String timestamp,
+}) =>
+    {'wid': wid, 'timestamp': timestamp};
+
+/// Params for problem.do (常见问题).
+Map<String, String> buildProblemListQuery(String timestamp) => {'timestamp': timestamp};
+
+/// Params for publicinfo/volunteer.do (志愿等级字典).
+Map<String, String> buildVolunteerGradeQuery(String timestamp) => {'timestamp': timestamp};
+
+/// Params for onlineUsers.do.
+Map<String, String> buildOnlineUsersQuery(String timestamp) => {'timestamp': timestamp};
+
+/// Params for student/xkxf.do (学分信息).
+///
+/// [xklclx] is the elective-round type code (选课轮次类型). We thread the
+/// batch's `electiveBatchType` through from [ElectiveBatch.batchType]; the
+/// server accepts the same code it returns in `batchisopen.do`.
+Map<String, String> buildCreditInfoParam({
+  required String studentCode,
+  required String electiveBatchCode,
+  String xklclx = '',
+}) =>
+    {
+      'xh': studentCode,
+      'xklcdm': electiveBatchCode,
+      if (xklclx.isNotEmpty) 'xklclx': xklclx,
+    };
+
+/// Params for the logout endpoint (logout.do).
+Map<String, String> buildLogoutQuery({
+  required String studentCode,
+  required String timestamp,
+}) =>
+    {'studentNumber': studentCode, 'timestamp': timestamp};
+
+// ---- Textbook write params ----
+
+/// Params for textbook/addbook.do (订购教材).
+///
+/// Same request shape as the query — the server records the order against the
+/// student × teaching class pair for this round.
+Map<String, String> buildTextbookOrderParam({
+  required String studentCode,
+  required String electiveBatchCode,
+  required String teachingClassId,
+}) =>
+    {'xh': studentCode, 'xklcdm': electiveBatchCode, 'jxbid': teachingClassId};
+
+/// Params for textbook/modifybook.do (修改/退订教材).
+///
+/// [czlx] is the operation type: "0" = 退订, "1" = 修改. The [jcxx] string is
+/// the same shape as `needBook` (see [buildBookSelection]).
+Map<String, String> buildTextbookModifyParam({
+  required String studentCode,
+  required String electiveBatchCode,
+  required String teachingClassId,
+  required String jcxx,
+  bool cancelAll = false,
+}) =>
+    {
+      'xh': studentCode,
+      'xklcdm': electiveBatchCode,
+      'jxbid': teachingClassId,
+      'jcxx': jcxx,
+      'czlx': cancelAll ? '0' : '1',
+    };
+
+/// A built textbook selection: the jcxx string and the per-book choices.
+class TextbookSelection {
+  TextbookSelection(this.jcxx, this.choices);
+
+  /// The `needBook`/`jcxx` string submitted to volunteer.do / modifybook.do.
+  final String jcxx;
+  final List<BookChoice> choices;
+
+  /// Empty when no books were offered — caller should treat as "no textbook
+  /// ordering needed" rather than a selection.
+  bool get isEmpty => jcxx.isEmpty;
+}

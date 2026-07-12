@@ -12,11 +12,31 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/api_client.dart';
 import 'widgets.dart';
+import '../data/models.dart';
 
 /// Runs a reachability probe against the configured origin.
 final reachabilityProvider = FutureProvider.autoDispose<ReachabilityResult>((ref) async {
   final client = ref.watch(apiClientProvider);
   return client.probe();
+});
+
+/// Fetches the current online user count from the server.
+final onlineUsersProvider =
+    FutureProvider.autoDispose<OnlineUserStats>((ref) {
+  return ref.read(infoServiceProvider).fetchOnlineUsers();
+});
+
+/// Fetches the student's course queue positions.
+final queueProvider =
+    FutureProvider.autoDispose<List<QueueEntry>>((ref) async {
+  final s = ref.watch(sessionProvider);
+  final st = s.student;
+  final b = s.activeBatch;
+  if (st == null || b == null) return const [];
+  return ref.read(courseServiceProvider).fetchStudentQueue(
+    studentCode: st.studentCode,
+    batchCode: b.code,
+  );
 });
 
 class DiagnosticsPage extends ConsumerWidget {
@@ -89,6 +109,77 @@ class DiagnosticsPage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 20),
+          // ----- 在线人数 -----
+          Text('在线人数',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(color: scheme.primary, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          ref.watch(onlineUsersProvider).when(
+            loading: () => const _Tile(
+              title: '当前在线人数', value: '正在查询…', icon: Icons.people_outline,
+            ),
+            error: (e, _) => _Tile(
+              title: '当前在线人数', value: '$e', icon: Icons.people_outline,
+            ),
+            data: (stats) {
+              final count = stats.count;
+              final label = count > 0 ? '$count 人' : '无可用数据';
+              return _Tile(
+                title: '当前在线人数',
+                value: label,
+                icon: Icons.people_outline,
+                trailing: Container(
+                  width: 12, height: 12,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    // Thresholds: <5k green, 5k–15k orange, >15k red.
+                    color: count == 0
+                        ? Colors.grey.shade400
+                        : count < 5000
+                            ? Colors.green
+                            : count < 15000
+                                ? Colors.orange
+                                : Colors.red,
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+          // ----- 排队队列 -----
+          Text('排队队列',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(color: scheme.primary, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          ref.watch(queueProvider).when(
+            loading: () => const Padding(
+              padding: EdgeInsets.only(left: 12, top: 4, bottom: 4),
+              child: Text('正在查询…', style: TextStyle(color: Colors.grey)),
+            ),
+            error: (e, _) => Padding(
+              padding: const EdgeInsets.only(left: 12, top: 4, bottom: 4),
+              child: Text('$e', style: TextStyle(color: scheme.error)),
+            ),
+            data: (entries) {
+              if (entries.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.only(left: 12, top: 4, bottom: 4),
+                  child: Text(
+                    '当前没有排队中的课程（系统可能未开放排队或本轮无候补）',
+                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: entries.map((e) => Card(
+                  child: ListTile(
+                    title: Text(e.courseName),
+                    subtitle: Text('队列轮候：${e.queueIndex}/${e.inQueue}'),
+                  ),
+                )).toList(),
+              );
+            },
+          ),
+          const SizedBox(height: 20),
           Text('会话',
               style: Theme.of(context).textTheme.titleSmall?.copyWith(color: scheme.primary, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
@@ -119,6 +210,8 @@ class DiagnosticsPage extends ConsumerWidget {
     AsyncValue<ReachabilityResult> probe,
   ) {
     final reach = probe.asData?.value;
+    final stats = ref.read(onlineUsersProvider).asData?.value;
+    final queue = ref.read(queueProvider).asData?.value ?? <QueueEntry>[];
     // Scrub: no password, no token, no cookies; student code masked.
     final code = session.student?.studentCode ?? '';
     final maskedCode = code.length > 4 ? '${code.substring(0, 2)}****${code.substring(code.length - 2)}' : '****';
@@ -132,6 +225,8 @@ class DiagnosticsPage extends ConsumerWidget {
       ..writeln('errorKind: ${reach?.error?.kind.name ?? '—'}')
       ..writeln('phase: ${session.phase.name}')
       ..writeln('studentCode(masked): $maskedCode')
+      ..writeln('online_users: ${stats?.count ?? '—'}')
+      ..writeln('queue_count: ${queue.length}')
       ..writeln('batch: ${session.activeBatch?.name ?? '—'}');
     Clipboard.setData(ClipboardData(text: report.toString()));
     showToast(context, '诊断信息已复制到剪贴板', success: true);
@@ -179,10 +274,11 @@ class _ResultCard extends StatelessWidget {
 }
 
 class _Tile extends StatelessWidget {
-  const _Tile({required this.title, required this.value, required this.icon});
+  const _Tile({required this.title, required this.value, required this.icon, this.trailing});
   final String title;
   final String value;
   final IconData icon;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -191,6 +287,7 @@ class _Tile extends StatelessWidget {
         leading: Icon(icon),
         title: Text(title),
         subtitle: Text(value),
+        trailing: trailing,
       ),
     );
   }

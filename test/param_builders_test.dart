@@ -159,5 +159,127 @@ void main() {
       ]);
       expect(s, 'A,B-03');
     });
+    test('rejects a declined book without a reason', () {
+      expect(
+        () => buildBookSelection([
+          BookChoice(bookCode: 'B', order: false),
+        ]),
+        throwsArgumentError,
+      );
+    });
+
+    test('rejects the official placeholder reason', () {
+      expect(
+        () => buildBookSelection([
+          BookChoice(bookCode: 'B', order: false, reasonCode: '***'),
+        ]),
+        throwsArgumentError,
+      );
+    });
+  });
+
+  group('buildScheduleQuery', () {
+    test('threads student + batch + timestamp', () {
+      final q = buildScheduleQuery(
+        studentCode: 'S', electiveBatchCode: 'B', timestamp: 'T1',
+      );
+      expect(q, {'studentCode': 'S', 'electiveBatchCode': 'B', 'timestamp': 'T1'});
+    });
+  });
+
+  group('buildUnsuccessfulQuery', () {
+    test('omits isRead by default', () {
+      final q = buildUnsuccessfulQuery(studentCode: 'S', electiveBatchCode: 'B');
+      expect(q.containsKey('isRead'), isFalse);
+    });
+    test('includes isRead=1 when requested', () {
+      final q = buildUnsuccessfulQuery(
+        studentCode: 'S', electiveBatchCode: 'B', isRead: true,
+      );
+      expect(q['isRead'], '1');
+    });
+  });
+
+  group('buildTeachingClassDetailQuery', () {
+    test('uses jxbid + xklcdm', () {
+      final q = buildTeachingClassDetailQuery(
+        teachingClassId: 'TC1', electiveBatchCode: 'B',
+      );
+      expect(q, {'jxbid': 'TC1', 'xklcdm': 'B'});
+    });
+  });
+
+  group('buildCourseDetailQuery', () {
+    test('uses kch key', () {
+      expect(buildCourseDetailQuery('C101'), {'kch': 'C101'});
+    });
+  });
+
+  group('buildCourseVolunteerParam', () {
+    test('wraps data inside queryParam', () {
+      final f = buildCourseVolunteerParam(
+        studentCode: 'S', electiveBatchCode: 'B', courseNumber: 'C1',
+      );
+      final decoded = jsonDecode(f['queryParam']!) as Map<String, dynamic>;
+      final data = decoded['data'] as Map<String, dynamic>;
+      expect(data['studentCode'], 'S');
+      expect(data['courseNumber'], 'C1');
+    });
+  });
+
+  group('buildCreditInfoParam', () {
+    test('includes xklclx when provided', () {
+      final p = buildCreditInfoParam(
+        studentCode: 'S', electiveBatchCode: 'B', xklclx: '02',
+      );
+      expect(p, {'xh': 'S', 'xklcdm': 'B', 'xklclx': '02'});
+    });
+    test('omits xklclx when empty', () {
+      final p = buildCreditInfoParam(
+        studentCode: 'S', electiveBatchCode: 'B',
+      );
+      expect(p.containsKey('xklclx'), isFalse);
+    });
+  });
+
+  group('buildLogoutQuery', () {
+    test('uses studentNumber + timestamp', () {
+      final q = buildLogoutQuery(studentCode: 'S', timestamp: 'T1');
+      expect(q, {'studentNumber': 'S', 'timestamp': 'T1'});
+    });
+  });
+
+  group('buildTextbookModifyParam', () {
+    test('czlx=1 by default (modify)', () {
+      final p = buildTextbookModifyParam(
+        studentCode: 'S', electiveBatchCode: 'B',
+        teachingClassId: 'TC1', jcxx: 'BK1',
+      );
+      expect(p['czlx'], '1');
+      expect(p['jcxx'], 'BK1');
+    });
+    test('czlx=0 when cancelAll', () {
+      final p = buildTextbookModifyParam(
+        studentCode: 'S', electiveBatchCode: 'B',
+        teachingClassId: 'TC1', jcxx: 'BK1-03', cancelAll: true,
+      );
+      expect(p['czlx'], '0');
+    });
+  });
+
+
+  group('buildBatchConfirmParam', () {
+    test('matches xklcqr.do form fields', () {
+      expect(
+        buildBatchConfirmParam(studentCode: 'S', electiveBatchCode: 'B'),
+        {'studentCode': 'S', 'electiveBatchCode': 'B'},
+      );
+    });
+  });
+  group('buildNoticeListQuery', () {
+    test('threads pageSize + pageNumber + timestamp', () {
+      final q = buildNoticeListQuery(timestamp: 'T1', pageSize: 20, pageNumber: 2);
+      expect(q, {'pageSize': '20', 'pageNumber': '2', 'timestamp': 'T1'});
+    });
   });
 }

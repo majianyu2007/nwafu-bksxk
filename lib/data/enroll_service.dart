@@ -121,4 +121,60 @@ class EnrollService {
     }
     return last;
   }
+
+  // ---- Textbook write ops ----
+
+  /// Orders the textbooks for a class (addbook.do). Called when the student
+  /// confirms an order for every book the class offers (the default grab
+  /// flow) — no per-book declination here; use [modifyTextbook] for that.
+  Future<EnrollOutcome> orderTextbook({
+    required String studentCode,
+    required String batchCode,
+    required String teachingClassId,
+  }) async {
+    final res = await _client.postForm(
+      Api.textbookAdd,
+      buildTextbookOrderParam(
+        studentCode: studentCode,
+        electiveBatchCode: batchCode,
+        teachingClassId: teachingClassId,
+      ),
+    );
+    return EnrollOutcome(
+      success: res.ok,
+      code: res.code,
+      message: res.msg.isEmpty ? (res.ok ? '教材订购成功' : '教材订购失败') : res.msg,
+    );
+  }
+
+  /// Modifies / cancels a textbook order (modifybook.do). [jcxx] is the
+  /// per-book selection string (see [buildBookSelection]); [cancelAll] sends
+  /// `czlx=0` to fully unsubscribe rather than `czlx=1` to modify.
+  Future<EnrollOutcome> modifyTextbook({
+    required String studentCode,
+    required String batchCode,
+    required String teachingClassId,
+    required String jcxx,
+    bool cancelAll = false,
+  }) async {
+    final res = await _client.postForm(
+      Api.textbookModify,
+      buildTextbookModifyParam(
+        studentCode: studentCode,
+        electiveBatchCode: batchCode,
+        teachingClassId: teachingClassId,
+        jcxx: jcxx,
+        cancelAll: cancelAll,
+      ),
+    );
+    return EnrollOutcome(
+      success: res.ok,
+      code: res.code,
+      message: res.msg.isEmpty
+          ? (res.ok
+              ? (cancelAll ? '教材已退订' : '教材已修改')
+              : '教材操作失败')
+          : res.msg,
+    );
+  }
 }

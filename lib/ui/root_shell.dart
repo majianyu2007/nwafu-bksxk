@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/monitor_providers.dart';
+import '../app/providers.dart';
 import 'courses_page.dart';
 import 'home_page.dart';
 import 'monitor_page.dart';
 import 'selected_page.dart';
 import 'settings_page.dart';
+import 'batch_pick_dialog.dart';
 
 class RootShell extends ConsumerStatefulWidget {
   const RootShell({super.key});
@@ -20,8 +22,6 @@ class RootShell extends ConsumerStatefulWidget {
 }
 
 class _RootShellState extends ConsumerState<RootShell> {
-  int _index = 0;
-
   static const _pages = [
     HomePage(),
     CoursesPage(),
@@ -29,6 +29,25 @@ class _RootShellState extends ConsumerState<RootShell> {
     SelectedPage(),
     SettingsPage(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOnboard());
+  }
+
+  /// One-shot post-login prompt. The official site always asks the student to
+  /// choose a round; we keep it non-blocking ("稍后再说") but still surface it
+  /// once even when a selectable round was auto-picked.
+  void _maybeOnboard() {
+    if (_onboardingChecked || !mounted) return;
+    _onboardingChecked = true;
+    final batches = ref.read(sessionProvider).batches;
+    if (batches.isEmpty) return;
+    showBatchPickDialog(context, ref);
+  }
+  int _index = 0;
+  bool _onboardingChecked = false;
 
   @override
   Widget build(BuildContext context) {
@@ -62,9 +81,9 @@ class _RootShellState extends ConsumerState<RootShell> {
             label: '监控',
           ),
           const NavigationDestination(
-            icon: Icon(Icons.checklist_outlined),
-            selectedIcon: Icon(Icons.checklist),
-            label: '已选',
+            icon: Icon(Icons.account_circle_outlined),
+            selectedIcon: Icon(Icons.account_circle),
+            label: '我的',
           ),
           const NavigationDestination(
             icon: Icon(Icons.settings_outlined),

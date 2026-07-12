@@ -90,6 +90,7 @@ class Storage {
   static const _kOrigin = 'api_origin.v1';
   static const _kMonitorConfig = 'monitor_config.v1';
   static const _kOcrApi = 'ocr_api.v1';
+  static const _kAutoOcr = 'auto_ocr.v1';
   static String _pwKey(String id) => 'pw::$id';
 
   static Future<Storage> open() async => Storage(await SharedPreferences.getInstance());
@@ -200,7 +201,14 @@ class Storage {
   int seedColor() => _prefs.getInt(_kSeedColor) ?? 0xFF3B6FE0;
   Future<void> setSeedColor(int v) async => _prefs.setInt(_kSeedColor, v);
 
-  String origin() => _prefs.getString(_kOrigin) ?? 'https://bksxk.nwafu.edu.cn';
+  /// A build/run-time override for temporary backends. This deliberately wins
+  /// over persisted settings so `flutter run --dart-define=BKSXK_API_ORIGIN=…`
+  /// cannot accidentally contact production during a simulator session.
+  static const _definedOrigin = String.fromEnvironment('BKSXK_API_ORIGIN');
+
+  String origin() => _definedOrigin.isNotEmpty
+      ? _definedOrigin
+      : (_prefs.getString(_kOrigin) ?? 'https://bksxk.nwafu.edu.cn');
   Future<void> setOrigin(String v) async => _prefs.setString(_kOrigin, v);
 
   /// Monitor config JSON (cadence + rush mode). Null until the user customizes.
@@ -216,4 +224,9 @@ class Storage {
       await _prefs.setString(_kOcrApi, v);
     }
   }
+
+  /// Whether captcha auto-recognition is on. Defaults to true (the OCR solver
+  /// is bundled; the user can opt out on the login screen).
+  bool autoOcr() => _prefs.getBool(_kAutoOcr) ?? true;
+  Future<void> setAutoOcr(bool v) async => _prefs.setBool(_kAutoOcr, v);
 }
