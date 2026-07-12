@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>西农本科选课 · 选课/抢课快人一步</title>
+<meta name="description" content="西北农林科技大学本科选课/抢课跨平台客户端：自动验证码识别、后台监控退课自动补位、计划抢课、无感重新登录。" />
+<style>
+  :root {
+    --bg: #f6f7fb; --surface: #ffffff; --surface-2: #eef1f8;
+    --text: #1a1c22; --muted: #5b6070; --primary: #3b6fe0; --primary-2: #7a4fd0;
+    --border: #e3e7f0; --success: #2e9d5b;
+    --radius: 18px; --shadow: 0 6px 30px rgba(30,40,90,0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1116; --surface: #171a21; --surface-2: #1e2230;
+      --text: #eef0f6; --muted: #a2a8bd; --primary: #7fa0ff; --primary-2: #b79dff;
+      --border: #262b3a; --shadow: 0 6px 30px rgba(0,0,0,0.35);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--primary); text-decoration: none; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+
+  header { padding: 72px 0 48px; text-align: center; }
+  .logo {
+    width: 84px; height: 84px; border-radius: 22px; margin: 0 auto 24px;
+    background: linear-gradient(135deg, var(--primary), var(--primary-2));
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--shadow);
+  }
+  .logo svg { width: 46px; height: 46px; fill: #fff; }
+  h1 { font-size: 2.6rem; font-weight: 800; letter-spacing: -0.02em; }
+  .tagline { color: var(--muted); font-size: 1.2rem; margin-top: 10px; }
+  .subtag { color: var(--muted); margin-top: 18px; max-width: 620px; margin-left: auto; margin-right: auto; }
+
+  .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 32px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 13px 26px; border-radius: 14px; font-weight: 700; font-size: 1rem;
+    border: 1px solid transparent; transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn-primary { background: var(--primary); color: #fff; box-shadow: var(--shadow); }
+  .btn-ghost { background: var(--surface); color: var(--text); border-color: var(--border); }
+
+  .note {
+    margin-top: 22px; font-size: 0.92rem; color: var(--muted);
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--surface-2); padding: 8px 16px; border-radius: 999px;
+  }
+
+  section { padding: 40px 0; }
+  h2 { font-size: 1.7rem; font-weight: 800; margin-bottom: 8px; }
+  .section-sub { color: var(--muted); margin-bottom: 28px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 22px; box-shadow: var(--shadow);
+  }
+  .card h3 { font-size: 1.12rem; margin-bottom: 8px; display: flex; align-items: center; gap: 9px; }
+  .card p { color: var(--muted); font-size: 0.96rem; }
+  .ic { width: 22px; height: 22px; fill: var(--primary); flex: none; }
+
+  .downloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+  .dl {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px 20px; display: flex; align-items: center; gap: 14px;
+    transition: border-color .12s ease, transform .12s ease;
+  }
+  .dl:hover { border-color: var(--primary); transform: translateY(-2px); }
+  .dl svg { width: 30px; height: 30px; fill: var(--text); flex: none; }
+  .dl .label { font-weight: 700; color: var(--text); }
+  .dl .hint { font-size: 0.82rem; color: var(--muted); }
+
+  .steps { counter-reset: s; display: grid; gap: 14px; }
+  .step { display: flex; gap: 14px; align-items: flex-start; }
+  .step::before {
+    counter-increment: s; content: counter(s);
+    width: 30px; height: 30px; flex: none; border-radius: 50%;
+    background: var(--primary); color: #fff; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; font-size: 0.95rem;
+  }
+  .step div { color: var(--muted); }
+  .step strong { color: var(--text); }
+
+  .callout {
+    background: var(--surface-2); border-radius: var(--radius);
+    padding: 20px 24px; color: var(--muted); border: 1px solid var(--border);
+  }
+  .callout strong { color: var(--text); }
+
+  footer { padding: 48px 0; text-align: center; color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--border); margin-top: 40px; }
+  code { background: var(--surface-2); padding: 2px 7px; border-radius: 6px; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="logo">
+      <svg viewBox="0 0 24 24"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
+    </div>
+    <h1>西农本科选课</h1>
+    <p class="tagline">选课 · 抢课，快人一步</p>
+    <p class="subtag">西北农林科技大学本科生选课/抢课跨平台客户端。自动验证码识别、后台监控课容量、有人退课立即补位、无感重新登录——把整条选课流程做稳、做快。</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
+        <svg class="ic" style="fill:#fff" viewBox="0 0 24 24"><path d="M12 3v10.5l3.5-3.5 1.5 1.5-6 6-6-6 1.5-1.5L9.5 13.5V3z"/><path d="M5 19h14v2H5z"/></svg>
+        下载客户端
+      </a>
+      <a class="btn btn-ghost" href="app/">网页版</a>
+      <a class="btn btn-ghost" href="https://github.com/majianyu2007/nwafu-bksxk">源代码</a>
+    </div>
+    <div class="note">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2zm0-8h-2V7h2z"/></svg>
+      本系统仅在校园网内可用，校外请先用 VPN 接入校园网
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2>为什么更快</h2>
+    <p class="section-sub">核心不是"能发选课请求"，而是把登录、查课、决策、提交、结果确认整条流程做稳。</p>
+    <div class="grid">
+      <div class="card">
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>零延迟抢课</h3>
+        <p>实验课、教材选择在加入监控时就已确定。空位一出现，只需一次预构建的网络请求即可提交，热路径无任何判断。</p>
+      </div>
+      <div class="card">
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 4a6 6 0 016 6h-2a4 4 0 00-4-4z"/></svg>自动验证码识别</h3>
+        <p>内置离线 OCR 模型，自动识别并填写验证码后自动提交；识别失败自动换一张重试。抢课不因手动填验证码而卡壳。</p>
+      </div>
+      <div class="card">
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M12 4a8 8 0 108 8h-2a6 6 0 11-6-6z"/><path d="M12 8v4l3 2"/></svg>后台监控补位</h3>
+        <p>维护一个监控列表，选课期间有同学退掉你想要的课，程序第一时间替你选上。发现空位、抢课成功都有系统通知。</p>
+      </div>
+      <div class="card">
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M9 13h6M9 17h6" stroke="#fff" stroke-width="1.5"/></svg>计划抢课</h3>
+        <p>选课开放前就能浏览课程、组好"预选"列表。系统检测到轮次开放的瞬间，直接提交计划，而不必等开放后再手忙脚乱地选。</p>
+      </div>
+      <div class="card">
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5 3.8 9.7 9 11 5.2-1.3 9-6 9-11V5z"/></svg>无感重新登录</h3>
+        <p>服务端重启、Cookie 过期时自动重新登录并反复重试直到成功。账号密码存入系统安全存储，支持多账号一键切换。</p>
+      </div>
+      <div class="card">
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 9h16" stroke="#fff" stroke-width="1.5"/></svg>准确的选课结构体</h3>
+        <p>提交前按教学班字段校验：含实验课必带实验教学班，需教材征订必带教材串。结构不完整宁可拒绝提交，也不悄悄失败。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="download">
+  <div class="wrap">
+    <h2>下载</h2>
+    <p class="section-sub">从 GitHub Release 获取对应平台的安装包。推荐使用原生客户端（体验与稳定性最佳）。</p>
+    <div class="downloads">
+      <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
+        <svg viewBox="0 0 24 24"><path d="M16 2H8a2 2 0 00-2 2v16a2 2 0 002 2h8a2 2 0 002-2V4a2 2 0 00-2-2zm-4 19a1 1 0 110-2 1 1 0 010 2z"/></svg>
+        <div><div class="label">Android</div><div class="hint">.apk</div></div>
+      </a>
+      <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
+        <svg viewBox="0 0 24 24"><path d="M18 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2zm-6 20a1 1 0 110-2 1 1 0 010 2z"/></svg>
+        <div><div class="label">iOS</div><div class="hint">自行签名安装</div></div>
+      </a>
+      <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
+        <svg viewBox="0 0 24 24"><path d="M18 3a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6a3 3 0 013-3z"/></svg>
+        <div><div class="label">macOS</div><div class="hint">.app / .dmg</div></div>
+      </a>
+      <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
+        <svg viewBox="0 0 24 24"><path d="M3 5h18v12H3z"/><path d="M8 21h8" stroke="#fff" stroke-width="1.5"/></svg>
+        <div><div class="label">Windows</div><div class="hint">.zip</div></div>
+      </a>
+      <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
+        <svg viewBox="0 0 24 24"><path d="M12 2a4 4 0 014 4c0 2-1 3-1 5l2 6H7l2-6c0-2-1-3-1-5a4 4 0 014-4z"/></svg>
+        <div><div class="label">Linux</div><div class="hint">.tar.gz</div></div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section id="web">
+  <div class="wrap">
+    <h2>网页版</h2>
+    <p class="section-sub">不想装客户端？网页版可用，但由于浏览器跨域限制，需要安装一个配套脚本。</p>
+    <div class="callout" style="margin-bottom:24px">
+      浏览器出于安全会拦截跨站请求，学校后端也未开放 CORS。配套脚本把发往 <code>bksxk.nwafu.edu.cn</code> 的请求改走脚本管理器的特权通道，从而绕过限制。脚本只能访问选课主机一个域名。
+    </div>
+    <div class="steps">
+      <div class="step"><div>安装 <strong>篡改猴 (Tampermonkey)</strong> 或 <strong>脚本猫 (ScriptCat)</strong> 浏览器扩展。</div></div>
+      <div class="step"><div>安装 <strong><a href="bksxk-web-bridge.user.js">西农本科选课 · Web 跨域桥接</a></strong> 脚本（在篡改猴中点击即可安装）。</div></div>
+      <div class="step"><div>打开 <strong><a href="app/">网页版</a></strong> 并刷新，弹窗提示消失即表示桥接就绪。</div></div>
+    </div>
+    <p style="margin-top:20px; color:var(--muted)">网页版仍只能在校园网内使用；系统通知等能力仅原生端可用。对凭据敏感的用户建议使用桌面/移动端。</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>西农本科选课 · 开源于 <a href="https://github.com/majianyu2007/nwafu-bksxk">GitHub</a></p>
+    <p style="margin-top:8px">仅与 <code>bksxk.nwafu.edu.cn</code> 通信 · 登录密码使用与官网一致的加密方式 · 不上传任何账号数据</p>
+  </div>
+</footer>
+</body>
+</html>
