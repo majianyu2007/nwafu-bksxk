@@ -6,6 +6,46 @@ import 'package:nwafu_bksxk/ui/courses_page.dart';
 import 'package:nwafu_bksxk/ui/teaching_class_tile.dart';
 
 void main() {
+  testWidgets('conflicting class with seats is labelled as a conflict, not full',
+      (tester) async {
+    var attempted = false;
+    var monitored = false;
+    final tc = TeachingClass.fromJson({
+      'teachingClassID': 'TC-CONFLICT',
+      'courseName': '形势与政策',
+      'teacherName': '模拟教师',
+      'classCapacity': '138',
+      'numberOfSelected': '131',
+      'isFull': '0',
+      'isConflict': '1',
+      'conflictDesc': '与已选课程时间冲突',
+    });
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 390,
+          child: TeachingClassTile(
+            teachingClass: tc,
+            kind: CourseKind.fankc,
+            onGrab: () => attempted = true,
+            onMonitor: () => monitored = true,
+            onRefresh: () async {},
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('满员，监控空位'), findsNothing);
+    expect(find.text('有冲突，仍要选'), findsOneWidget);
+    expect(find.text('监控余量'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('有冲突，仍要选'));
+    expect(attempted, isTrue);
+    expect(monitored, isFalse);
+  });
+
   testWidgets('full class makes monitoring the primary action', (tester) async {
     var monitored = false;
     var attempted = false;

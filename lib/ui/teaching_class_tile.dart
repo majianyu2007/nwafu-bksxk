@@ -110,7 +110,10 @@ class TeachingClassTile extends StatelessWidget {
                 label: const Text('已选课程'),
               ),
             )
-          else if (tc.isGrabbable)
+          else if (tc.remaining > 0)
+            // Seats exist. A conflicting class still gets a primary action, but
+            // the label says why the server will probably object; onGrab shows
+            // the conflict dialog before submitting.
             Row(
               children: [
                 Expanded(
@@ -122,13 +125,27 @@ class TeachingClassTile extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: FilledButton.icon(
-                    onPressed: busy ? null : onGrab,
-                    icon: busy
-                        ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.bolt, size: 18),
-                    label: Text(busy ? '提交中' : '立即选课'),
-                  ),
+                  child: tc.isConflict
+                      ? FilledButton.tonalIcon(
+                          onPressed: busy ? null : onGrab,
+                          icon: busy
+                              ? const SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.warning_amber, size: 18),
+                          label: Text(busy ? '提交中' : '有冲突，仍要选'),
+                        )
+                      : FilledButton.icon(
+                          onPressed: busy ? null : onGrab,
+                          icon: busy
+                              ? const SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.bolt, size: 18),
+                          label: Text(busy ? '提交中' : '立即选课'),
+                        ),
                 ),
               ],
             )
