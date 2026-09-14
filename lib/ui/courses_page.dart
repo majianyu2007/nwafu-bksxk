@@ -1,5 +1,9 @@
 /// Courses page: kind tabs, search, and expandable course cards with per-class
 /// grab / monitor actions.
+///
+/// On wide windows the page becomes master-detail: a course list on the left
+/// and the selected course's teaching classes on the right, so a desktop user
+/// never scrolls a stretched single column of expandable cards.
 library;
 
 import 'package:flutter/material.dart';
@@ -11,8 +15,12 @@ import '../data/models.dart';
 import '../data/monitor_engine.dart';
 import '../data/param_builders.dart';
 import 'courses_controller.dart';
+import 'layout.dart';
 import 'teaching_class_tile.dart';
 import 'widgets.dart';
+
+/// Available width at which the course browser splits into list + detail.
+const double _kMasterDetailBreakpoint = 1000;
 
 class CoursesPage extends ConsumerStatefulWidget {
   const CoursesPage({super.key});
@@ -23,6 +31,9 @@ class CoursesPage extends ConsumerStatefulWidget {
 
 class _CoursesPageState extends ConsumerState<CoursesPage> {
   final _searchCtrl = TextEditingController();
+
+  /// Key of the course shown in the detail pane (wide layout only).
+  String? _selectedKey;
 
   @override
   void initState() {
@@ -38,38 +49,58 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
     super.dispose();
   }
 
+  static String _keyOf(CourseRow row) {
+    // QXKC wraps every teaching class as its own row, so the course number
+    // alone is not unique there.
+    final first =
+        row.teachingClasses.isEmpty ? '' : row.teachingClasses.first.teachingClassId;
+    return '${row.courseNumber}:$first';
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(coursesProvider);
     final ctrl = ref.read(coursesProvider.notifier);
 
-    return Column(
-      children: [
-        _Header(
-          kind: state.kind,
-          onKind: ctrl.setKind,
-          searchCtrl: _searchCtrl,
-          onSearch: (q) {
-            ctrl.setQuery(q);
-            ctrl.load();
-          },
-        ),
-        if (state.loading && state.rows.isNotEmpty)
-          const LinearProgressIndicator(minHeight: 2),
-        if (state.error != null && state.rows.isNotEmpty)
-          MaterialBanner(
-            content: Text('刷新失败：${state.error}'),
-            actions: [
-              TextButton(onPressed: ctrl.load, child: const Text('重试')),
-            ],
-          ),
-        Expanded(child: _body(context, state, ctrl)),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= _kMasterDetailBreakpoint;
+        return Column(
+          children: [
+            _Header(
+              kind: state.kind,
+              onKind: ctrl.setKind,
+              searchCtrl: _searchCtrl,
+              onSearch: (q) {
+                ctrl.setQuery(q);
+                ctrl.load();
+              },
+              onRefresh: state.loading ? null : ctrl.load,
+              wide: wide,
+            ),
+            if (state.loading && state.rows.isNotEmpty)
+              const LinearProgressIndicator(minHeight: 2),
+            if (state.error != null && state.rows.isNotEmpty)
+              MaterialBanner(
+                content: Text('刷新失败：${state.error}'),
+                actions: [
+                  TextButton(onPressed: ctrl.load, child: const Text('重试')),
+                ],
+              ),
+            Expanded(
+              child: wide
+                  ? _wideBody(context, state, ctrl, constraints.maxWidth)
+                  : _compactBody(context, state, ctrl),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _body(
-      BuildContext context, CoursesState state, CoursesController ctrl) {
+  /// Full-page placeholder for loading / error / empty states, or null when
+  /// there are rows to show.
+  Widget? _placeholder(CoursesState state, CoursesController ctrl) {
     if (state.loading && state.rows.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -95,6 +126,13 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
         subtitle: '换一个课程类型或关键字试试。当前轮次可能未开放该类别。',
       );
     }
+    return null;
+  }
+
+  Widget _compactBody(
+      BuildContext context, CoursesState state, CoursesController ctrl) {
+    final placeholder = _placeholder(state, ctrl);
+    if (placeholder != null) return placeholder;
     return RefreshIndicator(
       onRefresh: ctrl.load,
       child: ListView.separated(
@@ -106,6 +144,57 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
       ),
     );
   }
+
+  Widget _wideBody(BuildContext context, CoursesState state,
+      CoursesController ctrl, double width) {
+    final placeholder = _placeholder(state, ctrl);
+    if (placeholder != null) return placeholder;
+
+    final rows = state.rows;
+    // Keep the selection if it still exists; otherwise fall back to the first
+    // course so the detail pane is never blank while there is data.
+    CourseRow? selected;
+    for (final row in rows) {
+      if (_keyOf(row) == _selectedKey) {
+        selected = row;
+        break;
+      }
+    }
+    selected ??= rows.first;
+    final selectedKey = _keyOf(selected);
+    final listWidth = (width * 0.36).clamp(360.0, 520.0);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: listWidth,
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 24),
+            itemCount: rows.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 4),
+            itemBuilder: (context, i) {
+              final row = rows[i];
+              final key = _keyOf(row);
+              return _CourseListTile(
+                row: row,
+                selected: key == selectedKey,
+                onTap: () => setState(() => _selectedKey = key),
+              );
+            },
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        Expanded(
+          child: _CourseDetailPane(
+            key: ValueKey(selectedKey),
+            row: selected,
+            kind: state.kind,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _Header extends StatelessWidget {
@@ -114,67 +203,90 @@ class _Header extends StatelessWidget {
     required this.onKind,
     required this.searchCtrl,
     required this.onSearch,
+    required this.onRefresh,
+    required this.wide,
   });
 
   final CourseKind kind;
   final ValueChanged<CourseKind> onKind;
   final TextEditingController searchCtrl;
   final ValueChanged<String> onSearch;
+  final VoidCallback? onRefresh;
+  final bool wide;
 
   @override
   Widget build(BuildContext context) {
+    final search = TextField(
+      controller: searchCtrl,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: '搜索课程名 / 课程号',
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon: IconButton(
+          icon: const Icon(Icons.arrow_forward),
+          tooltip: '搜索',
+          onPressed: () => onSearch(searchCtrl.text.trim()),
+        ),
+      ),
+      onSubmitted: (q) => onSearch(q.trim()),
+    );
+    final chips = SizedBox(
+      height: 40,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.symmetric(horizontal: wide ? 0 : 12),
+        children: [
+          for (final k in CourseKind.values)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: ChoiceChip(
+                label: Text(k.label),
+                selected: k == kind,
+                onSelected: (_) => onKind(k),
+              ),
+            ),
+        ],
+      ),
+    );
+
     return Material(
       color: Theme.of(context).colorScheme.surface,
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Row(
-              children: [
-                Text('选课',
-                    style: Theme.of(context)
-                        .textTheme
-                        .headlineSmall
-                        ?.copyWith(fontWeight: FontWeight.w800)),
-                const Spacer(),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextField(
-              controller: searchCtrl,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: '搜索课程名 / 课程号',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.arrow_forward),
-                  onPressed: () => onSearch(searchCtrl.text.trim()),
-                ),
+          PageHeader(
+            title: '选课',
+            actions: [
+              IconButton(
+                tooltip: '刷新课程列表',
+                icon: const Icon(Icons.refresh),
+                onPressed: onRefresh,
               ),
-              onSubmitted: (q) => onSearch(q.trim()),
-            ),
+            ],
           ),
-          const SizedBox(height: 10),
-          SizedBox(
-            height: 40,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              children: [
-                for (final k in CourseKind.values)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: ChoiceChip(
-                      label: Text(k.label),
-                      selected: k == kind,
-                      onSelected: (_) => onKind(k),
-                    ),
+          if (wide)
+            // Search and category chips share one row; the search box stays a
+            // sensible width instead of stretching across the whole window.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: search,
                   ),
-              ],
+                  const SizedBox(width: 16),
+                  Expanded(child: chips),
+                ],
+              ),
+            )
+          else ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: search,
             ),
-          ),
+            const SizedBox(height: 10),
+            chips,
+          ],
           const SizedBox(height: 6),
           const Divider(height: 1),
         ],
@@ -183,102 +295,10 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _CourseCard extends ConsumerStatefulWidget {
-  const _CourseCard({required this.row, required this.kind});
-  final CourseRow row;
-  final CourseKind kind;
-
-  @override
-  ConsumerState<_CourseCard> createState() => _CourseCardState();
-}
-
-class _CourseCardState extends ConsumerState<_CourseCard> {
-  bool _expanded = false;
-
+/// Grab / monitor / selection-prompt logic shared by the compact course card
+/// and the wide detail pane, so both layouts behave identically.
+mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   String? _busyClassId;
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final row = widget.row;
-    final classes = row.teachingClasses;
-
-    return Card(
-      child: Column(
-        children: [
-          InkWell(
-            onTap: classes.isEmpty
-                ? null
-                : () => setState(() => _expanded = !_expanded),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                row.courseName,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w700, fontSize: 16),
-                              ),
-                            ),
-                            if (row.selected) ...[
-                              const SizedBox(width: 8),
-                              const StatusPill(
-                                  label: '已选',
-                                  color: Colors.green,
-                                  icon: Icons.check),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          [
-                            row.courseNumber,
-                            if (row.credit.isNotEmpty) '${row.credit}学分',
-                            if (row.courseNatureName.isNotEmpty)
-                              row.courseNatureName,
-                            if (row.departmentName.isNotEmpty)
-                              row.departmentName,
-                          ].join(' · '),
-                          style: TextStyle(
-                              color: scheme.onSurfaceVariant, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (classes.isNotEmpty)
-                    Row(
-                      children: [
-                        Text('${classes.length}个班',
-                            style: TextStyle(
-                                color: scheme.onSurfaceVariant, fontSize: 12)),
-                        Icon(_expanded ? Icons.expand_less : Icons.expand_more,
-                            color: scheme.onSurfaceVariant),
-                      ],
-                    ),
-                ],
-              ),
-            ),
-          ),
-          if (_expanded)
-            for (final tc in classes)
-              TeachingClassTile(
-                teachingClass: tc,
-                kind: widget.kind,
-                onGrab: () => _grab(tc),
-                onMonitor: () => _monitor(tc),
-                onRefresh: () => ref.read(coursesProvider.notifier).refresh(tc),
-                busy: _busyClassId == tc.teachingClassId,
-              ),
-        ],
-      ),
-    );
-  }
 
   Future<void> _grab(TeachingClass tc) async {
     if (_busyClassId != null) return;
@@ -436,6 +456,258 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
   }
 }
 
+/// One course in the wide layout's list pane.
+class _CourseListTile extends StatelessWidget {
+  const _CourseListTile({
+    required this.row,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final CourseRow row;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final classes = row.teachingClasses;
+    return Material(
+      color: selected ? scheme.secondaryContainer : Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            row.courseName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w700, fontSize: 15),
+                          ),
+                        ),
+                        if (row.selected) ...[
+                          const SizedBox(width: 8),
+                          const StatusPill(
+                              label: '已选', color: Colors.green, icon: Icons.check),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      _meta(row),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: scheme.onSurfaceVariant, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${classes.length}个班',
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+              ),
+              Icon(Icons.chevron_right,
+                  size: 18,
+                  color: selected ? scheme.onSecondaryContainer : scheme.outline),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _meta(CourseRow row) => [
+        row.courseNumber,
+        if (row.credit.isNotEmpty) '${row.credit}学分',
+        if (row.courseNatureName.isNotEmpty) row.courseNatureName,
+        if (row.departmentName.isNotEmpty) row.departmentName,
+      ].join(' · ');
+}
+
+/// The wide layout's right pane: the selected course's teaching classes, laid
+/// out in one or two columns depending on the pane width.
+class _CourseDetailPane extends ConsumerStatefulWidget {
+  const _CourseDetailPane({super.key, required this.row, required this.kind});
+  final CourseRow row;
+  final CourseKind kind;
+
+  @override
+  ConsumerState<_CourseDetailPane> createState() => _CourseDetailPaneState();
+}
+
+class _CourseDetailPaneState extends ConsumerState<_CourseDetailPane>
+    with _CourseActions<_CourseDetailPane> {
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final row = widget.row;
+    final classes = row.teachingClasses;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 12, 24, 32),
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                row.courseName,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+            ),
+            if (row.selected)
+              const Padding(
+                padding: EdgeInsets.only(left: 8, top: 4),
+                child: StatusPill(
+                    label: '已选', color: Colors.green, icon: Icons.check),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          [
+            _CourseListTile._meta(row),
+            '${classes.length}个教学班',
+          ].join(' · '),
+          style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+        ),
+        const SizedBox(height: 16),
+        if (classes.isEmpty)
+          const EmptyState(icon: Icons.class_outlined, title: '该课程暂无教学班')
+        else
+          AdaptiveGrid(
+            minColumnWidth: 440,
+            maxColumns: 2,
+            children: [
+              for (final tc in classes)
+                Card(
+                  margin: EdgeInsets.zero,
+                  clipBehavior: Clip.antiAlias,
+                  child: TeachingClassTile(
+                    teachingClass: tc,
+                    kind: widget.kind,
+                    bordered: false,
+                    onGrab: () => _grab(tc),
+                    onMonitor: () => _monitor(tc),
+                    onRefresh: () =>
+                        ref.read(coursesProvider.notifier).refresh(tc),
+                    busy: _busyClassId == tc.teachingClassId,
+                  ),
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+class _CourseCard extends ConsumerStatefulWidget {
+  const _CourseCard({required this.row, required this.kind});
+  final CourseRow row;
+  final CourseKind kind;
+
+  @override
+  ConsumerState<_CourseCard> createState() => _CourseCardState();
+}
+
+class _CourseCardState extends ConsumerState<_CourseCard>
+    with _CourseActions<_CourseCard> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final row = widget.row;
+    final classes = row.teachingClasses;
+
+    return Card(
+      child: Column(
+        children: [
+          InkWell(
+            onTap: classes.isEmpty
+                ? null
+                : () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                row.courseName,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700, fontSize: 16),
+                              ),
+                            ),
+                            if (row.selected) ...[
+                              const SizedBox(width: 8),
+                              const StatusPill(
+                                  label: '已选',
+                                  color: Colors.green,
+                                  icon: Icons.check),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _CourseListTile._meta(row),
+                          style: TextStyle(
+                              color: scheme.onSurfaceVariant, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (classes.isNotEmpty)
+                    Row(
+                      children: [
+                        Text('${classes.length}个班',
+                            style: TextStyle(
+                                color: scheme.onSurfaceVariant, fontSize: 12)),
+                        Icon(_expanded ? Icons.expand_less : Icons.expand_more,
+                            color: scheme.onSurfaceVariant),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded)
+            for (final tc in classes)
+              TeachingClassTile(
+                teachingClass: tc,
+                kind: widget.kind,
+                onGrab: () => _grab(tc),
+                onMonitor: () => _monitor(tc),
+                onRefresh: () => ref.read(coursesProvider.notifier).refresh(tc),
+                busy: _busyClassId == tc.teachingClassId,
+              ),
+        ],
+      ),
+    );
+  }
+}
+
 class TestClassPicker extends StatelessWidget {
   const TestClassPicker({super.key, required this.list});
   final List<Map<String, dynamic>> list;
@@ -515,8 +787,8 @@ class _TextbookPickerState extends State<TextbookPicker> {
                         subtitle: Text([
                           if (book.isbn.isNotEmpty) 'ISBN:${book.isbn}',
                           if (book.press.isNotEmpty) book.press,
-                          '\u00a5${book.price}',
-                        ].join(' \u00b7 ')),
+                          '¥${book.price}',
+                        ].join(' · ')),
                         value: _ordered[i],
                         enabled: book.orderable,
                         onChanged: book.orderable

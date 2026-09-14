@@ -18,6 +18,7 @@ class TeachingClassTile extends StatelessWidget {
     required this.onMonitor,
     required this.onRefresh,
     this.busy = false,
+    this.bordered = true,
   });
 
   final TeachingClass teachingClass;
@@ -27,15 +28,23 @@ class TeachingClassTile extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final bool busy;
 
+  /// Draw the top separator used when tiles stack inside a course card. Off
+  /// when the tile is the sole child of its own card (wide detail pane).
+  final bool bordered;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tc = teachingClass;
 
     return Container(
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.4))),
-      ),
+      decoration: bordered
+          ? BoxDecoration(
+              border: Border(
+                  top: BorderSide(
+                      color: scheme.outlineVariant.withValues(alpha: 0.4))),
+            )
+          : null,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
