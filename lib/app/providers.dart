@@ -318,21 +318,29 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   Future<void> setActiveBatch(ElectiveBatch batch) async {
+    final changed = state.activeBatch?.code != batch.code;
     _mgr.activeBatch = batch;
     state = state.copyWith(activeBatch: batch);
+    await _confirmBatchIfOpen(batch);
+    // Re-picking the same batch (the post-login dialog usually confirms the
+    // auto-selected one) changes no server-side data, so don't refetch.
+    if (changed) _ref.read(selectionDataRevisionProvider.notifier).state++;
+  }
+
+  /// Mirrors the official post-login flow: acknowledge the round's notice
+  /// (student/xklcqr.do) whenever a selectable round becomes active.
+  Future<void> _confirmBatchIfOpen(ElectiveBatch batch) async {
     final studentCode = state.student?.studentCode;
-    if (batch.canSelect && studentCode != null && studentCode.isNotEmpty) {
-      try {
-        await _ref.read(authServiceProvider).confirmBatch(
-              studentCode: studentCode,
-              batchCode: batch.code,
-            );
-      } catch (_) {
-        // Selection remains active for browsing; write calls surface a concrete
-        // rejection if the server requires confirmation and this request failed.
-      }
+    if (!batch.canSelect || studentCode == null || studentCode.isEmpty) return;
+    try {
+      await _ref.read(authServiceProvider).confirmBatch(
+            studentCode: studentCode,
+            batchCode: batch.code,
+          );
+    } catch (_) {
+      // Selection remains active for browsing; write calls surface a concrete
+      // rejection if the server requires confirmation and this request failed.
     }
-    _ref.read(selectionDataRevisionProvider.notifier).state++;
   }
 
   Future<void> reloadContext() async {
@@ -365,6 +373,11 @@ class SessionController extends StateNotifier<SessionState> {
       }
     }
     active ??= selectInitialBatch(batches).batch;
+    // A round that just opened (the usual reason to hit refresh before a rush)
+    // still needs the notice acknowledgement that setActiveBatch performs.
+    final previous = state.activeBatch;
+    final alreadyConfirmed =
+        previous != null && previous.code == active?.code && previous.canSelect;
     _mgr.student = mergedStudent;
     _mgr.batches = batches;
     _mgr.activeBatch = active;
@@ -375,6 +388,7 @@ class SessionController extends StateNotifier<SessionState> {
       activeBatch: active,
       account: state.account,
     );
+    if (active != null && !alreadyConfirmed) await _confirmBatchIfOpen(active);
     _ref.read(selectionDataRevisionProvider.notifier).state++;
   }
 

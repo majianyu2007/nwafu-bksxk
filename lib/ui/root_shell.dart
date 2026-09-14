@@ -65,8 +65,24 @@ class _RootShellState extends ConsumerState<RootShell> {
     _selectPage(notificationDestinationIndex(payload));
   }
 
+  @override
+  void dispose() {
+    // Taps that arrive while no shell is mounted are buffered and replayed by
+    // the next shell's init(); a stale handler would silently drop them.
+    NotificationService.instance.detachTapHandler(_openNotificationTarget);
+    super.dispose();
+  }
+
   void _selectPage(int index) {
-    if (index == 1) ref.read(coursesProvider.notifier).load();
+    if (index == 1) {
+      // The page loads itself on mount and reloads on selection changes; only
+      // kick off a fetch here if nothing has been loaded yet (e.g. after an
+      // early failure), so switching tabs never re-downloads the whole list.
+      final courses = ref.read(coursesProvider);
+      if (!courses.loadedOnce && !courses.loading) {
+        ref.read(coursesProvider.notifier).load();
+      }
+    }
     if (_index != index) setState(() => _index = index);
   }
 

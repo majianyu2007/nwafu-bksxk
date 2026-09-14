@@ -70,11 +70,16 @@ class SelectedPage extends ConsumerWidget {
   const SelectedPage({super.key});
 
   Future<void> _refreshAll(WidgetRef ref) async {
-    await Future.wait([
+    // Each section renders its own error state, so a failed refresh must not
+    // escape as an unhandled error from RefreshIndicator.
+    final refreshes = <Future<Object?>>[
       ref.refresh(selectedCoursesProvider.future),
       ref.refresh(scheduleProvider.future),
       ref.refresh(unsuccessfulProvider.future),
       ref.refresh(returnResultsProvider.future),
+    ];
+    await Future.wait<void>([
+      for (final f in refreshes) f.then<void>((_) {}, onError: (Object _) {}),
     ]);
   }
 

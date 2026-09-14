@@ -21,18 +21,23 @@ class BrowserNotifications {
     NotificationTapCallback? onTap,
   }) {
     if (permission != 'granted') return;
-    final notification = web.Notification(
-      title,
-      web.NotificationOptions(
-        body: body,
-        tag: tag,
-        icon: 'icons/Icon-192.png',
-      ),
-    );
-    notification.onclick = ((web.Event event) {
-      web.window.focus();
-      notification.close();
-      onTap?.call(payload);
-    }).toJS;
+    try {
+      final notification = web.Notification(
+        title,
+        web.NotificationOptions(
+          body: body,
+          tag: tag,
+          icon: 'icons/Icon-192.png',
+        ),
+      );
+      notification.onclick = ((web.Event event) {
+        web.window.focus();
+        notification.close();
+        onTap?.call(payload);
+      }).toJS;
+    } catch (_) {
+      // Some browsers (Chrome on Android) only allow notifications from a
+      // service worker and throw here; degrade silently like native does.
+    }
   }
 }

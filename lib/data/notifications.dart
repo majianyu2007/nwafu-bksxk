@@ -65,6 +65,12 @@ class NotificationService {
     }
   }
 
+  /// Forgets [handler] if it is the active tap handler, so later taps are
+  /// buffered until the next [init] with a handler instead of being dropped.
+  void detachTapHandler(NotificationTapCallback handler) {
+    if (identical(_onTap, handler)) _onTap = null;
+  }
+
   void _dispatchTap(String? payload) {
     final onTap = _onTap;
     if (onTap != null) {
