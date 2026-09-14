@@ -101,3 +101,19 @@ The school server sends no CORS headers, so the web app only works with the Tamp
 ## Safety
 
 `volunteer.do`, `deleteVolunteer.do`, `addbook.do`, and `modifybook.do` change real enrollment state. They run only on explicit user action (drops behind a confirmation dialog) or from an armed watch the user created. Never add code paths that fire them automatically for testing; use fakes or the `testserver` branch's local simulator.
+
+## Live-server facts (verified against bksxk.nwafu.edu.cn on 2026-09-14, read-only)
+
+These contradict reasonable assumptions and are locked by `test/live_payloads_test.dart`:
+
+- **One session per account.** A new login (app, browser, curl) invalidates the previous token; the old client gets `code "302" / 未查询到登录信息`. The client's silent re-login (captcha OCR, `Storage.silentReloginAttempts`, default 3) handles this; when it fails the session enters `AuthPhase.expired` and `ReloginDialog` asks the user.
+- **`capacitySuffix` is `""` on every class.** The parameter must still be sent (the server rejects its absence); an empty value is fine. Never skip the capacity poll because the suffix is empty. `capacity.do` returns a class-shaped object with only the counts non-null and `isFull` always null; `TeachingClass.mergeCapacity` overlays non-null fields and derives fullness from the counts.
+- **`batch.do` leaves `canSelect` null.** The per-student `canSelect` and `noSelectReason` (e.g. 不在选课轮次范围内) are in `student/<code>.do` → `electiveBatchList`; `mergeBatchAvailability` combines them. `batchisopen.do` answers `msg "1"` for every round inside its time window, eligible or not, so it is only a time-window signal. The round notice (`xklcqr.do`) is a write and is only posted when `needConfirm == "1"`.
+- **`unsuccessful.do` requires `isRead`** (`0` for the list) or answers `Required String parameter 'isRead' is not present`.
+- **Textbooks:** `queryxsjxbbook.do` rows are `{"wid": "<JSON string>"}` with keys `JCBH` (code), `SM` (title), `ISBN`, `ZZZ` (author), `SFDG` (ordered), `WDGYY` (decline reason). Decline reasons come from `dictionary.do` → `TJCYY`. Textbook decisions are only asked for, and `needBook` only sent, when the round's `canSelectBook` is `"1"`.
+- **Credits (`xkxf.do`):** `totalCredit` = 总学分, `getCredit` = 已获学分 (null before grades), `needCredit` = 已选学分 despite its name. There is no "still needed" figure.
+- **`studentstatus.do`:** poll about once a second; `code "1"` = processed, `"-1"` = rejected (`msg` says why), anything else = still queued. Applies to drops too.
+- **Whole-school query (`queryCourse.do`, QXKC)** rows carry no capacity and `teacherName` like `王强(副教授)|2020110185|,…`; the official tab is query-only. Each round's `display*` flags say which category tabs exist.
+- **`teachingTime.do`** returns one row per (class, weekday, week pattern): `dayOfWeek`, `beginSection`/`endSection`, `week` bit string (index i = week i+1, variable length), `weekName`, room-only `teachingPlace`.
+- **The school gateway rate-limits captcha fetches.** Dozens of `vcode.do` calls in a few minutes get the client an HTML "Not allowed to visit this website" page while other endpoints keep working. Keep OCR retry budgets small.
+- **Unsigned macOS rebuilds re-prompt the Keychain** ("flutter_secure_storage_service") on first secure-storage access; deny or allow, the app copes either way.
