@@ -57,12 +57,14 @@ class AuthService {
 
   /// Step 1+2: fetch a fresh captcha token and its image.
   Future<CaptchaChallenge> fetchCaptcha() async {
-    final tokenRes = await _client.getJson(Api.vcodeToken, auth: false, allowRelogin: false);
+    final tokenRes =
+        await _client.getJson(Api.vcodeToken, auth: false, allowRelogin: false);
     final vtoken = _extractToken(tokenRes);
     if (vtoken.isEmpty) {
       throw LoginException('0', '获取验证码令牌失败');
     }
-    final bytes = await _client.getBytes(Api.vcodeImage, query: {'vtoken': vtoken}, auth: false);
+    final bytes = await _client.getBytes(Api.vcodeImage,
+        query: {'vtoken': vtoken}, auth: false);
     return CaptchaChallenge(vtoken: vtoken, imageBytes: bytes);
   }
 
@@ -119,16 +121,21 @@ class AuthService {
   }
 
   /// Steps 5+6: load student profile and the visible elective batches.
-  Future<(StudentInfo, List<ElectiveBatch>)> loadContext(String studentCode) async {
+  Future<(StudentInfo, List<ElectiveBatch>)> loadContext(
+      String studentCode) async {
     final infoRes = await _client.getJson(Api.studentInfo(studentCode));
-    final info = StudentInfo.fromJson(
-      (infoRes.data is Map) ? (infoRes.data as Map).cast<String, dynamic>() : {'code': studentCode},
-    );
+    final infoMap = (infoRes.data is Map)
+        ? (infoRes.data as Map).cast<String, dynamic>()
+        : <String, dynamic>{'code': studentCode};
+    final info = StudentInfo.fromJson(infoMap);
     final batchRes = await _client.getJson(Api.batch);
-    final batches = batchRes.dataList
-        .whereType<Map>()
-        .map((e) => ElectiveBatch.fromJson(e.cast<String, dynamic>()))
-        .toList();
+    final batches = mergeBatchAvailability(
+      batchRes.dataList
+          .whereType<Map>()
+          .map((e) => e.cast<String, dynamic>())
+          .toList(),
+      infoMap,
+    );
     return (info, batches);
   }
 
@@ -176,18 +183,64 @@ class AuthService {
   }
 }
 
+/// Builds the round list from batch.do rows plus the student profile.
+///
+/// batch.do describes every round but leaves `canSelect` null; the profile's
+/// `electiveBatchList` repeats the rounds with the per-student `canSelect` and
+/// `noSelectReason`, which is what the official page reads. Values already
+/// present on the batch.do row win; profile-only rounds (and the profile's
+/// experimental `expElectiveBatchList`) are appended so nothing disappears.
+List<ElectiveBatch> mergeBatchAvailability(
+  List<Map<String, dynamic>> batchRows,
+  Map<String, dynamic> studentInfo,
+) {
+  String codeOf(Map<String, dynamic> m) =>
+      (m['electiveBatchCode'] ?? m['code'] ?? m['xklcdm'] ?? '').toString();
+  List<Map<String, dynamic>> rows(dynamic v) => v is List
+      ? v.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList()
+      : const [];
+
+  final profileRows = [
+    ...rows(studentInfo['electiveBatchList']),
+    ...rows(studentInfo['expElectiveBatchList']),
+  ];
+  final byCode = {for (final r in profileRows) codeOf(r): r};
+
+  final merged = <ElectiveBatch>[];
+  final seen = <String>{};
+  for (final row in batchRows) {
+    final code = codeOf(row);
+    final profile = byCode[code];
+    final combined = <String, dynamic>{
+      if (profile != null) ...profile,
+      // batch.do wins wherever it actually has a value.
+      for (final e in row.entries)
+        if (e.value != null) e.key: e.value,
+    };
+    merged.add(ElectiveBatch.fromJson(combined));
+    seen.add(code);
+  }
+  for (final row in profileRows) {
+    final code = codeOf(row);
+    if (code.isEmpty || seen.contains(code)) continue;
+    merged.add(ElectiveBatch.fromJson(row));
+    seen.add(code);
+  }
+  return merged;
+}
+
 /// Pure batch-selection policy used after login and unit-tested independently.
 /// Prefer the first selectable round; if none are open, keep the first visible
 /// round for read-only browsing while reporting [hasSelectable] = false so UI
 /// can warn instead of implying the round is usable.
-({ElectiveBatch? batch, bool hasSelectable}) selectInitialBatch(List<ElectiveBatch> list) {
+({ElectiveBatch? batch, bool hasSelectable}) selectInitialBatch(
+    List<ElectiveBatch> list) {
   if (list.isEmpty) return (batch: null, hasSelectable: false);
   for (final b in list) {
     if (b.canSelect) return (batch: b, hasSelectable: true);
   }
   return (batch: list.first, hasSelectable: false);
 }
-
 
 /// Owns the live session and performs silent, captcha-solving re-login.
 ///
@@ -304,7 +357,10 @@ class SessionManager {
       attempt++;
 
       // Ensure we have a captcha answer for this attempt.
-      if (verifyCode == null || verifyCode.isEmpty || vtoken == null || vtoken.isEmpty) {
+      if (verifyCode == null ||
+          verifyCode.isEmpty ||
+          vtoken == null ||
+          vtoken.isEmpty) {
         final solved = await _obtainCaptcha(onNeedCaptcha);
         if (solved == null) {
           throw LoginException('cancelled', '需要验证码，已取消');
@@ -349,15 +405,18 @@ class SessionManager {
 
       // Exponential backoff, capped, so we don't pile onto a struggling server.
       final factor = 1 << (attempt - 1).clamp(0, 20);
-      final delayMs = (baseDelay.inMilliseconds * factor).clamp(0, maxDelay.inMilliseconds);
-      onProgress?.call(attempt, '第 $attempt 次重试，${(delayMs / 1000).toStringAsFixed(1)}s 后再试');
+      final delayMs =
+          (baseDelay.inMilliseconds * factor).clamp(0, maxDelay.inMilliseconds);
+      onProgress?.call(attempt,
+          '第 $attempt 次重试，${(delayMs / 1000).toStringAsFixed(1)}s 后再试');
       await Future<void>.delayed(Duration(milliseconds: delayMs));
     }
   }
 
   /// Gets a captcha answer: prefers the headless solver, falls back to the UI
   /// callback. Returns (verifyCode, vtoken) or null to abort.
-  Future<(String, String)?> _obtainCaptcha(Future<(String, String)?> Function()? onNeedCaptcha) async {
+  Future<(String, String)?> _obtainCaptcha(
+      Future<(String, String)?> Function()? onNeedCaptcha) async {
     try {
       final challenge = await _auth.fetchCaptcha();
       final solved = await _solver.solve(challenge.imageBytes);

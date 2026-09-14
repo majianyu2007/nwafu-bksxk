@@ -79,9 +79,14 @@ class CoursesController extends StateNotifier<CoursesState> {
       );
       return;
     }
-    final kind = state.kind;
+    // A round only exposes some kinds (its display* flags); if the current
+    // kind is hidden here, fall back to the first one the round shows.
+    var kind = state.kind;
+    if (!batch.showsKind(kind)) {
+      kind = CourseKind.values.firstWhere(batch.showsKind, orElse: () => kind);
+    }
     final query = state.query;
-    state = state.copyWith(loading: true, clearError: true);
+    state = state.copyWith(kind: kind, loading: true, clearError: true);
     try {
       final rows = await _course.fetchCourses(
         kind: kind,
@@ -145,6 +150,7 @@ class CoursesController extends StateNotifier<CoursesState> {
       kind: state.kind,
       selectedTestTeachingClassId: testTeachingClassId,
       bookSelection: bookSelection,
+      textbookOrderingOpen: batch.canSelectBook,
     );
     if (outcome.success) {
       _ref.read(selectionDataRevisionProvider.notifier).state++;
@@ -171,6 +177,7 @@ class CoursesController extends StateNotifier<CoursesState> {
       campus: student.campus,
       selectedTestTeachingClassId: testTeachingClassId,
       bookSelection: bookSelection,
+      textbookOrderingOpen: batch.canSelectBook,
       priority: priority,
     );
     final engine = _ref.read(monitorEngineProvider);

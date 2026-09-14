@@ -328,10 +328,13 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   /// Mirrors the official post-login flow: acknowledge the round's notice
-  /// (student/xklcqr.do) whenever a selectable round becomes active.
+  /// (student/xklcqr.do) when a selectable round that requires confirmation
+  /// (needConfirm "1", not yet confirmed) becomes active. Rounds without a
+  /// notice are entered directly, exactly as the official page does.
   Future<void> _confirmBatchIfOpen(ElectiveBatch batch) async {
     final studentCode = state.student?.studentCode;
-    if (!batch.canSelect || studentCode == null || studentCode.isEmpty) return;
+    if (!batch.canSelect || !batch.needsNoticeConfirmation) return;
+    if (studentCode == null || studentCode.isEmpty) return;
     try {
       await _ref.read(authServiceProvider).confirmBatch(
             studentCode: studentCode,

@@ -29,7 +29,8 @@ class EnrollOutcome {
   final AddShape? shape;
 
   @override
-  String toString() => 'EnrollOutcome(success=$success, code=$code, msg=$message)';
+  String toString() =>
+      'EnrollOutcome(success=$success, code=$code, msg=$message)';
 }
 
 class EnrollService {
@@ -92,30 +93,47 @@ class EnrollService {
       query: form,
       addTimestamp: true,
     );
+    if (!res.ok) {
+      return EnrollOutcome(
+        success: false,
+        code: res.code,
+        message: res.msg.isEmpty ? '退选失败' : res.msg,
+      );
+    }
+    // Like adds, drops are queued server-side; the official page waits for
+    // studentstatus.do before reporting the outcome.
+    final status = await confirmStatus(studentCode);
+    final rejected = status.code == '-1';
     return EnrollOutcome(
-      success: res.ok,
-      code: res.code,
-      message: res.msg.isEmpty ? (res.ok ? '退选成功' : '退选失败') : res.msg,
+      success: !rejected,
+      code: rejected ? status.code : res.code,
+      message: rejected
+          ? (status.msg.isEmpty ? '退选未成功' : status.msg)
+          : (res.msg.isEmpty ? '退选成功' : res.msg),
     );
   }
 
   /// Polls the post-operation processing status. The server processes add/drop
   /// asynchronously; this confirms the final result.
   Future<ApiResult> pollStatus(String studentCode) {
-    return _client.postForm(Api.studentStatus, buildStudentStatusParam(studentCode));
+    return _client.postForm(
+        Api.studentStatus, buildStudentStatusParam(studentCode));
   }
 
-  /// Polls status until it resolves or [attempts] is exhausted. Returns the last
-  /// result. Used after a successful submit to confirm the seat stuck.
+  /// Polls status until it settles or [attempts] is exhausted. Returns the
+  /// last result. Used after a successful submit to confirm the seat stuck.
+  ///
+  /// The official page polls studentstatus.do once a second, up to ten times,
+  /// and treats code "1" as processed and "-1" as rejected (msg says why);
+  /// anything else means the queue is still working.
   Future<ApiResult> confirmStatus(
     String studentCode, {
-    int attempts = 6,
-    Duration interval = const Duration(milliseconds: 400),
+    int attempts = 10,
+    Duration interval = const Duration(milliseconds: 500),
   }) async {
     ApiResult last = await pollStatus(studentCode);
     for (var i = 1; i < attempts; i++) {
-      // code=1 with a settled message usually means processed.
-      if (last.ok && last.msg.isNotEmpty) return last;
+      if (last.code == '1' || last.code == '-1') return last;
       await Future<void>.delayed(interval);
       last = await pollStatus(studentCode);
     }
@@ -171,9 +189,7 @@ class EnrollService {
       success: res.ok,
       code: res.code,
       message: res.msg.isEmpty
-          ? (res.ok
-              ? (cancelAll ? '教材已退订' : '教材已修改')
-              : '教材操作失败')
+          ? (res.ok ? (cancelAll ? '教材已退订' : '教材已修改') : '教材操作失败')
           : res.msg,
     );
   }

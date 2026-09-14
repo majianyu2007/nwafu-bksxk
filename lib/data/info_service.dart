@@ -78,6 +78,23 @@ class InfoService {
         .toList();
   }
 
+  /// Fetches the textbook decline reasons (dictionary.do → TJCYY), e.g.
+  /// 01 从高年级借用到正版教材 / 02 从其他途径已购买正版教材. The textbook rows
+  /// themselves carry no reason list on this deployment.
+  Future<List<TextbookReason>> fetchTextbookReasons() async {
+    final res = await _client.getJson(Api.dictionary);
+    final data = res.data;
+    if (!res.ok || data is! Map) return const [];
+    final dict = data['dictionaryList'];
+    final list = dict is Map ? dict['TJCYY'] : null;
+    if (list is! List) return const [];
+    return list
+        .whereType<Map>()
+        .map((e) => TextbookReason.fromJson(e.cast<String, dynamic>()))
+        .where((r) => r.code.isNotEmpty)
+        .toList();
+  }
+
   /// Fetches the current online-user count (onlineUsers.do). Used by the
   /// diagnostics page to explain slowness during a rush.
   Future<OnlineUserStats> fetchOnlineUsers() async {

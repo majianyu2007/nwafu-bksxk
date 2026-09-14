@@ -188,9 +188,11 @@ void main() {
   });
 
   group('buildUnsuccessfulQuery', () {
-    test('omits isRead by default', () {
+    test('always sends isRead (the server rejects its absence), 0 by default', () {
       final q = buildUnsuccessfulQuery(studentCode: 'S', electiveBatchCode: 'B');
-      expect(q.containsKey('isRead'), isFalse);
+      expect(q['isRead'], '0');
+      expect(q['studentCode'], 'S');
+      expect(q['electiveBatchCode'], 'B');
     });
     test('includes isRead=1 when requested', () {
       final q = buildUnsuccessfulQuery(

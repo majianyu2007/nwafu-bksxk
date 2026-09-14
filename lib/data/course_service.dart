@@ -3,6 +3,7 @@
 library;
 
 import '../core/constants.dart';
+import '../core/errors.dart';
 import 'api_client.dart';
 import 'models.dart';
 import 'param_builders.dart';
@@ -43,9 +44,19 @@ class CourseService {
         pageNumber: pageNumber,
       );
       final res = await _client.postForm(kind.endpoint, form);
-      if (!res.ok) break;
+      if (!res.ok) {
+        // A closed category answers code 0 with a precise reason, e.g.
+        // "查询结果:通识类选修课选课未开放"; show that rather than an empty list.
+        if (pageNumber == 0 && res.msg.isNotEmpty) {
+          throw AppError.fromBusiness(res.code, res.msg);
+        }
+        break;
+      }
       total = res.totalCount;
-      final pageRows = res.dataList.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+      final pageRows = res.dataList
+          .whereType<Map>()
+          .map((e) => e.cast<String, dynamic>())
+          .toList();
       if (pageRows.isEmpty) break;
 
       for (final row in pageRows) {
@@ -85,7 +96,8 @@ class CourseService {
   }) async {
     final res = await _client.getJson(
       Api.courseResult,
-      query: buildSelectedCourseParam(studentCode: studentCode, electiveBatchCode: batchCode),
+      query: buildSelectedCourseParam(
+          studentCode: studentCode, electiveBatchCode: batchCode),
     );
     if (!res.ok) return [];
     return res.dataList
@@ -96,8 +108,14 @@ class CourseService {
 
   /// Refreshes live capacity for one teaching class. Returns the updated class,
   /// or the input unchanged if the server had nothing new.
-  Future<TeachingClass> refreshCapacity(TeachingClass tc, String studentCode) async {
-    if (tc.capacitySuffix.isEmpty) return tc;
+  ///
+  /// capacitySuffix is an empty string on this deployment (the official page
+  /// still sends it, empty), so it is never a reason to skip the poll; only a
+  /// missing class id is. The sparse payload is overlaid by
+  /// [TeachingClass.mergeCapacity] so no field is blanked by a null.
+  Future<TeachingClass> refreshCapacity(
+      TeachingClass tc, String studentCode) async {
+    if (tc.teachingClassId.isEmpty) return tc;
     final res = await _client.getJson(
       Api.capacity,
       query: buildCapacityQuery(
@@ -108,9 +126,7 @@ class CourseService {
       ),
     );
     if (!res.ok || res.data is! Map) return tc;
-    final data = (res.data as Map).cast<String, dynamic>();
-    final fresh = TeachingClass.fromJson({...tc.raw, ...data});
-    return fresh;
+    return tc.mergeCapacity((res.data as Map).cast<String, dynamic>());
   }
 
   /// Looks up experiment/test classes for a class that has hasTest==1.
@@ -133,7 +149,10 @@ class CourseService {
       'checkConflict': '0',
     });
     if (!res.ok) return [];
-    return res.dataList.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+    return res.dataList
+        .whereType<Map>()
+        .map((e) => e.cast<String, dynamic>())
+        .toList();
   }
 
   /// Runs the pre-selection eligibility check (canchoose.do).
@@ -279,9 +298,9 @@ class CourseService {
       ),
     );
     if (!res.ok || res.data is! Map) return null;
-    final data = (res.data as Map).cast<String, dynamic>();
-    // Merge so we don't lose list-row fields the detail endpoint omits.
-    return TeachingClass.fromJson({...tc.raw, ...data});
+    // Overlay so list-row fields (capacity, conflict, selection state) the
+    // detail endpoint returns as null survive.
+    return tc.mergeDetail((res.data as Map).cast<String, dynamic>());
   }
 
   /// Fetches course-level detail (querykcxx.do) as the raw map. The shape is

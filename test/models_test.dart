@@ -55,7 +55,8 @@ void main() {
       expect(merged.majorName, '新专业');
     });
 
-    test('mergeFromCredit with empty credit payload leaves StudentInfo intact', () {
+    test('mergeFromCredit with empty credit payload leaves StudentInfo intact',
+        () {
       final profile = StudentInfo.fromJson({'code': 'S1', 'name': '王五'});
       final merged = profile.mergeFromCredit(CreditInfo.empty);
       expect(merged.name, '王五');
@@ -63,11 +64,22 @@ void main() {
     });
   });
 
-  group('CreditInfo.remainingCredit', () {
-    test('need - get, clamped at 0', () {
-      expect(const CreditInfo(totalCredit: 10, getCredit: 3, needCredit: 8).remainingCredit, 5);
-      expect(const CreditInfo(totalCredit: 10, getCredit: 8, needCredit: 8).remainingCredit, 0);
-      expect(const CreditInfo(totalCredit: 10, getCredit: 12, needCredit: 8).remainingCredit, 0);
+  group('CreditInfo', () {
+    test('needCredit is the round\'s selected credit (official label 已选学分)',
+        () {
+      // Real xkxf.do payload shape: totalCredit is the programme total,
+      // getCredit is null before any grades, needCredit is what was selected.
+      final c = CreditInfo.fromJson({
+        'totalCredit': '155',
+        'getCredit': null,
+        'needCredit': '25.5',
+        'departmentName': '软件工程',
+        'majorName': null,
+      });
+      expect(c.totalCredit, 155);
+      expect(c.getCredit, 0);
+      expect(c.selectedCredit, 25.5);
+      expect(c.majorName, '软件工程');
     });
   });
 
@@ -75,7 +87,8 @@ void main() {
     ElectiveBatch batch(String code, {required bool open}) =>
         ElectiveBatch(code: code, name: code, batchType: '01', canSelect: open);
 
-    test('picks the first selectable batch rather than the first visible one', () {
+    test('picks the first selectable batch rather than the first visible one',
+        () {
       final choice = selectInitialBatch([
         batch('closed', open: false),
         batch('open', open: true),
@@ -85,7 +98,8 @@ void main() {
       expect(choice.hasSelectable, isTrue);
     });
 
-    test('keeps first visible batch for browsing and reports none selectable', () {
+    test('keeps first visible batch for browsing and reports none selectable',
+        () {
       final choice = selectInitialBatch([
         batch('closed-1', open: false),
         batch('closed-2', open: false),

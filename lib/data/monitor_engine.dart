@@ -59,6 +59,7 @@ class Watch {
     required this.campus,
     this.selectedTestTeachingClassId,
     this.bookSelection,
+    this.textbookOrderingOpen = true,
     this.status = WatchStatus.watching,
     this.lastRemaining = 0,
     this.lastCheckedAt,
@@ -77,8 +78,15 @@ class Watch {
   /// Pre-chosen experiment class (required if teachingClass.hasTest).
   String? selectedTestTeachingClassId;
 
-  /// Pre-built textbook selection string (required if teachingClass.hasBook).
+  /// Pre-built textbook selection string (required if teachingClass.hasBook
+  /// and [textbookOrderingOpen]).
   String? bookSelection;
+
+  /// Whether the round allows textbook ordering (batch canSelectBook). When
+  /// closed, hasBook classes submit without needBook, as the official page
+  /// does; defaults to true so watches saved before this flag existed keep
+  /// their stricter behaviour.
+  bool textbookOrderingOpen;
 
   WatchStatus status;
   int lastRemaining;
@@ -102,7 +110,8 @@ class Watch {
   DateTime? lastResultAt;
   String? lastRawResult;
 
-  String get title => '${teachingClass.courseName} · ${teachingClass.displayTitle}';
+  String get title =>
+      '${teachingClass.courseName} · ${teachingClass.displayTitle}';
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -113,6 +122,7 @@ class Watch {
         'campus': campus,
         'testId': selectedTestTeachingClassId,
         'book': bookSelection,
+        'bookOpen': textbookOrderingOpen,
         'status': status.name,
         'note': note,
         'priority': priority,
@@ -132,13 +142,15 @@ class Watch {
 
   factory Watch.fromJson(Map<String, dynamic> j) => Watch(
         id: j['id'] as String,
-        teachingClass: TeachingClass.fromJson((j['tc'] as Map).cast<String, dynamic>()),
+        teachingClass:
+            TeachingClass.fromJson((j['tc'] as Map).cast<String, dynamic>()),
         kind: CourseKind.fromCode(j['kind'] as String? ?? 'FANKC'),
         batchCode: j['batchCode'] as String? ?? '',
         studentCode: j['studentCode'] as String? ?? '',
         campus: j['campus'] as String? ?? '',
         selectedTestTeachingClassId: j['testId'] as String?,
         bookSelection: j['book'] as String?,
+        textbookOrderingOpen: j['bookOpen'] as bool? ?? true,
         status: WatchStatus.values.firstWhere(
           (s) => s.name == (j['status'] as String? ?? 'watching'),
           orElse: () => WatchStatus.watching,
@@ -245,13 +257,17 @@ class MonitorConfig {
       };
 
   factory MonitorConfig.fromJson(Map<String, dynamic> j) => MonitorConfig(
-        basePollInterval: Duration(milliseconds: (j['basePollMs'] as num?)?.toInt() ?? 3000),
-        minPollInterval: Duration(milliseconds: (j['minPollMs'] as num?)?.toInt() ?? 1200),
+        basePollInterval:
+            Duration(milliseconds: (j['basePollMs'] as num?)?.toInt() ?? 3000),
+        minPollInterval:
+            Duration(milliseconds: (j['minPollMs'] as num?)?.toInt() ?? 1200),
         jitter: Duration(milliseconds: (j['jitterMs'] as num?)?.toInt() ?? 800),
         maxAttemptsPerWatch: (j['maxAttempts'] as num?)?.toInt() ?? 0,
         confirmAfterGrab: j['confirmAfterGrab'] as bool? ?? true,
-        maxBackoff: Duration(milliseconds: (j['maxBackoffMs'] as num?)?.toInt() ?? 120000),
-        backoffBase: Duration(milliseconds: (j['backoffBaseMs'] as num?)?.toInt() ?? 2000),
+        maxBackoff: Duration(
+            milliseconds: (j['maxBackoffMs'] as num?)?.toInt() ?? 120000),
+        backoffBase: Duration(
+            milliseconds: (j['backoffBaseMs'] as num?)?.toInt() ?? 2000),
         rushMode: j['rushMode'] as bool? ?? false,
       );
 }
@@ -360,13 +376,18 @@ class MonitorEngine {
 
   /// Provide/refresh the experiment class or textbook string for a watch that
   /// needs setup, then re-validate.
-  void configureWatch(String id, {String? testTeachingClassId, String? bookSelection}) {
+  void configureWatch(String id,
+      {String? testTeachingClassId, String? bookSelection}) {
     final w = _watches[id];
     if (w == null) return;
-    if (testTeachingClassId != null) w.selectedTestTeachingClassId = testTeachingClassId;
+    if (testTeachingClassId != null) {
+      w.selectedTestTeachingClassId = testTeachingClassId;
+    }
     if (bookSelection != null) w.bookSelection = bookSelection;
     _validate(w);
-    if (w.status == WatchStatus.watching && _running) _schedule(w, immediate: true);
+    if (w.status == WatchStatus.watching && _running) {
+      _schedule(w, immediate: true);
+    }
     _changes.add(null);
   }
 
@@ -382,6 +403,7 @@ class MonitorEngine {
         kind: w.kind,
         selectedTestTeachingClassId: w.selectedTestTeachingClassId,
         bookSelection: w.bookSelection,
+        textbookOrderingOpen: w.textbookOrderingOpen,
       );
       if (w.status == WatchStatus.needsSetup) w.status = WatchStatus.watching;
     } on MissingSelectionError catch (e) {
@@ -416,7 +438,8 @@ class MonitorEngine {
   }
 
   Duration _nextInterval(Watch w) {
-    final base = w.priority > 0 ? config.minPollInterval : config.basePollInterval;
+    final base =
+        w.priority > 0 ? config.minPollInterval : config.basePollInterval;
     final jitterMs = config.jitter.inMilliseconds;
     final extra = jitterMs == 0 ? 0 : _rng.nextInt(jitterMs);
     var interval = base + Duration(milliseconds: extra);
@@ -442,7 +465,8 @@ class MonitorEngine {
   Future<void> _tick(Watch w) async {
     if (!_running || w.status != WatchStatus.watching) return;
     try {
-      final fresh = await _course.refreshCapacity(w.teachingClass, w.studentCode);
+      final fresh =
+          await _course.refreshCapacity(w.teachingClass, w.studentCode);
       w.teachingClass = fresh;
       w.lastRemaining = fresh.remaining;
       w.lastCheckedAt = DateTime.now();
@@ -523,6 +547,7 @@ class MonitorEngine {
         kind: w.kind,
         selectedTestTeachingClassId: w.selectedTestTeachingClassId,
         bookSelection: w.bookSelection,
+        textbookOrderingOpen: w.textbookOrderingOpen,
       );
       final outcome = await _enroll.submitAdd(plan);
 
@@ -538,11 +563,13 @@ class MonitorEngine {
         }
         if (confirmed) {
           w.status = WatchStatus.grabbed;
-          w.note = '已抢到 · ${plan.shapeLabel}${w.note.isNotEmpty ? ' · ${w.note}' : ''}';
+          w.note =
+              '已抢到 · ${plan.shapeLabel}${w.note.isNotEmpty ? ' · ${w.note}' : ''}';
           w.lastResultAt = DateTime.now();
           w.lastRawResult = outcome.message;
           _timers.remove(w.id)?.cancel();
-          _emit(w.id, '🎉 抢课成功：${w.title}', success: true, kind: MonitorEventKind.grabbed, watch: w);
+          _emit(w.id, '🎉 抢课成功：${w.title}',
+              success: true, kind: MonitorEventKind.grabbed, watch: w);
         } else {
           w.status = WatchStatus.watching;
           _emit(w.id, '提交后未确认成功，继续监控：${w.note}', success: false);
@@ -552,7 +579,8 @@ class MonitorEngine {
         final err = AppError.fromBusiness(outcome.code, outcome.message);
         w.lastResultAt = DateTime.now();
         w.lastRawResult = '${outcome.code}: ${outcome.message}';
-        if (err.kind == AppErrorKind.maintenanceOrThrottle && !config.rushMode) {
+        if (err.kind == AppErrorKind.maintenanceOrThrottle &&
+            !config.rushMode) {
           _emit(w.id, '系统繁忙/维护，已停止全部监控：${err.message}', success: false);
           _haltAll('系统繁忙或维护中');
         } else if (err.kind == AppErrorKind.maintenanceOrThrottle) {
@@ -600,14 +628,20 @@ class MonitorEngine {
   }
 
   bool _capReached(Watch w) =>
-      config.maxAttemptsPerWatch > 0 && w.attempts >= config.maxAttemptsPerWatch;
+      config.maxAttemptsPerWatch > 0 &&
+      w.attempts >= config.maxAttemptsPerWatch;
 
-  void _emit(String watchId, String message, {bool? success, MonitorEventKind kind = MonitorEventKind.info, Watch? watch}) {
-    _events.add(MonitorEvent(watchId, message, success: success, at: DateTime.now(), kind: kind, watch: watch));
+  void _emit(String watchId, String message,
+      {bool? success,
+      MonitorEventKind kind = MonitorEventKind.info,
+      Watch? watch}) {
+    _events.add(MonitorEvent(watchId, message,
+        success: success, at: DateTime.now(), kind: kind, watch: watch));
   }
 
   /// Serialises the watch list for persistence.
-  String encodeWatches() => jsonEncode(_watches.values.map((w) => w.toJson()).toList());
+  String encodeWatches() =>
+      jsonEncode(_watches.values.map((w) => w.toJson()).toList());
 
   /// Restores watches from persisted JSON (does not auto-start).
   void loadWatches(String json) {

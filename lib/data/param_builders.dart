@@ -116,7 +116,9 @@ Map<String, String> buildAddVolunteerParam({
   if (testTeachingClassId != null && testTeachingClassId.isNotEmpty) {
     data['testTeachingClassID'] = testTeachingClassId;
   }
-  return {'addParam': jsonEncode({'data': data})};
+  return {
+    'addParam': jsonEncode({'data': data})
+  };
 }
 
 /// High-level: decides the correct submission shape from a [TeachingClass].
@@ -220,7 +222,8 @@ Map<String, String> buildDeleteVolunteerParam({
 String buildBookSelection(List<BookChoice> choices) {
   for (final choice in choices) {
     if (!choice.order &&
-        (choice.reasonCode.trim().isEmpty || choice.reasonCode.trim() == '***')) {
+        (choice.reasonCode.trim().isEmpty ||
+            choice.reasonCode.trim() == '***')) {
       throw ArgumentError.value(
         choice.reasonCode,
         'reasonCode',
@@ -236,7 +239,11 @@ String buildBookSelection(List<BookChoice> choices) {
 /// Resolves the experiment teaching-class ID across the response shapes seen
 /// in the official API. Empty values must not shadow a later valid alias.
 String? testTeachingClassIdFromRow(Map<String, dynamic> row) {
-  for (final key in const ['testTeachingClassID', 'teachingClassID', 'teachingClassId']) {
+  for (final key in const [
+    'testTeachingClassID',
+    'teachingClassID',
+    'teachingClassId'
+  ]) {
     final value = row[key]?.toString().trim() ?? '';
     if (value.isNotEmpty) return value;
   }
@@ -245,7 +252,8 @@ String? testTeachingClassIdFromRow(Map<String, dynamic> row) {
 
 /// One textbook decision within a class.
 class BookChoice {
-  BookChoice({required this.bookCode, required this.order, this.reasonCode = ''});
+  BookChoice(
+      {required this.bookCode, required this.order, this.reasonCode = ''});
   final String bookCode;
 
   /// true = order it, false = decline (then reasonCode is required).
@@ -254,7 +262,8 @@ class BookChoice {
 }
 
 /// Params for the add/delete status poll (studentstatus.do).
-Map<String, String> buildStudentStatusParam(String studentCode) => {'studentCode': studentCode};
+Map<String, String> buildStudentStatusParam(String studentCode) =>
+    {'studentCode': studentCode};
 
 /// Params for student/xklcqr.do: confirms the selected round's notice.
 Map<String, String> buildBatchConfirmParam({
@@ -306,7 +315,6 @@ Map<String, String> buildSelectedCourseParam({
 }) =>
     {'studentCode': studentCode, 'electiveBatchCode': electiveBatchCode};
 
-
 // ---- Schedule / records / detail queries ----
 
 /// Params for teachingTime.do / noArranged.do.
@@ -334,18 +342,20 @@ Map<String, String> buildReturnResultsQuery({
     };
 
 /// Params for unsuccessful.do (落选课程).
+///
+/// `isRead` is mandatory: the server answers "Required String parameter
+/// 'isRead' is not present" without it, and the official page always sends
+/// "0" (unread) for the list.
 Map<String, String> buildUnsuccessfulQuery({
   required String studentCode,
   required String electiveBatchCode,
   bool isRead = false,
-}) {
-  final q = <String, String>{
-    'studentCode': studentCode,
-    'electiveBatchCode': electiveBatchCode,
-  };
-  if (isRead) q['isRead'] = '1';
-  return q;
-}
+}) =>
+    {
+      'isRead': isRead ? '1' : '0',
+      'studentCode': studentCode,
+      'electiveBatchCode': electiveBatchCode,
+    };
 
 /// Params for queryStudentQueue.do.
 Map<String, String> buildStudentQueueQuery({
@@ -365,7 +375,8 @@ Map<String, String> buildTeachingClassDetailQuery({
     {'jxbid': teachingClassId, 'xklcdm': electiveBatchCode};
 
 /// Params for querykcxx.do (课程详情).
-Map<String, String> buildCourseDetailQuery(String courseNumber) => {'kch': courseNumber};
+Map<String, String> buildCourseDetailQuery(String courseNumber) =>
+    {'kch': courseNumber};
 
 /// Builds the `queryParam` form field for course/volunteer.do (课程可选志愿等级).
 Map<String, String> buildCourseVolunteerParam({
@@ -405,13 +416,16 @@ Map<String, String> buildNoticeViewQuery({
     {'wid': wid, 'timestamp': timestamp};
 
 /// Params for problem.do (常见问题).
-Map<String, String> buildProblemListQuery(String timestamp) => {'timestamp': timestamp};
+Map<String, String> buildProblemListQuery(String timestamp) =>
+    {'timestamp': timestamp};
 
 /// Params for publicinfo/volunteer.do (志愿等级字典).
-Map<String, String> buildVolunteerGradeQuery(String timestamp) => {'timestamp': timestamp};
+Map<String, String> buildVolunteerGradeQuery(String timestamp) =>
+    {'timestamp': timestamp};
 
 /// Params for onlineUsers.do.
-Map<String, String> buildOnlineUsersQuery(String timestamp) => {'timestamp': timestamp};
+Map<String, String> buildOnlineUsersQuery(String timestamp) =>
+    {'timestamp': timestamp};
 
 /// Params for student/xkxf.do (学分信息).
 ///
