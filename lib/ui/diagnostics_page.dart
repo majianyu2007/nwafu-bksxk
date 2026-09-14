@@ -11,32 +11,32 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../data/api_client.dart';
+import 'layout.dart';
 import 'widgets.dart';
 import '../data/models.dart';
 
 /// Runs a reachability probe against the configured origin.
-final reachabilityProvider = FutureProvider.autoDispose<ReachabilityResult>((ref) async {
+final reachabilityProvider =
+    FutureProvider.autoDispose<ReachabilityResult>((ref) async {
   final client = ref.watch(apiClientProvider);
   return client.probe();
 });
 
 /// Fetches the current online user count from the server.
-final onlineUsersProvider =
-    FutureProvider.autoDispose<OnlineUserStats>((ref) {
+final onlineUsersProvider = FutureProvider.autoDispose<OnlineUserStats>((ref) {
   return ref.read(infoServiceProvider).fetchOnlineUsers();
 });
 
 /// Fetches the student's course queue positions.
-final queueProvider =
-    FutureProvider.autoDispose<List<QueueEntry>>((ref) async {
+final queueProvider = FutureProvider.autoDispose<List<QueueEntry>>((ref) async {
   final s = ref.watch(sessionProvider);
   final st = s.student;
   final b = s.activeBatch;
   if (st == null || b == null) return const [];
   return ref.read(courseServiceProvider).fetchStudentQueue(
-    studentCode: st.studentCode,
-    batchCode: b.code,
-  );
+        studentCode: st.studentCode,
+        batchCode: b.code,
+      );
 });
 
 class DiagnosticsPage extends ConsumerWidget {
@@ -60,145 +60,175 @@ class DiagnosticsPage extends ConsumerWidget {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _Tile(
-            title: '选课服务器',
-            value: origin,
-            icon: Icons.dns_outlined,
-          ),
-          const SizedBox(height: 12),
-          probe.when(
-            loading: () => const Card(
-              child: ListTile(
-                leading: SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                title: Text('正在检测连接…'),
-              ),
+      body: LayoutBuilder(builder: (context, constraints) {
+        final side = ((constraints.maxWidth - kReadableMaxWidth) / 2)
+            .clamp(16.0, double.infinity);
+        return ListView(
+          padding: EdgeInsets.fromLTRB(side, 16, side, 16),
+          children: [
+            _Tile(
+              title: '选课服务器',
+              value: origin,
+              icon: Icons.dns_outlined,
             ),
-            error: (e, _) => _ResultCard(
-              ok: false,
-              title: '检测失败',
-              detail: '$e',
-              hint: null,
-            ),
-            data: (r) => _ResultCard(
-              ok: r.reachable,
-              title: r.reachable ? '连接正常' : '无法连接',
-              detail: r.latency != null
-                  ? '${r.detail} · 延迟 ${r.latency!.inMilliseconds}ms'
-                  : r.detail,
-              hint: r.error?.hint,
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text('校园网提示',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(color: scheme.primary, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _Bullet('本系统仅在校园网环境内可用。'),
-                  _Bullet('校外请先连接学校 VPN 接入校园网，再打开本应用。'),
-                  _Bullet('若在校园网内仍无法连接，可能是当前不在选课时段或服务器维护。'),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          // ----- 在线人数 -----
-          Text('在线人数',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(color: scheme.primary, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          ref.watch(onlineUsersProvider).when(
-            loading: () => const _Tile(
-              title: '当前在线人数', value: '正在查询…', icon: Icons.people_outline,
-            ),
-            error: (e, _) => _Tile(
-              title: '当前在线人数', value: '$e', icon: Icons.people_outline,
-            ),
-            data: (stats) {
-              final count = stats.count;
-              final label = count > 0 ? '$count 人' : '无可用数据';
-              return _Tile(
-                title: '当前在线人数',
-                value: label,
-                icon: Icons.people_outline,
-                trailing: Container(
-                  width: 12, height: 12,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    // Thresholds: <5k green, 5k–15k orange, >15k red.
-                    color: count == 0
-                        ? Colors.grey.shade400
-                        : count < 5000
-                            ? Colors.green
-                            : count < 15000
-                                ? Colors.orange
-                                : Colors.red,
-                  ),
+            const SizedBox(height: 12),
+            probe.when(
+              loading: () => const Card(
+                child: ListTile(
+                  leading: SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2)),
+                  title: Text('正在检测连接…'),
                 ),
-              );
-            },
-          ),
-          const SizedBox(height: 20),
-          // ----- 排队队列 -----
-          Text('排队队列',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(color: scheme.primary, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          ref.watch(queueProvider).when(
-            loading: () => const Padding(
-              padding: EdgeInsets.only(left: 12, top: 4, bottom: 4),
-              child: Text('正在查询…', style: TextStyle(color: Colors.grey)),
+              ),
+              error: (e, _) => _ResultCard(
+                ok: false,
+                title: '检测失败',
+                detail: '$e',
+                hint: null,
+              ),
+              data: (r) => _ResultCard(
+                ok: r.reachable,
+                title: r.reachable ? '连接正常' : '无法连接',
+                detail: r.latency != null
+                    ? '${r.detail} · 延迟 ${r.latency!.inMilliseconds}ms'
+                    : r.detail,
+                hint: r.error?.hint,
+              ),
             ),
-            error: (e, _) => Padding(
-              padding: const EdgeInsets.only(left: 12, top: 4, bottom: 4),
-              child: Text('$e', style: TextStyle(color: scheme.error)),
+            const SizedBox(height: 20),
+            Text('校园网提示',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: scheme.primary, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _Bullet('本系统仅在校园网环境内可用。'),
+                    _Bullet('校外请先连接学校 VPN 接入校园网，再打开本应用。'),
+                    _Bullet('若在校园网内仍无法连接，可能是当前不在选课时段或服务器维护。'),
+                  ],
+                ),
+              ),
             ),
-            data: (entries) {
-              if (entries.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.only(left: 12, top: 4, bottom: 4),
-                  child: Text(
-                    '当前没有排队中的课程（系统可能未开放排队或本轮无候补）',
-                    style: TextStyle(color: Colors.grey, fontSize: 13),
+            const SizedBox(height: 20),
+            // ----- 在线人数 -----
+            Text('在线人数',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: scheme.primary, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            ref.watch(onlineUsersProvider).when(
+                  loading: () => const _Tile(
+                    title: '当前在线人数',
+                    value: '正在查询…',
+                    icon: Icons.people_outline,
                   ),
-                );
-              }
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: entries.map((e) => Card(
-                  child: ListTile(
-                    title: Text(e.courseName),
-                    subtitle: Text('队列轮候：${e.queueIndex}/${e.inQueue}'),
+                  error: (e, _) => _Tile(
+                    title: '当前在线人数',
+                    value: '$e',
+                    icon: Icons.people_outline,
                   ),
-                )).toList(),
-              );
-            },
-          ),
-          const SizedBox(height: 20),
-          Text('会话',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(color: scheme.primary, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          _Tile(title: '登录状态', value: switch (session.phase) {
-            AuthPhase.loggedIn => '已登录',
-            AuthPhase.loggingIn => '登录中',
-            AuthPhase.loggedOut => '未登录',
-          }, icon: Icons.verified_user_outlined),
-          _Tile(title: '当前学号', value: session.student?.studentCode ?? '—', icon: Icons.badge_outlined),
-          _Tile(title: '当前轮次', value: session.activeBatch?.name ?? '—', icon: Icons.event_outlined),
-          const _Tile(title: '客户端版本', value: '1.0.0', icon: Icons.info_outline),
-          const SizedBox(height: 20),
-          FilledButton.tonalIcon(
-            onPressed: () => _copyReport(context, ref, origin, session, probe),
-            icon: const Icon(Icons.copy_all),
-            label: const Text('复制诊断信息（已脱敏）'),
-          ),
-        ],
-      ),
+                  data: (stats) {
+                    final count = stats.count;
+                    final label = count > 0 ? '$count 人' : '无可用数据';
+                    return _Tile(
+                      title: '当前在线人数',
+                      value: label,
+                      icon: Icons.people_outline,
+                      trailing: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          // Thresholds: <5k green, 5k–15k orange, >15k red.
+                          color: count == 0
+                              ? Colors.grey.shade400
+                              : count < 5000
+                                  ? Colors.green
+                                  : count < 15000
+                                      ? Colors.orange
+                                      : Colors.red,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+            const SizedBox(height: 20),
+            // ----- 排队队列 -----
+            Text('排队队列',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: scheme.primary, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            ref.watch(queueProvider).when(
+                  loading: () => const Padding(
+                    padding: EdgeInsets.only(left: 12, top: 4, bottom: 4),
+                    child: Text('正在查询…', style: TextStyle(color: Colors.grey)),
+                  ),
+                  error: (e, _) => Padding(
+                    padding: const EdgeInsets.only(left: 12, top: 4, bottom: 4),
+                    child: Text('$e', style: TextStyle(color: scheme.error)),
+                  ),
+                  data: (entries) {
+                    if (entries.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.only(left: 12, top: 4, bottom: 4),
+                        child: Text(
+                          '当前没有排队中的课程（系统可能未开放排队或本轮无候补）',
+                          style: TextStyle(color: Colors.grey, fontSize: 13),
+                        ),
+                      );
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: entries
+                          .map((e) => Card(
+                                child: ListTile(
+                                  title: Text(e.courseName),
+                                  subtitle:
+                                      Text('队列轮候：${e.queueIndex}/${e.inQueue}'),
+                                ),
+                              ))
+                          .toList(),
+                    );
+                  },
+                ),
+            const SizedBox(height: 20),
+            Text('会话',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: scheme.primary, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            _Tile(
+                title: '登录状态',
+                value: switch (session.phase) {
+                  AuthPhase.loggedIn => '已登录',
+                  AuthPhase.loggingIn => '登录中',
+                  AuthPhase.loggedOut => '未登录',
+                },
+                icon: Icons.verified_user_outlined),
+            _Tile(
+                title: '当前学号',
+                value: session.student?.studentCode ?? '—',
+                icon: Icons.badge_outlined),
+            _Tile(
+                title: '当前轮次',
+                value: session.activeBatch?.name ?? '—',
+                icon: Icons.event_outlined),
+            const _Tile(
+                title: '客户端版本', value: '1.0.0', icon: Icons.info_outline),
+            const SizedBox(height: 20),
+            FilledButton.tonalIcon(
+              onPressed: () =>
+                  _copyReport(context, ref, origin, session, probe),
+              icon: const Icon(Icons.copy_all),
+              label: const Text('复制诊断信息（已脱敏）'),
+            ),
+          ],
+        );
+      }),
     );
   }
 
@@ -214,7 +244,9 @@ class DiagnosticsPage extends ConsumerWidget {
     final queue = ref.read(queueProvider).asData?.value ?? <QueueEntry>[];
     // Scrub: no password, no token, no cookies; student code masked.
     final code = session.student?.studentCode ?? '';
-    final maskedCode = code.length > 4 ? '${code.substring(0, 2)}****${code.substring(code.length - 2)}' : '****';
+    final maskedCode = code.length > 4
+        ? '${code.substring(0, 2)}****${code.substring(code.length - 2)}'
+        : '****';
     final report = StringBuffer()
       ..writeln('# 西农本科选课 诊断报告')
       ..writeln('client: 1.0.0')
@@ -234,7 +266,11 @@ class DiagnosticsPage extends ConsumerWidget {
 }
 
 class _ResultCard extends StatelessWidget {
-  const _ResultCard({required this.ok, required this.title, required this.detail, required this.hint});
+  const _ResultCard(
+      {required this.ok,
+      required this.title,
+      required this.detail,
+      required this.hint});
   final bool ok;
   final String title;
   final String detail;
@@ -256,12 +292,16 @@ class _ResultCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: TextStyle(fontWeight: FontWeight.w700, color: color)),
+                  Text(title,
+                      style:
+                          TextStyle(fontWeight: FontWeight.w700, color: color)),
                   const SizedBox(height: 4),
                   Text(detail),
                   if (hint != null) ...[
                     const SizedBox(height: 6),
-                    Text(hint!, style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
+                    Text(hint!,
+                        style: TextStyle(
+                            fontSize: 13, color: scheme.onSurfaceVariant)),
                   ],
                 ],
               ),
@@ -274,7 +314,11 @@ class _ResultCard extends StatelessWidget {
 }
 
 class _Tile extends StatelessWidget {
-  const _Tile({required this.title, required this.value, required this.icon, this.trailing});
+  const _Tile(
+      {required this.title,
+      required this.value,
+      required this.icon,
+      this.trailing});
   final String title;
   final String value;
   final IconData icon;

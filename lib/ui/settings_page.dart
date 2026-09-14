@@ -12,6 +12,7 @@ import '../data/http_ocr_solver.dart';
 import '../data/notifications.dart';
 import '../data/storage.dart';
 import 'diagnostics_page.dart';
+import 'layout.dart';
 import 'widgets.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -24,144 +25,162 @@ class SettingsPage extends ConsumerWidget {
     final session = ref.watch(sessionProvider);
     final accounts = ref.watch(accountsProvider);
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-      children: [
-        Text('设置',
-            style: Theme.of(context)
-                .textTheme
-                .headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 16),
-        _Group(
-          title: '外观',
-          children: [
-            ListTile(
-              leading: const Icon(Icons.brightness_6_outlined),
-              title: const Text('显示模式'),
-              subtitle: Text(switch (theme.mode) {
-                ThemeMode.system => '跟随系统',
-                ThemeMode.light => '浅色',
-                ThemeMode.dark => '深色',
-              }),
-              trailing: SegmentedButton<ThemeMode>(
-                segments: const [
-                  ButtonSegment(
-                      value: ThemeMode.system,
-                      icon: Icon(Icons.brightness_auto)),
-                  ButtonSegment(
-                      value: ThemeMode.light, icon: Icon(Icons.light_mode)),
-                  ButtonSegment(
-                      value: ThemeMode.dark, icon: Icon(Icons.dark_mode)),
-                ],
-                selected: {theme.mode},
-                showSelectedIcon: false,
-                onSelectionChanged: (s) => themeCtrl.setMode(s.first),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('主题色',
-                      style: TextStyle(
-                          color:
-                              Theme.of(context).colorScheme.onSurfaceVariant)),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 12,
-                    children: [
-                      for (final c in kSeedPresets)
-                        GestureDetector(
-                          onTap: () => themeCtrl.setSeed(c),
-                          child: Container(
-                            height: 36,
-                            width: 36,
-                            decoration: BoxDecoration(
-                              color: c,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: theme.seed.toARGB32() == c.toARGB32()
-                                    ? Theme.of(context).colorScheme.onSurface
-                                    : Colors.transparent,
-                                width: 3,
-                              ),
-                            ),
-                            child: theme.seed.toARGB32() == c.toARGB32()
-                                ? const Icon(Icons.check,
-                                    color: Colors.white, size: 18)
-                                : null,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const _Group(
-          title: '抢课设置',
-          children: [
-            _MonitorSettings(),
-          ],
-        ),
-        const _Group(
-          title: '验证码识别',
-          children: [
-            _OcrSettings(),
-          ],
-        ),
-        _Group(
-          title: '账号',
-          children: [
-            ListTile(
-              leading: const Icon(Icons.badge_outlined),
-              title: Text(session.student?.name ?? '未登录'),
-              subtitle: Text(session.student?.studentCode ?? ''),
-            ),
-            for (final a in accounts)
-              ListTile(
-                leading: const Icon(Icons.account_circle_outlined),
-                title: Text(a.displayName),
-                subtitle: Text(a.loginName),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () =>
-                      ref.read(accountsProvider.notifier).remove(a.id),
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  await ref.read(sessionProvider.notifier).logout();
-                },
-                icon: const Icon(Icons.logout),
-                label: const Text('退出登录'),
-              ),
-            ),
-          ],
-        ),
-        const _Group(
-          title: '高级',
-          children: [
-            ServerOriginSetting(),
-            _BrowserNotificationSetting(),
-            _DiagnosticsEntry(),
-            ListTile(
-              leading: Icon(Icons.info_outline),
-              title: Text('关于'),
-              subtitle: Text(
-                '西农本科选课 · 选课/抢课快人一步。仅连接您配置的选课服务器，登录密码使用与官网一致的 DES 加密。',
-              ),
-              isThreeLine: true,
-            ),
-          ],
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Settings read best as one column of moderate width; centre it on
+        // wide windows instead of stretching tiles across the whole screen.
+        final side = ((constraints.maxWidth - kReadableMaxWidth) / 2)
+            .clamp(16.0, double.infinity);
+        return ListView(
+          padding: EdgeInsets.fromLTRB(side, 12, side, 32),
+          children:
+              _children(context, ref, theme, themeCtrl, session, accounts),
+        );
+      },
     );
+  }
+
+  List<Widget> _children(
+    BuildContext context,
+    WidgetRef ref,
+    ThemeSettings theme,
+    ThemeController themeCtrl,
+    SessionState session,
+    List<Account> accounts,
+  ) {
+    return [
+      Text('设置',
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 16),
+      _Group(
+        title: '外观',
+        children: [
+          ListTile(
+            leading: const Icon(Icons.brightness_6_outlined),
+            title: const Text('显示模式'),
+            subtitle: Text(switch (theme.mode) {
+              ThemeMode.system => '跟随系统',
+              ThemeMode.light => '浅色',
+              ThemeMode.dark => '深色',
+            }),
+            trailing: SegmentedButton<ThemeMode>(
+              segments: const [
+                ButtonSegment(
+                    value: ThemeMode.system, icon: Icon(Icons.brightness_auto)),
+                ButtonSegment(
+                    value: ThemeMode.light, icon: Icon(Icons.light_mode)),
+                ButtonSegment(
+                    value: ThemeMode.dark, icon: Icon(Icons.dark_mode)),
+              ],
+              selected: {theme.mode},
+              showSelectedIcon: false,
+              onSelectionChanged: (s) => themeCtrl.setMode(s.first),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('主题色',
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  children: [
+                    for (final c in kSeedPresets)
+                      GestureDetector(
+                        onTap: () => themeCtrl.setSeed(c),
+                        child: Container(
+                          height: 36,
+                          width: 36,
+                          decoration: BoxDecoration(
+                            color: c,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: theme.seed.toARGB32() == c.toARGB32()
+                                  ? Theme.of(context).colorScheme.onSurface
+                                  : Colors.transparent,
+                              width: 3,
+                            ),
+                          ),
+                          child: theme.seed.toARGB32() == c.toARGB32()
+                              ? const Icon(Icons.check,
+                                  color: Colors.white, size: 18)
+                              : null,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      const _Group(
+        title: '抢课设置',
+        children: [
+          _MonitorSettings(),
+        ],
+      ),
+      const _Group(
+        title: '验证码识别',
+        children: [
+          _OcrSettings(),
+        ],
+      ),
+      _Group(
+        title: '账号',
+        children: [
+          ListTile(
+            leading: const Icon(Icons.badge_outlined),
+            title: Text(session.student?.name ?? '未登录'),
+            subtitle: Text(session.student?.studentCode ?? ''),
+          ),
+          for (final a in accounts)
+            ListTile(
+              leading: const Icon(Icons.account_circle_outlined),
+              title: Text(a.displayName),
+              subtitle: Text(a.loginName),
+              trailing: IconButton(
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () =>
+                    ref.read(accountsProvider.notifier).remove(a.id),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                await ref.read(sessionProvider.notifier).logout();
+              },
+              icon: const Icon(Icons.logout),
+              label: const Text('退出登录'),
+            ),
+          ),
+        ],
+      ),
+      const _Group(
+        title: '高级',
+        children: [
+          ServerOriginSetting(),
+          _BrowserNotificationSetting(),
+          _DiagnosticsEntry(),
+          ListTile(
+            leading: Icon(Icons.info_outline),
+            title: Text('关于'),
+            subtitle: Text(
+              '西农本科选课 · 选课/抢课快人一步。仅连接您配置的选课服务器，登录密码使用与官网一致的 DES 加密。',
+            ),
+            isThreeLine: true,
+          ),
+        ],
+      ),
+    ];
   }
 }
 
@@ -202,7 +221,12 @@ class _Group extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                     )),
           ),
-          Card(child: Column(children: children)),
+          Card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: children,
+            ),
+          ),
         ],
       ),
     );

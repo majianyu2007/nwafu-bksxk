@@ -1,5 +1,8 @@
 /// Monitor page: the auto-grab watch list with live status, per-watch controls,
 /// a master start/stop, and a rolling activity log.
+///
+/// On wide windows the watch cards form a grid and the activity log becomes a
+/// full-height side panel instead of a cramped strip under the list.
 library;
 
 import 'package:flutter/material.dart';
@@ -10,7 +13,11 @@ import '../app/providers.dart';
 import '../data/monitor_engine.dart';
 import '../data/param_builders.dart';
 import 'courses_page.dart';
+import 'layout.dart';
 import 'widgets.dart';
+
+/// Available width at which the activity log moves beside the watch list.
+const double _kSideLogBreakpoint = 1000;
 
 class MonitorPage extends ConsumerWidget {
   const MonitorPage({super.key});
@@ -21,43 +28,78 @@ class MonitorPage extends ConsumerWidget {
     final running = ref.watch(monitorRunningProvider);
     final engine = ref.read(monitorEngineProvider);
 
-    return Column(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final sideLog = constraints.maxWidth >= _kSideLogBreakpoint;
+        final list = _WatchList(watches: watches);
+
+        return Column(
+          children: [
+            PageHeader(
+              title: '监控',
+              actions: [
+                if (watches.isNotEmpty) const _ModeSelector(),
+                if (watches.isNotEmpty) const SizedBox(width: 8),
+                if (watches.isNotEmpty)
+                  FilledButton.icon(
+                    onPressed: running ? engine.stop : engine.start,
+                    icon: Icon(running ? Icons.stop : Icons.play_arrow),
+                    label: Text(running ? '停止监控' : '启动监控'),
+                  ),
+              ],
+            ),
+            const _RunningBanner(),
+            const _HaltReasonBanner(),
+            const _PlanBanner(),
+            Expanded(
+              child: sideLog
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(child: list),
+                        const SizedBox(
+                          width: 340,
+                          child: _ActivityLog(panel: true),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      children: [
+                        Expanded(child: list),
+                        const _ActivityLog(panel: false),
+                      ],
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _WatchList extends StatelessWidget {
+  const _WatchList({required this.watches});
+  final List<Watch> watches;
+
+  @override
+  Widget build(BuildContext context) {
+    if (watches.isEmpty) {
+      return const EmptyState(
+        icon: Icons.radar,
+        title: '还没有监控课程',
+        subtitle: '在「选课」页找到心仪的教学班，点击「监控抢课」加入。有人退课时会自动抢占。',
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: Row(
-            children: [
-              Text('监控', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-              const Spacer(),
-              if (watches.isNotEmpty) const _ModeSelector(),
-              if (watches.isNotEmpty) const SizedBox(width: 8),
-              if (watches.isNotEmpty)
-                FilledButton.icon(
-                  onPressed: running ? engine.stop : engine.start,
-                  icon: Icon(running ? Icons.stop : Icons.play_arrow),
-                  label: Text(running ? '停止监控' : '启动监控'),
-                ),
-            ],
-          ),
+        AdaptiveGrid(
+          minColumnWidth: 380,
+          maxColumns: 3,
+          spacing: 10,
+          runSpacing: 10,
+          children: [for (final w in watches) _WatchCard(watch: w)],
         ),
-        const _RunningBanner(),
-        const _HaltReasonBanner(),
-        const _PlanBanner(),
-        Expanded(
-          child: watches.isEmpty
-              ? const EmptyState(
-                  icon: Icons.radar,
-                  title: '还没有监控课程',
-                  subtitle: '在「选课」页找到心仪的教学班，点击「监控抢课」加入。有人退课时会自动抢占。',
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                  itemCount: watches.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, i) => _WatchCard(watch: watches[i]),
-                ),
-        ),
-        const _ActivityLog(),
       ],
     );
   }
@@ -132,7 +174,8 @@ class _ModeSelector extends ConsumerWidget {
         ),
       ],
       child: Chip(
-        avatar: Icon(plan.armed ? Icons.schedule : Icons.bolt_outlined, size: 18),
+        avatar:
+            Icon(plan.armed ? Icons.schedule : Icons.bolt_outlined, size: 18),
         label: Text(plan.armed ? '等待开放' : '立即抢课'),
       ),
     );
@@ -156,19 +199,23 @@ class _PlanBanner extends ConsumerWidget {
       ),
       child: Row(
         children: [
-          Icon(plan.checking ? Icons.sync : Icons.schedule, color: scheme.onTertiaryContainer, size: 18),
+          Icon(plan.checking ? Icons.sync : Icons.schedule,
+              color: scheme.onTertiaryContainer, size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('计划模式已就绪',
-                    style: TextStyle(color: scheme.onTertiaryContainer, fontWeight: FontWeight.w700)),
+                    style: TextStyle(
+                        color: scheme.onTertiaryContainer,
+                        fontWeight: FontWeight.w700)),
                 Text(
                   plan.batchOpen
                       ? '选课已开放，正在提交计划'
                       : '正在等待选课开放，一旦开放立即提交${plan.lastCheckedAt != null ? '（上次检查 ${_fmtHms(plan.lastCheckedAt!)}）' : ''}',
-                  style: TextStyle(color: scheme.onTertiaryContainer, fontSize: 12),
+                  style:
+                      TextStyle(color: scheme.onTertiaryContainer, fontSize: 12),
                 ),
               ],
             ),
@@ -219,9 +266,11 @@ class _PulsingDot extends StatefulWidget {
   State<_PulsingDot> createState() => _PulsingDotState();
 }
 
-class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+class _PulsingDotState extends State<_PulsingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 900))
+    ..repeat(reverse: true);
 
   @override
   void dispose() {
@@ -250,6 +299,7 @@ class _WatchCard extends ConsumerWidget {
     final (color, label, icon) = _statusVisual(watch.status, scheme);
 
     return Card(
+      margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -259,30 +309,39 @@ class _WatchCard extends ConsumerWidget {
               children: [
                 Expanded(
                   child: Text(watch.teachingClass.courseName,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 15)),
                 ),
                 StatusPill(label: label, color: color, icon: icon),
               ],
             ),
             const SizedBox(height: 2),
-            Text(tc.displayTitle, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+            Text(tc.displayTitle,
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
             if (tc.teachingPlace.isNotEmpty)
-              Text(tc.teachingPlace, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+              Text(tc.teachingPlace,
+                  style:
+                      TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
             const SizedBox(height: 10),
-            CapacityBar(selected: tc.numberOfSelected, capacity: tc.classCapacity),
+            CapacityBar(
+                selected: tc.numberOfSelected, capacity: tc.classCapacity),
             if (watch.note.isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(watch.note, style: TextStyle(fontSize: 12, color: color)),
             ],
             if (watch.lastCheckedAt != null) ...[
               const SizedBox(height: 4),
-              Text('上次检查：${_fmtTime(watch.lastCheckedAt!)} · 已尝试 ${watch.attempts} 次',
-                  style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+              Text(
+                  '上次检查：${_fmtTime(watch.lastCheckedAt!)} · 已尝试 ${watch.attempts} 次',
+                  style:
+                      TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
             ],
             if (watch.lastResultAt != null && watch.lastRawResult != null) ...[
               const SizedBox(height: 2),
-              Text('服务器回执：${watch.lastRawResult} (${_fmtTime(watch.lastResultAt!)})',
-                  style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+              Text(
+                  '服务器回执：${watch.lastRawResult} (${_fmtTime(watch.lastResultAt!)})',
+                  style:
+                      TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
             ],
             const SizedBox(height: 8),
             Row(
@@ -296,7 +355,10 @@ class _WatchCard extends ConsumerWidget {
                     ),
                   )
                 else if (watch.status == WatchStatus.grabbed)
-                  const Expanded(child: Center(child: Text('🎉 已抢到', style: TextStyle(fontWeight: FontWeight.w700))))
+                  const Expanded(
+                      child: Center(
+                          child: Text('🎉 已抢到',
+                              style: TextStyle(fontWeight: FontWeight.w700))))
                 else ...[
                   if (watch.status == WatchStatus.paused)
                     Expanded(
@@ -329,7 +391,8 @@ class _WatchCard extends ConsumerWidget {
     );
   }
 
-  (Color, String, IconData) _statusVisual(WatchStatus status, ColorScheme scheme) {
+  (Color, String, IconData) _statusVisual(
+      WatchStatus status, ColorScheme scheme) {
     switch (status) {
       case WatchStatus.watching:
         return (scheme.primary, '监控中', Icons.radar);
@@ -346,7 +409,8 @@ class _WatchCard extends ConsumerWidget {
     }
   }
 
-  Future<void> _completeSetup(BuildContext context, WidgetRef ref, Watch watch) async {
+  Future<void> _completeSetup(
+      BuildContext context, WidgetRef ref, Watch watch) async {
     final tc = watch.teachingClass;
     String? testId = watch.selectedTestTeachingClassId;
     String? bookSelection = watch.bookSelection;
@@ -405,7 +469,9 @@ class _WatchCard extends ConsumerWidget {
         success: complete,
       );
     } catch (error) {
-      if (context.mounted) showToast(context, '加载选项失败：$error', success: false);
+      if (context.mounted) {
+        showToast(context, '加载选项失败：$error', success: false);
+      }
     }
   }
 
@@ -413,32 +479,24 @@ class _WatchCard extends ConsumerWidget {
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';
 }
 
-class _ActivityLog extends ConsumerStatefulWidget {
-  const _ActivityLog();
-  @override
-  ConsumerState<_ActivityLog> createState() => _ActivityLogState();
-}
-
-class _ActivityLogState extends ConsumerState<_ActivityLog> {
-  final List<MonitorEvent> _events = [];
+/// The rolling activity log. As a [panel] it fills its column and always shows
+/// (with an empty hint); otherwise it is a compact strip under the list that
+/// hides while there is nothing to show.
+class _ActivityLog extends ConsumerWidget {
+  const _ActivityLog({required this.panel});
+  final bool panel;
 
   @override
-  Widget build(BuildContext context) {
-    ref.listen(monitorEventsProvider, (_, next) {
-      next.whenData((e) {
-        if (e.message.isEmpty) return;
-        setState(() {
-          _events.insert(0, e);
-          if (_events.length > 50) _events.removeLast();
-        });
-      });
-    });
-
-    if (_events.isEmpty) return const SizedBox.shrink();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final events = ref.watch(monitorLogProvider);
+    if (!panel && events.isEmpty) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
+
     return Container(
-      constraints: const BoxConstraints(maxHeight: 132),
-      margin: const EdgeInsets.all(12),
+      constraints: panel ? null : const BoxConstraints(maxHeight: 132),
+      margin: panel
+          ? const EdgeInsets.fromLTRB(4, 8, 16, 24)
+          : const EdgeInsets.all(12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: scheme.surfaceContainer,
@@ -451,27 +509,48 @@ class _ActivityLogState extends ConsumerState<_ActivityLog> {
             children: [
               Icon(Icons.receipt_long, size: 16, color: scheme.onSurfaceVariant),
               const SizedBox(width: 6),
-              Text('活动日志', style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant, fontWeight: FontWeight.w700)),
+              Text('活动日志',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w700)),
+              const Spacer(),
+              if (events.isNotEmpty)
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 16,
+                  tooltip: '清空日志',
+                  onPressed: () =>
+                      ref.read(monitorLogProvider.notifier).clear(),
+                  icon: const Icon(Icons.clear_all),
+                ),
             ],
           ),
           const SizedBox(height: 6),
           Expanded(
-            child: ListView.builder(
-              itemCount: _events.length,
-              itemBuilder: (context, i) {
-                final e = _events[i];
-                final c = e.success == null
-                    ? scheme.onSurfaceVariant
-                    : e.success!
-                        ? Colors.green
-                        : scheme.error;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Text('${_WatchCard._fmtTime(e.at)}  ${e.message}',
-                      style: TextStyle(fontSize: 12, color: c)),
-                );
-              },
-            ),
+            child: events.isEmpty
+                ? Center(
+                    child: Text('监控启动后，抢课过程会记录在这里',
+                        style: TextStyle(
+                            fontSize: 12, color: scheme.onSurfaceVariant)),
+                  )
+                : ListView.builder(
+                    itemCount: events.length,
+                    itemBuilder: (context, i) {
+                      final e = events[i];
+                      final c = e.success == null
+                          ? scheme.onSurfaceVariant
+                          : e.success!
+                              ? Colors.green
+                              : scheme.error;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Text(
+                            '${_WatchCard._fmtTime(e.at)}  ${e.message}',
+                            style: TextStyle(fontSize: 12, color: c)),
+                      );
+                    },
+                  ),
           ),
         ],
       ),

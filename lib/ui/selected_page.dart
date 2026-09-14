@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/models.dart';
 import '../data/notifications.dart';
+import 'layout.dart';
 import 'widgets.dart';
 
 /// Loads selected courses for the active session.
@@ -91,26 +92,16 @@ class SelectedPage extends ConsumerWidget {
     final returnAsync = ref.watch(returnResultsProvider);
 
     final items = <Widget>[
-      // Header row
-      Padding(
+      PageHeader(
+        title: '我的',
         padding: const EdgeInsets.fromLTRB(4, 8, 0, 0),
-        child: Row(
-          children: [
-            Text(
-              '我的',
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const Spacer(),
-            IconButton(
-              onPressed: () => _refreshAll(ref),
-              icon: const Icon(Icons.refresh),
-              tooltip: '刷新',
-            ),
-          ],
-        ),
+        actions: [
+          IconButton(
+            onPressed: () => _refreshAll(ref),
+            icon: const Icon(Icons.refresh),
+            tooltip: '刷新',
+          ),
+        ],
       ),
       const SizedBox(height: 4),
 
@@ -135,10 +126,14 @@ class SelectedPage extends ConsumerWidget {
             subtitle: '在「选课」页选课后会显示在这里。',
           ));
         } else {
-          for (final tc in list) {
-            items.add(_SelectedCard(tc: tc));
-            items.add(const SizedBox(height: 10));
-          }
+          items.add(AdaptiveGrid(
+            minColumnWidth: 400,
+            maxColumns: 3,
+            spacing: 10,
+            runSpacing: 10,
+            children: [for (final tc in list) _SelectedCard(tc: tc)],
+          ));
+          items.add(const SizedBox(height: 10));
         }
       },
     );
@@ -160,10 +155,14 @@ class SelectedPage extends ConsumerWidget {
           items.add(
               const EmptyState(icon: Icons.calendar_month, title: '还没有课表数据'));
         } else {
-          for (final entry in list) {
-            items.add(_ScheduleCard(entry: entry));
-            items.add(const SizedBox(height: 8));
-          }
+          items.add(AdaptiveGrid(
+            minColumnWidth: 360,
+            maxColumns: 3,
+            spacing: 8,
+            runSpacing: 8,
+            children: [for (final entry in list) _ScheduleCard(entry: entry)],
+          ));
+          items.add(const SizedBox(height: 8));
         }
       },
     );
@@ -197,10 +196,14 @@ class SelectedPage extends ConsumerWidget {
           title: '落选课程',
           onRefresh: () => ref.invalidate(unsuccessfulProvider),
         ));
-        for (final entry in list) {
-          items.add(_UnsuccessfulCard(entry: entry));
-          items.add(const SizedBox(height: 8));
-        }
+        items.add(AdaptiveGrid(
+          minColumnWidth: 360,
+          maxColumns: 3,
+          spacing: 8,
+          runSpacing: 8,
+          children: [for (final entry in list) _UnsuccessfulCard(entry: entry)],
+        ));
+        items.add(const SizedBox(height: 8));
       },
     );
 
@@ -233,10 +236,14 @@ class SelectedPage extends ConsumerWidget {
           title: '退选日志',
           onRefresh: () => ref.invalidate(returnResultsProvider),
         ));
-        for (final entry in list) {
-          items.add(_LogCard(entry: entry));
-          items.add(const SizedBox(height: 6));
-        }
+        items.add(AdaptiveGrid(
+          minColumnWidth: 340,
+          maxColumns: 3,
+          spacing: 6,
+          runSpacing: 6,
+          children: [for (final entry in list) _LogCard(entry: entry)],
+        ));
+        items.add(const SizedBox(height: 6));
       },
     );
 
@@ -313,6 +320,7 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
     final scheme = Theme.of(context).colorScheme;
     final tc = widget.tc;
     return Card(
+      margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -411,6 +419,7 @@ class _ScheduleCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final e = entry;
     return Card(
+      margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -504,6 +513,7 @@ class _UnsuccessfulCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final e = entry;
     return Card(
+      margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -554,6 +564,7 @@ class _LogCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final e = entry;
     return Card(
+      margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Row(

@@ -52,6 +52,35 @@ final monitorEventsProvider = StreamProvider<MonitorEvent>((ref) {
   return engine.events;
 });
 
+/// Rolling activity log (newest first, capped) kept outside the widget tree
+/// so it survives layout switches and tab changes. Created by the root shell
+/// on login so events are captured even before the Monitor tab is opened.
+class MonitorLog extends StateNotifier<List<MonitorEvent>> {
+  MonitorLog(Stream<MonitorEvent> events) : super(const []) {
+    _sub = events.listen(_add);
+  }
+
+  static const int capacity = 50;
+  late final StreamSubscription<MonitorEvent> _sub;
+
+  void _add(MonitorEvent e) {
+    if (e.message.isEmpty) return;
+    state = [e, ...state.take(capacity - 1)];
+  }
+
+  void clear() => state = const [];
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+}
+
+final monitorLogProvider =
+    StateNotifierProvider<MonitorLog, List<MonitorEvent>>(
+        (ref) => MonitorLog(ref.watch(monitorEngineProvider).events));
+
 /// Bridges monitor events to system notifications. Kept alive for the app's
 /// lifetime by a read in the root shell so notifications fire even when the
 /// Monitor tab isn't visible.

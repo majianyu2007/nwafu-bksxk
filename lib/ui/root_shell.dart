@@ -44,6 +44,9 @@ class _RootShellState extends ConsumerState<RootShell> {
   void initState() {
     super.initState();
     NotificationService.instance.init(onTap: _openNotificationTarget);
+    // Start collecting monitor events now, not when the Monitor tab first
+    // builds its log widget.
+    ref.read(monitorLogProvider);
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOnboard());
   }
 
