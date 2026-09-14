@@ -14,7 +14,6 @@ import 'courses_controller.dart';
 import 'teaching_class_tile.dart';
 import 'widgets.dart';
 
-
 class CoursesPage extends ConsumerStatefulWidget {
   const CoursesPage({super.key});
 
@@ -24,6 +23,14 @@ class CoursesPage extends ConsumerStatefulWidget {
 
 class _CoursesPageState extends ConsumerState<CoursesPage> {
   final _searchCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(coursesProvider.notifier).load();
+    });
+  }
 
   @override
   void dispose() {
@@ -47,12 +54,22 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
             ctrl.load();
           },
         ),
+        if (state.loading && state.rows.isNotEmpty)
+          const LinearProgressIndicator(minHeight: 2),
+        if (state.error != null && state.rows.isNotEmpty)
+          MaterialBanner(
+            content: Text('刷新失败：${state.error}'),
+            actions: [
+              TextButton(onPressed: ctrl.load, child: const Text('重试')),
+            ],
+          ),
         Expanded(child: _body(context, state, ctrl)),
       ],
     );
   }
 
-  Widget _body(BuildContext context, CoursesState state, CoursesController ctrl) {
+  Widget _body(
+      BuildContext context, CoursesState state, CoursesController ctrl) {
     if (state.loading && state.rows.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -60,10 +77,15 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
       return _ErrorState(message: state.error!, onRetry: ctrl.load);
     }
     if (!state.loadedOnce) {
-      return EmptyState(
-        icon: Icons.touch_app_outlined,
-        title: '选择课程类型开始',
-        subtitle: '点击上方标签加载「${state.kind.label}」，或输入关键字搜索。',
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 12),
+            Text('正在加载课程…'),
+          ],
+        ),
       );
     }
     if (state.rows.isEmpty) {
@@ -79,7 +101,8 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 88),
         itemCount: state.rows.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (context, i) => _CourseCard(row: state.rows[i], kind: state.kind),
+        itemBuilder: (context, i) =>
+            _CourseCard(row: state.rows[i], kind: state.kind),
       ),
     );
   }
@@ -108,7 +131,11 @@ class _Header extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(
               children: [
-                Text('选课', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                Text('选课',
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.w800)),
                 const Spacer(),
               ],
             ),
@@ -179,7 +206,9 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
       child: Column(
         children: [
           InkWell(
-            onTap: classes.isEmpty ? null : () => setState(() => _expanded = !_expanded),
+            onTap: classes.isEmpty
+                ? null
+                : () => setState(() => _expanded = !_expanded),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
@@ -193,12 +222,16 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
                             Flexible(
                               child: Text(
                                 row.courseName,
-                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700, fontSize: 16),
                               ),
                             ),
                             if (row.selected) ...[
                               const SizedBox(width: 8),
-                              const StatusPill(label: '已选', color: Colors.green, icon: Icons.check),
+                              const StatusPill(
+                                  label: '已选',
+                                  color: Colors.green,
+                                  icon: Icons.check),
                             ],
                           ],
                         ),
@@ -207,10 +240,13 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
                           [
                             row.courseNumber,
                             if (row.credit.isNotEmpty) '${row.credit}学分',
-                            if (row.courseNatureName.isNotEmpty) row.courseNatureName,
-                            if (row.departmentName.isNotEmpty) row.departmentName,
+                            if (row.courseNatureName.isNotEmpty)
+                              row.courseNatureName,
+                            if (row.departmentName.isNotEmpty)
+                              row.departmentName,
                           ].join(' · '),
-                          style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+                          style: TextStyle(
+                              color: scheme.onSurfaceVariant, fontSize: 12),
                         ),
                       ],
                     ),
@@ -219,8 +255,10 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
                     Row(
                       children: [
                         Text('${classes.length}个班',
-                            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
-                        Icon(_expanded ? Icons.expand_less : Icons.expand_more, color: scheme.onSurfaceVariant),
+                            style: TextStyle(
+                                color: scheme.onSurfaceVariant, fontSize: 12)),
+                        Icon(_expanded ? Icons.expand_less : Icons.expand_more,
+                            color: scheme.onSurfaceVariant),
                       ],
                     ),
                 ],
@@ -254,8 +292,12 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
               ? '该教学班与已选课程冲突：\n${tc.conflictDesc}\n\n仍要尝试选课吗？'
               : '该教学班与已选课程存在时间冲突。仍要尝试选课吗？'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('仍要选')),
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('仍要选')),
           ],
         ),
       );
@@ -266,7 +308,8 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
       final selections = await _resolveSelectionsIfNeeded(tc);
       if (selections == null) return;
       final (testId, book) = selections;
-      final outcome = await ctrl.grabNow(tc, testTeachingClassId: testId, bookSelection: book);
+      final outcome = await ctrl.grabNow(tc,
+          testTeachingClassId: testId, bookSelection: book);
       if (!mounted) return;
       showToast(context, outcome.message, success: outcome.success);
     } on MissingSelectionError catch (e) {
@@ -286,7 +329,8 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
       final selections = await _resolveSelectionsIfNeeded(tc);
       if (selections == null) return;
       final (testId, book) = selections;
-      final watch = ctrl.addToMonitor(tc, testTeachingClassId: testId, bookSelection: book);
+      final watch = ctrl.addToMonitor(tc,
+          testTeachingClassId: testId, bookSelection: book);
       if (!mounted) return;
       final needsSetup = watch.status == WatchStatus.needsSetup;
       showToast(
@@ -303,7 +347,8 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
 
   /// Prompts for every required experiment/textbook choice. A null result means
   /// the user cancelled, so callers must not submit or create an incomplete watch.
-  Future<(String?, String?)?> _resolveSelectionsIfNeeded(TeachingClass tc) async {
+  Future<(String?, String?)?> _resolveSelectionsIfNeeded(
+      TeachingClass tc) async {
     String? testId;
     String? book;
     if (tc.hasTest && tc.testTeachingClassId.isEmpty) {
@@ -360,11 +405,12 @@ class _CourseCardState extends ConsumerState<_CourseCard> {
     );
 
     try {
-      final options = await ref.read(courseServiceProvider).fetchTextbookOptions(
-        studentCode: student.studentCode,
-        batchCode: batch.code,
-        teachingClassId: tc.teachingClassId,
-      );
+      final options =
+          await ref.read(courseServiceProvider).fetchTextbookOptions(
+                studentCode: student.studentCode,
+                batchCode: batch.code,
+                teachingClassId: tc.teachingClassId,
+              );
       if (!mounted) return null;
       Navigator.of(context).pop();
       if (options.isEmpty) {
@@ -405,8 +451,10 @@ class TestClassPicker extends StatelessWidget {
           const SizedBox(height: 12),
           for (final item in list)
             ListTile(
-              title: Text('${item['courseName'] ?? item['teachingClassName'] ?? '实验班'}'),
-              subtitle: Text('${item['teacherName'] ?? ''}  ${item['teachingPlace'] ?? ''}'),
+              title: Text(
+                  '${item['courseName'] ?? item['teachingClassName'] ?? '实验班'}'),
+              subtitle: Text(
+                  '${item['teacherName'] ?? ''}  ${item['teachingPlace'] ?? ''}'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
                 final id = testTeachingClassIdFromRow(item);
@@ -434,7 +482,8 @@ class _TextbookPickerState extends State<TextbookPicker> {
   @override
   void initState() {
     super.initState();
-    _ordered = List.generate(widget.options.length, (i) => widget.options[i].orderable);
+    _ordered = List.generate(
+        widget.options.length, (i) => widget.options[i].orderable);
     _reasonCodes = List.generate(widget.options.length, (_) => '');
   }
 
@@ -476,20 +525,25 @@ class _TextbookPickerState extends State<TextbookPicker> {
                                   if (!_ordered[i] &&
                                       _reasonCodes[i].isEmpty &&
                                       book.reasonCodes.isNotEmpty) {
-                                    _reasonCodes[i] = book.reasonCodes.first.code;
+                                    _reasonCodes[i] =
+                                        book.reasonCodes.first.code;
                                   }
                                 })
                             : null,
                       ),
                       if (!_ordered[i] && book.reasonCodes.isNotEmpty)
                         Padding(
-                          padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                          padding: const EdgeInsets.only(
+                              left: 16, right: 16, bottom: 8),
                           child: DropdownButtonFormField<String>(
-                            initialValue: _reasonCodes[i].isNotEmpty ? _reasonCodes[i] : null,
+                            initialValue: _reasonCodes[i].isNotEmpty
+                                ? _reasonCodes[i]
+                                : null,
                             decoration: const InputDecoration(
                               labelText: '不订购原因',
                               border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
                               isDense: true,
                             ),
                             items: book.reasonCodes
@@ -498,7 +552,8 @@ class _TextbookPickerState extends State<TextbookPicker> {
                                       child: Text(reason.name),
                                     ))
                                 .toList(),
-                            onChanged: (value) => setState(() => _reasonCodes[i] = value ?? ''),
+                            onChanged: (value) =>
+                                setState(() => _reasonCodes[i] = value ?? ''),
                           ),
                         ),
                       if (!book.orderable)
@@ -506,7 +561,8 @@ class _TextbookPickerState extends State<TextbookPicker> {
                           padding: const EdgeInsets.only(left: 72, bottom: 8),
                           child: Text(
                             '该教材不可订购',
-                            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+                            style: TextStyle(
+                                color: scheme.onSurfaceVariant, fontSize: 13),
                           ),
                         ),
                     ],
@@ -565,7 +621,8 @@ class _ErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_off, size: 48, color: Theme.of(context).colorScheme.error),
+            Icon(Icons.cloud_off,
+                size: 48, color: Theme.of(context).colorScheme.error),
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),

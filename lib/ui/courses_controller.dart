@@ -55,34 +55,45 @@ class CoursesController extends StateNotifier<CoursesState> {
   final Ref _ref;
   CourseService get _course => _ref.read(courseServiceProvider);
   EnrollService get _enroll => _ref.read(enrollServiceProvider);
+  int _loadGeneration = 0;
 
   void setKind(CourseKind kind) {
     if (kind == state.kind) return;
-    state = state.copyWith(kind: kind, rows: const [], loadedOnce: false, clearError: true);
+    state = state.copyWith(
+        kind: kind, rows: const [], loadedOnce: false, clearError: true);
     load();
   }
 
   void setQuery(String q) => state = state.copyWith(query: q);
 
   Future<void> load() async {
+    final generation = ++_loadGeneration;
     final session = _ref.read(sessionProvider);
     final student = session.student;
     final batch = session.activeBatch;
     if (student == null || batch == null) {
-      state = state.copyWith(error: '请先在首页选择一个选课轮次', loading: false);
+      state = state.copyWith(
+        error: '请先在首页选择一个选课轮次',
+        loading: false,
+        loadedOnce: true,
+      );
       return;
     }
+    final kind = state.kind;
+    final query = state.query;
     state = state.copyWith(loading: true, clearError: true);
     try {
       final rows = await _course.fetchCourses(
-        kind: state.kind,
+        kind: kind,
         studentCode: student.studentCode,
         campus: student.campus,
         batchCode: batch.code,
-        queryContent: state.query,
+        queryContent: query,
       );
+      if (generation != _loadGeneration) return;
       state = state.copyWith(rows: rows, loading: false, loadedOnce: true);
     } catch (e) {
+      if (generation != _loadGeneration) return;
       state = state.copyWith(error: '$e', loading: false, loadedOnce: true);
     }
   }
@@ -176,21 +187,19 @@ class CoursesController extends StateNotifier<CoursesState> {
       tc: tc,
       studentCode: student.studentCode,
       batchCode: batch.code,
-
       campus: student.campus,
       kind: state.kind,
     );
   }
-  void reloadIfLoaded() {
-    if (state.loadedOnce && !state.loading) load();
-  }
 
+  void reloadForSelectionChange() => load();
 }
 
-final coursesProvider = StateNotifierProvider<CoursesController, CoursesState>((ref) {
+final coursesProvider =
+    StateNotifierProvider<CoursesController, CoursesState>((ref) {
   final controller = CoursesController(ref);
   ref.listen<int>(selectionDataRevisionProvider, (_, __) {
-    controller.reloadIfLoaded();
+    controller.reloadForSelectionChange();
   });
   return controller;
 });
