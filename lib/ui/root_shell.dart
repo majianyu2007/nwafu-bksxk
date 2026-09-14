@@ -11,6 +11,7 @@ import '../data/notifications.dart';
 import 'courses_controller.dart';
 import 'courses_page.dart';
 import 'home_page.dart';
+import 'layout.dart';
 import 'monitor_page.dart';
 import 'selected_page.dart';
 import 'settings_page.dart';
@@ -95,13 +96,13 @@ class _RootShellState extends ConsumerState<RootShell> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final useRail = constraints.maxWidth >= 840;
+        final useRail = constraints.maxWidth >= kRailBreakpoint;
         final content = SafeArea(
           bottom: !useRail,
           child: Align(
             alignment: Alignment.topCenter,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1200),
+              constraints: const BoxConstraints(maxWidth: kContentMaxWidth),
               child: SizedBox.expand(
                 child: IndexedStack(index: _index, children: _pages),
               ),
@@ -110,7 +111,7 @@ class _RootShellState extends ConsumerState<RootShell> {
         );
 
         if (useRail) {
-          final extended = constraints.maxWidth >= 1180;
+          final extended = constraints.maxWidth >= kExtendedRailBreakpoint;
           return Scaffold(
             body: Row(
               children: [

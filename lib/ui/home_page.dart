@@ -9,6 +9,7 @@ import '../app/providers.dart';
 import '../data/models.dart';
 import '../data/monitor_engine.dart';
 import 'batch_pick_dialog.dart';
+import 'layout.dart';
 import 'widgets.dart';
 
 final noticesProvider = FutureProvider.autoDispose<List<Notice>>(
@@ -38,45 +39,91 @@ class HomePage extends ConsumerWidget {
     final watchCount = ref.watch(watchCountProvider);
     final student = session.student;
 
-    return CustomScrollView(
-      slivers: [
-        SliverAppBar.large(
-          title: const Text('首页'),
-          actions: [
-            IconButton(
-              tooltip: '刷新轮次',
-              icon: const Icon(Icons.refresh),
-              onPressed: () => _reloadContext(context, ref),
+    final refresh = IconButton(
+      tooltip: '刷新轮次',
+      icon: const Icon(Icons.refresh),
+      onPressed: () => _reloadContext(context, ref),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = WindowClass.of(constraints.maxWidth).isWide;
+        final gutter = pageGutter(constraints.maxWidth);
+
+        // Rounds are the thing to act on; the other cards are status. On wide
+        // windows they sit side by side instead of one long stretched column.
+        final batches = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const _SectionLabel('选课轮次'),
+            const SizedBox(height: 8),
+            _BatchClosedBanner(session: session),
+            _BatchSelector(session: session),
+          ],
+        );
+        final status = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const _SectionLabel('选课学分'),
+            const SizedBox(height: 8),
+            const _CreditCard(),
+            const SizedBox(height: 16),
+            const _NoticesCard(),
+            const SizedBox(height: 16),
+            const _SectionLabel('抢课监控'),
+            const SizedBox(height: 8),
+            _MonitorSummary(running: running, watchCount: watchCount),
+          ],
+        );
+
+        return CustomScrollView(
+          slivers: [
+            if (wide)
+              SliverToBoxAdapter(
+                child: PageHeader(
+                  title: '首页',
+                  padding: EdgeInsets.fromLTRB(gutter, 12, gutter, 8),
+                  actions: [refresh],
+                ),
+              )
+            else
+              SliverAppBar.large(title: const Text('首页'), actions: [refresh]),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(gutter, 0, gutter, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _ProfileCard(student: student, scheme: scheme),
+                    const SizedBox(height: 16),
+                    if (wide)
+                      TwoColumn(
+                        primary: batches,
+                        secondary: status,
+                        primaryFlex: 3,
+                        secondaryFlex: 2,
+                        gap: 20,
+                      )
+                    else ...[
+                      batches,
+                      const SizedBox(height: 16),
+                      const _NoticesCard(),
+                      const SizedBox(height: 16),
+                      const _SectionLabel('选课学分'),
+                      const SizedBox(height: 8),
+                      const _CreditCard(),
+                      const SizedBox(height: 16),
+                      const _SectionLabel('抢课监控'),
+                      const SizedBox(height: 8),
+                      _MonitorSummary(running: running, watchCount: watchCount),
+                    ],
+                  ],
+                ),
+              ),
             ),
           ],
-        ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _ProfileCard(student: student, scheme: scheme),
-                const SizedBox(height: 16),
-                const _SectionLabel('选课轮次'),
-                const SizedBox(height: 8),
-                _BatchClosedBanner(session: session),
-                _BatchSelector(session: session),
-                const SizedBox(height: 16),
-                const _NoticesCard(),
-                const SizedBox(height: 16),
-                const _SectionLabel('选课学分'),
-                const SizedBox(height: 8),
-                const _CreditCard(),
-                const SizedBox(height: 16),
-                const _SectionLabel('抢课监控'),
-                const SizedBox(height: 8),
-                _MonitorSummary(running: running, watchCount: watchCount),
-              ],
-            ),
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 
