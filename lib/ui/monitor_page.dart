@@ -429,9 +429,8 @@ class _WatchCard extends ConsumerWidget {
           showToast(context, '未获取到可选实验教学班', success: false);
           return;
         }
-        testId = await showModalBottomSheet<String>(
-          context: context,
-          showDragHandle: true,
+        testId = await showAdaptiveSheet<String>(
+          context,
           builder: (context) => TestClassPicker(list: rows),
         );
         if (testId == null || testId.isEmpty || !context.mounted) return;
@@ -447,10 +446,9 @@ class _WatchCard extends ConsumerWidget {
           showToast(context, '未获取到教材清单，暂时无法完成设置', success: false);
           return;
         }
-        final selection = await showModalBottomSheet<TextbookSelection>(
-          context: context,
-          isScrollControlled: true,
-          showDragHandle: true,
+        final selection = await showAdaptiveSheet<TextbookSelection>(
+          context,
+          scrollControlled: true,
           builder: (context) => TextbookPicker(options: options),
         );
         if (selection == null || !context.mounted) return;

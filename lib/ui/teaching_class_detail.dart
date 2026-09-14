@@ -13,22 +13,30 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../data/models.dart';
+import 'layout.dart';
 import 'widgets.dart';
 
 Future<void> showTeachingClassDetail(BuildContext context, TeachingClass tc,
     {DateTime? capacityAsOf}) {
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (context) => _DetailSheet(tc: tc, capacityAsOf: capacityAsOf),
+  final dialog = adaptiveSheetIsDialog(context);
+  return showAdaptiveSheet<void>(
+    context,
+    scrollControlled: true,
+    maxWidth: 680,
+    builder: (context) =>
+        _DetailSheet(tc: tc, capacityAsOf: capacityAsOf, inDialog: dialog),
   );
 }
 
 class _DetailSheet extends ConsumerStatefulWidget {
-  const _DetailSheet({required this.tc, this.capacityAsOf});
+  const _DetailSheet(
+      {required this.tc, this.capacityAsOf, this.inDialog = false});
   final TeachingClass tc;
   final DateTime? capacityAsOf;
+
+  /// Presented as a dialog (wide windows): render a plain list instead of a
+  /// draggable sheet, which only makes sense anchored to the screen bottom.
+  final bool inDialog;
 
   @override
   ConsumerState<_DetailSheet> createState() => _DetailSheetState();
@@ -55,8 +63,8 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
       try {
         final course = ref.read(courseServiceProvider);
 
-        final fresh =
-            await course.fetchTeachingClassDetail(tc: widget.tc, batchCode: batchCode);
+        final fresh = await course.fetchTeachingClassDetail(
+            tc: widget.tc, batchCode: batchCode);
         if (fresh != null && mounted) {
           setState(() => _tc = fresh);
         }
@@ -99,7 +107,13 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    if (widget.inDialog) {
+      return ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        children: _content(context),
+      );
+    }
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.6,
@@ -108,101 +122,103 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
       builder: (context, controller) => ListView(
         controller: controller,
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        children: [
-          Text(_tc.courseName,
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 4),
-          Text(_tc.displayTitle,
-              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 15)),
-          const SizedBox(height: 16),
-
-          // Conflict is the thing a user most needs to see before selecting.
-          if (_tc.isConflict)
-            Container(
-              padding: const EdgeInsets.all(12),
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color: scheme.errorContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.warning_amber,
-                      color: scheme.onErrorContainer, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('时间冲突',
-                            style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: scheme.onErrorContainer)),
-                        if (_tc.conflictDesc.isNotEmpty)
-                          Text(_tc.conflictDesc,
-                              style: TextStyle(
-                                  color: scheme.onErrorContainer,
-                                  fontSize: 13)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          _CapacityBlock(tc: _tc, asOf: widget.capacityAsOf),
-          const SizedBox(height: 16),
-
-          _row(context, Icons.person_outline, '教师', _tc.teacherName),
-          _teacherExtra(),
-
-          _row(context, Icons.schedule, '上课时间地点', _tc.teachingPlace),
-
-          if (_tc.credit.isNotEmpty || _tc.hours.isNotEmpty)
-            _row(
-              context,
-              Icons.star_outline,
-              '学分 / 学时',
-              [
-                if (_tc.credit.isNotEmpty) '${_tc.credit} 学分',
-                if (_tc.hours.isNotEmpty) '${_tc.hours} 学时',
-              ].join(' · '),
-            ),
-
-          if (_tc.courseTypeName.isNotEmpty)
-            _row(context, Icons.category_outlined, '课程类型', _tc.courseTypeName),
-
-          if (_courseNatureName.isNotEmpty &&
-              _courseNatureName != _tc.courseTypeName)
-            _row(
-                context, Icons.account_tree_outlined, '课程性质', _courseNatureName),
-
-          if (_departmentName.isNotEmpty)
-            _row(context, Icons.business_outlined, '开课院系', _departmentName),
-
-          if (_tc.teachingMethod.isNotEmpty)
-            _row(context, Icons.cast_for_education, '授课方式', _tc.teachingMethod),
-          if (_tc.examTime.isNotEmpty)
-            _row(context, Icons.event_note, '考试时间', _tc.examTime),
-          if (_tc.examType.isNotEmpty)
-            _row(context, Icons.assignment_outlined, '考核方式', _tc.examType),
-
-          _introBlock(),
-
-          if (_tc.hasTest)
-            _row(context, Icons.science_outlined, '实验课', '需要选择实验教学班'),
-          if (_tc.hasBook)
-            _row(context, Icons.menu_book_outlined, '教材', '需要教材征订'),
-          if (_tc.limits.isNotEmpty)
-            _row(context, Icons.lock_outline, '选课限制', _tc.limits.join('；')),
-          _row(context, Icons.tag, '教学班号', _tc.teachingClassId),
-        ],
+        children: _content(context),
       ),
     );
+  }
+
+  List<Widget> _content(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return [
+      Text(_tc.courseName,
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 4),
+      Text(_tc.displayTitle,
+          style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 15)),
+      const SizedBox(height: 16),
+
+      // Conflict is the thing a user most needs to see before selecting.
+      if (_tc.isConflict)
+        Container(
+          padding: const EdgeInsets.all(12),
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: scheme.errorContainer,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.warning_amber,
+                  color: scheme.onErrorContainer, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('时间冲突',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: scheme.onErrorContainer)),
+                    if (_tc.conflictDesc.isNotEmpty)
+                      Text(_tc.conflictDesc,
+                          style: TextStyle(
+                              color: scheme.onErrorContainer, fontSize: 13)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+      _CapacityBlock(tc: _tc, asOf: widget.capacityAsOf),
+      const SizedBox(height: 16),
+
+      _row(context, Icons.person_outline, '教师', _tc.teacherName),
+      _teacherExtra(),
+
+      _row(context, Icons.schedule, '上课时间地点', _tc.teachingPlace),
+
+      if (_tc.credit.isNotEmpty || _tc.hours.isNotEmpty)
+        _row(
+          context,
+          Icons.star_outline,
+          '学分 / 学时',
+          [
+            if (_tc.credit.isNotEmpty) '${_tc.credit} 学分',
+            if (_tc.hours.isNotEmpty) '${_tc.hours} 学时',
+          ].join(' · '),
+        ),
+
+      if (_tc.courseTypeName.isNotEmpty)
+        _row(context, Icons.category_outlined, '课程类型', _tc.courseTypeName),
+
+      if (_courseNatureName.isNotEmpty &&
+          _courseNatureName != _tc.courseTypeName)
+        _row(context, Icons.account_tree_outlined, '课程性质', _courseNatureName),
+
+      if (_departmentName.isNotEmpty)
+        _row(context, Icons.business_outlined, '开课院系', _departmentName),
+
+      if (_tc.teachingMethod.isNotEmpty)
+        _row(context, Icons.cast_for_education, '授课方式', _tc.teachingMethod),
+      if (_tc.examTime.isNotEmpty)
+        _row(context, Icons.event_note, '考试时间', _tc.examTime),
+      if (_tc.examType.isNotEmpty)
+        _row(context, Icons.assignment_outlined, '考核方式', _tc.examType),
+
+      _introBlock(),
+
+      if (_tc.hasTest)
+        _row(context, Icons.science_outlined, '实验课', '需要选择实验教学班'),
+      if (_tc.hasBook) _row(context, Icons.menu_book_outlined, '教材', '需要教材征订'),
+      if (_tc.limits.isNotEmpty)
+        _row(context, Icons.lock_outline, '选课限制', _tc.limits.join('；')),
+      _row(context, Icons.tag, '教学班号', _tc.teachingClassId),
+    ];
   }
 
   /// Optional second row under the teacher name with title / department from the
@@ -236,7 +252,8 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
       child: Text(
         parts.join(' · '),
         style: TextStyle(
-            fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+            fontSize: 13,
+            color: Theme.of(context).colorScheme.onSurfaceVariant),
       ),
     );
   }
@@ -341,18 +358,21 @@ class _CapacityBlock extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CapacityBar(selected: tc.numberOfSelected, capacity: tc.classCapacity),
+          CapacityBar(
+              selected: tc.numberOfSelected, capacity: tc.classCapacity),
           const SizedBox(height: 6),
           Row(
             children: [
-              Icon(Icons.info_outline, size: 13, color: scheme.onSurfaceVariant),
+              Icon(Icons.info_outline,
+                  size: 13, color: scheme.onSurfaceVariant),
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
                   asOf != null
                       ? '余量为 ${_fmt(asOf!)} 的快照，非实时。点击刷新获取最新。'
                       : '余量可能有延迟，非实时。',
-                  style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+                  style:
+                      TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
                 ),
               ),
             ],

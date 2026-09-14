@@ -394,9 +394,8 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       showToast(context, '未获取到可选实验教学班', success: false);
       return null;
     }
-    final selected = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
+    final selected = await showAdaptiveSheet<String>(
+      context,
       builder: (context) => TestClassPicker(list: list),
     );
     if (selected != null && selected.isNotEmpty && mounted) {
@@ -437,10 +436,9 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
         showToast(context, '未获取到教材清单，按默认提交');
         return TextbookSelection(tc.needBook.isNotEmpty ? tc.needBook : '', []);
       }
-      final selection = await showModalBottomSheet<TextbookSelection>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
+      final selection = await showAdaptiveSheet<TextbookSelection>(
+        context,
+        scrollControlled: true,
         builder: (context) => TextbookPicker(options: options),
       );
       if (selection == null && mounted) {

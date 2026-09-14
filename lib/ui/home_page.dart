@@ -410,8 +410,8 @@ class _NoticesCard extends ConsumerWidget {
   }
 
   void _showNoticeDetail(BuildContext context, WidgetRef ref, String wid) {
-    showModalBottomSheet(
-      context: context,
+    showAdaptiveSheet<void>(
+      context,
       builder: (_) => _NoticeDetailSheet(wid: wid, ref: ref),
     );
   }

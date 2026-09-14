@@ -256,10 +256,10 @@ class _OcrSettings extends ConsumerWidget {
           title: const Text('自定义 OCR API'),
           subtitle: Text(usingApi ? '已配置' : '可选：填入你自己的打码服务地址'),
           trailing: const Icon(Icons.chevron_right),
-          onTap: () => showModalBottomSheet<void>(
-            context: context,
-            isScrollControlled: true,
-            showDragHandle: true,
+          onTap: () => showAdaptiveSheet<void>(
+            context,
+            scrollControlled: true,
+            maxWidth: 560,
             builder: (_) => const _OcrApiEditor(),
           ),
         ),

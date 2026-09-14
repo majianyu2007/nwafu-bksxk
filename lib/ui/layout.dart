@@ -170,3 +170,43 @@ class TwoColumn extends StatelessWidget {
     );
   }
 }
+
+/// Shows [builder]'s content as a modal bottom sheet on phone-width windows
+/// and as a centred dialog on wide ones, where a sheet stretched across a
+/// desktop window is awkward to read and reach. Resolves with the value given
+/// to Navigator.pop either way.
+Future<T?> showAdaptiveSheet<T>(
+  BuildContext context, {
+  required WidgetBuilder builder,
+  bool scrollControlled = false,
+  double maxWidth = 640,
+  double heightFraction = 0.85,
+}) {
+  final size = MediaQuery.sizeOf(context);
+  if (size.width < kRailBreakpoint) {
+    return showModalBottomSheet<T>(
+      context: context,
+      isScrollControlled: scrollControlled,
+      showDragHandle: true,
+      builder: builder,
+    );
+  }
+  return showDialog<T>(
+    context: context,
+    builder: (context) => Dialog(
+      clipBehavior: Clip.antiAlias,
+      insetPadding: const EdgeInsets.all(24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: maxWidth,
+          maxHeight: size.height * heightFraction,
+        ),
+        child: builder(context),
+      ),
+    ),
+  );
+}
+
+/// True when [showAdaptiveSheet] would present a dialog for this context.
+bool adaptiveSheetIsDialog(BuildContext context) =>
+    MediaQuery.sizeOf(context).width >= kRailBreakpoint;
