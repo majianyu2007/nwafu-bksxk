@@ -56,6 +56,7 @@ class _RootShellState extends ConsumerState<RootShell> {
     if (batches.isEmpty) return;
     showBatchPickDialog(context, ref);
   }
+
   int _index = 0;
   bool _onboardingChecked = false;
 
@@ -69,7 +70,6 @@ class _RootShellState extends ConsumerState<RootShell> {
     if (_index != index) setState(() => _index = index);
   }
 
-
   @override
   Widget build(BuildContext context) {
     // Keep the notification bridge alive for the app's lifetime.
@@ -77,42 +77,118 @@ class _RootShellState extends ConsumerState<RootShell> {
     // Badge the Monitor tab with the count of active watches.
     final activeWatches = ref.watch(watchCountProvider);
 
-    return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: IndexedStack(index: _index, children: _pages),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: _selectPage,
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: '首页',
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useRail = constraints.maxWidth >= 840;
+        final content = SafeArea(
+          bottom: !useRail,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1200),
+              child: SizedBox.expand(
+                child: IndexedStack(index: _index, children: _pages),
+              ),
+            ),
           ),
-          const NavigationDestination(
-            icon: Icon(Icons.menu_book_outlined),
-            selectedIcon: Icon(Icons.menu_book),
-            label: '选课',
+        );
+
+        if (useRail) {
+          final extended = constraints.maxWidth >= 1180;
+          return Scaffold(
+            body: Row(
+              children: [
+                SafeArea(
+                  child: NavigationRail(
+                    extended: extended,
+                    minExtendedWidth: 196,
+                    selectedIndex: _index,
+                    onDestinationSelected: _selectPage,
+                    labelType: extended
+                        ? NavigationRailLabelType.none
+                        : NavigationRailLabelType.all,
+                    leading: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Icon(
+                        Icons.school_outlined,
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 30,
+                      ),
+                    ),
+                    destinations: [
+                      const NavigationRailDestination(
+                        icon: Icon(Icons.home_outlined),
+                        selectedIcon: Icon(Icons.home),
+                        label: Text('首页'),
+                      ),
+                      const NavigationRailDestination(
+                        icon: Icon(Icons.menu_book_outlined),
+                        selectedIcon: Icon(Icons.menu_book),
+                        label: Text('选课'),
+                      ),
+                      NavigationRailDestination(
+                        icon:
+                            _MonitorIcon(count: activeWatches, selected: false),
+                        selectedIcon:
+                            _MonitorIcon(count: activeWatches, selected: true),
+                        label: const Text('监控'),
+                      ),
+                      const NavigationRailDestination(
+                        icon: Icon(Icons.account_circle_outlined),
+                        selectedIcon: Icon(Icons.account_circle),
+                        label: Text('我的'),
+                      ),
+                      const NavigationRailDestination(
+                        icon: Icon(Icons.settings_outlined),
+                        selectedIcon: Icon(Icons.settings),
+                        label: Text('设置'),
+                      ),
+                    ],
+                  ),
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: content),
+              ],
+            ),
+          );
+        }
+
+        return Scaffold(
+          body: content,
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _index,
+            onDestinationSelected: _selectPage,
+            destinations: [
+              const NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home),
+                label: '首页',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.menu_book_outlined),
+                selectedIcon: Icon(Icons.menu_book),
+                label: '选课',
+              ),
+              NavigationDestination(
+                icon: _MonitorIcon(count: activeWatches, selected: false),
+                selectedIcon:
+                    _MonitorIcon(count: activeWatches, selected: true),
+                label: '监控',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.account_circle_outlined),
+                selectedIcon: Icon(Icons.account_circle),
+                label: '我的',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.settings_outlined),
+                selectedIcon: Icon(Icons.settings),
+                label: '设置',
+              ),
+            ],
           ),
-          NavigationDestination(
-            icon: _MonitorIcon(count: activeWatches, selected: false),
-            selectedIcon: _MonitorIcon(count: activeWatches, selected: true),
-            label: '监控',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.account_circle_outlined),
-            selectedIcon: Icon(Icons.account_circle),
-            label: '我的',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: '设置',
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
