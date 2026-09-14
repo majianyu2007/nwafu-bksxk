@@ -10,18 +10,21 @@ import '../data/notifications.dart';
 import 'widgets.dart';
 
 /// Loads selected courses for the active session.
-final selectedCoursesProvider = FutureProvider.autoDispose<List<TeachingClass>>((ref) async {
+final selectedCoursesProvider =
+    FutureProvider.autoDispose<List<TeachingClass>>((ref) async {
   ref.watch(selectionDataRevisionProvider);
   final session = ref.watch(sessionProvider);
   final student = session.student;
   final batch = session.activeBatch;
   if (student == null || batch == null) return [];
   final course = ref.read(courseServiceProvider);
-  return course.fetchSelected(studentCode: student.studentCode, batchCode: batch.code);
+  return course.fetchSelected(
+      studentCode: student.studentCode, batchCode: batch.code);
 });
 
 /// Loads the full schedule (arranged + unarranged) for the active session.
-final scheduleProvider = FutureProvider.autoDispose<List<ScheduleEntry>>((ref) async {
+final scheduleProvider =
+    FutureProvider.autoDispose<List<ScheduleEntry>>((ref) async {
   ref.watch(selectionDataRevisionProvider);
   final session = ref.watch(sessionProvider);
   final student = session.student;
@@ -29,42 +32,50 @@ final scheduleProvider = FutureProvider.autoDispose<List<ScheduleEntry>>((ref) a
   if (student == null || batch == null) return [];
   final course = ref.read(courseServiceProvider);
   final results = await Future.wait([
-    course.fetchSchedule(studentCode: student.studentCode, batchCode: batch.code),
-    course.fetchUnarranged(studentCode: student.studentCode, batchCode: batch.code),
+    course.fetchSchedule(
+        studentCode: student.studentCode, batchCode: batch.code),
+    course.fetchUnarranged(
+        studentCode: student.studentCode, batchCode: batch.code),
   ]);
   return [...results[0], ...results[1]];
 });
 
 /// Loads unsuccessful selection entries for the active session.
-final unsuccessfulProvider = FutureProvider.autoDispose<List<UnsuccessfulEntry>>((ref) async {
+final unsuccessfulProvider =
+    FutureProvider.autoDispose<List<UnsuccessfulEntry>>((ref) async {
   ref.watch(selectionDataRevisionProvider);
   final session = ref.watch(sessionProvider);
   final student = session.student;
   final batch = session.activeBatch;
   if (student == null || batch == null) return [];
   final course = ref.read(courseServiceProvider);
-  return course.fetchUnsuccessful(studentCode: student.studentCode, batchCode: batch.code);
+  return course.fetchUnsuccessful(
+      studentCode: student.studentCode, batchCode: batch.code);
 });
 
 /// Loads drop-log (return-results) entries for the active session.
-final returnResultsProvider = FutureProvider.autoDispose<List<DropLogEntry>>((ref) async {
+final returnResultsProvider =
+    FutureProvider.autoDispose<List<DropLogEntry>>((ref) async {
   ref.watch(selectionDataRevisionProvider);
   final session = ref.watch(sessionProvider);
   final student = session.student;
   final batch = session.activeBatch;
   if (student == null || batch == null) return [];
   final course = ref.read(courseServiceProvider);
-  return course.fetchReturnResults(studentCode: student.studentCode, batchCode: batch.code);
+  return course.fetchReturnResults(
+      studentCode: student.studentCode, batchCode: batch.code);
 });
 
 class SelectedPage extends ConsumerWidget {
   const SelectedPage({super.key});
 
-  void _refreshAll(WidgetRef ref) {
-    ref.invalidate(selectedCoursesProvider);
-    ref.invalidate(scheduleProvider);
-    ref.invalidate(unsuccessfulProvider);
-    ref.invalidate(returnResultsProvider);
+  Future<void> _refreshAll(WidgetRef ref) async {
+    await Future.wait([
+      ref.refresh(selectedCoursesProvider.future),
+      ref.refresh(scheduleProvider.future),
+      ref.refresh(unsuccessfulProvider.future),
+      ref.refresh(returnResultsProvider.future),
+    ]);
   }
 
   @override
@@ -82,7 +93,10 @@ class SelectedPage extends ConsumerWidget {
           children: [
             Text(
               '我的',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w800),
             ),
             const Spacer(),
             IconButton(
@@ -104,8 +118,10 @@ class SelectedPage extends ConsumerWidget {
     ];
 
     selectedAsync.when(
-      loading: () => items.add(const Center(child: CircularProgressIndicator())),
-      error: (e, _) => items.add(EmptyState(icon: Icons.cloud_off, title: '加载失败', subtitle: '$e')),
+      loading: () =>
+          items.add(const Center(child: CircularProgressIndicator())),
+      error: (e, _) => items.add(
+          EmptyState(icon: Icons.cloud_off, title: '加载失败', subtitle: '$e')),
       data: (list) {
         if (list.isEmpty) {
           items.add(const EmptyState(
@@ -130,11 +146,14 @@ class SelectedPage extends ConsumerWidget {
       onRefresh: () => ref.invalidate(scheduleProvider),
     ));
     scheduleAsync.when(
-      loading: () => items.add(const Center(child: CircularProgressIndicator())),
-      error: (e, _) => items.add(EmptyState(icon: Icons.cloud_off, title: '课表加载失败', subtitle: '$e')),
+      loading: () =>
+          items.add(const Center(child: CircularProgressIndicator())),
+      error: (e, _) => items.add(
+          EmptyState(icon: Icons.cloud_off, title: '课表加载失败', subtitle: '$e')),
       data: (list) {
         if (list.isEmpty) {
-          items.add(const EmptyState(icon: Icons.calendar_month, title: '还没有课表数据'));
+          items.add(
+              const EmptyState(icon: Icons.calendar_month, title: '还没有课表数据'));
         } else {
           for (final entry in list) {
             items.add(_ScheduleCard(entry: entry));
@@ -162,7 +181,8 @@ class SelectedPage extends ConsumerWidget {
           title: '落选课程',
           onRefresh: () => ref.invalidate(unsuccessfulProvider),
         ));
-        items.add(EmptyState(icon: Icons.cloud_off, title: '加载失败', subtitle: '$e'));
+        items.add(
+            EmptyState(icon: Icons.cloud_off, title: '加载失败', subtitle: '$e'));
       },
       data: (list) {
         if (list.isEmpty) return;
@@ -197,7 +217,8 @@ class SelectedPage extends ConsumerWidget {
           title: '退选日志',
           onRefresh: () => ref.invalidate(returnResultsProvider),
         ));
-        items.add(EmptyState(icon: Icons.cloud_off, title: '加载失败', subtitle: '$e'));
+        items.add(
+            EmptyState(icon: Icons.cloud_off, title: '加载失败', subtitle: '$e'));
       },
       data: (list) {
         if (list.isEmpty) return;
@@ -215,10 +236,7 @@ class SelectedPage extends ConsumerWidget {
     );
 
     return RefreshIndicator(
-      onRefresh: () {
-        _refreshAll(ref);
-        return Future<void>.value();
-      },
+      onRefresh: () => _refreshAll(ref),
       child: ListView(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
         children: items,
@@ -252,7 +270,10 @@ class _SectionHeader extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           const Spacer(),
           IconButton(
@@ -292,21 +313,31 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(tc.courseName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            Text(tc.courseName,
+                style:
+                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
             const SizedBox(height: 4),
-            Text(tc.displayTitle, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+            Text(tc.displayTitle,
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
             if (tc.teachingPlace.isNotEmpty)
-              Text(tc.teachingPlace, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+              Text(tc.teachingPlace,
+                  style:
+                      TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
             const SizedBox(height: 12),
             Row(
               children: [
-                const StatusPill(label: '已选', color: Colors.green, icon: Icons.check),
+                const StatusPill(
+                    label: '已选', color: Colors.green, icon: Icons.check),
                 const Spacer(),
                 OutlinedButton.icon(
                   onPressed: _dropping ? null : _confirmDrop,
                   icon: _dropping
-                      ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                      : Icon(Icons.remove_circle_outline, size: 18, color: scheme.error),
+                      ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : Icon(Icons.remove_circle_outline,
+                          size: 18, color: scheme.error),
                   label: Text('退选', style: TextStyle(color: scheme.error)),
                 ),
               ],
@@ -324,8 +355,12 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
         title: const Text('确认退选'),
         content: Text('确定要退选「${widget.tc.courseName}」吗？此操作会真实改变你的选课状态。'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('确认退选')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('确认退选')),
         ],
       ),
     );
@@ -377,7 +412,9 @@ class _ScheduleCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Title row
-            Text(e.courseName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            Text(e.courseName,
+                style:
+                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
             const SizedBox(height: 6),
             // Meta row 1
             _meta(e.courseIndex, scheme),
@@ -387,8 +424,7 @@ class _ScheduleCard extends StatelessWidget {
             // Teaching place (may be empty for unarranged)
             if (e.teachingPlace.isNotEmpty && e.teacherName.isNotEmpty)
               const SizedBox(height: 4),
-            if (e.teachingPlace.isNotEmpty)
-              _meta(e.teachingPlace, scheme),
+            if (e.teachingPlace.isNotEmpty) _meta(e.teachingPlace, scheme),
             // Credit / hours
             if (e.credit.isNotEmpty || e.hours.isNotEmpty)
               Padding(
@@ -397,26 +433,36 @@ class _ScheduleCard extends StatelessWidget {
                   children: [
                     if (e.credit.isNotEmpty)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
                           color: scheme.primaryContainer,
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: Text('${e.credit}学分', style: TextStyle(fontSize: 11, color: scheme.onPrimaryContainer)),
+                        child: Text('${e.credit}学分',
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: scheme.onPrimaryContainer)),
                       ),
-                    if (e.credit.isNotEmpty && e.hours.isNotEmpty) const SizedBox(width: 6),
+                    if (e.credit.isNotEmpty && e.hours.isNotEmpty)
+                      const SizedBox(width: 6),
                     if (e.hours.isNotEmpty)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
                           color: scheme.secondaryContainer,
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: Text('${e.hours}学时', style: TextStyle(fontSize: 11, color: scheme.onSecondaryContainer)),
+                        child: Text('${e.hours}学时',
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: scheme.onSecondaryContainer)),
                       ),
                     const Spacer(),
                     if (e.isUnarranged)
-                      Text('未排课', style: TextStyle(fontSize: 11, color: scheme.error)),
+                      Text('未排课',
+                          style: TextStyle(fontSize: 11, color: scheme.error)),
                   ],
                 ),
               ),
@@ -424,7 +470,9 @@ class _ScheduleCard extends StatelessWidget {
             if (e.examTime.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: Text('考试: ${e.examTime}', style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+                child: Text('考试: ${e.examTime}',
+                    style: TextStyle(
+                        fontSize: 11, color: scheme.onSurfaceVariant)),
               ),
           ],
         ),
@@ -433,7 +481,8 @@ class _ScheduleCard extends StatelessWidget {
   }
 
   Widget _meta(String text, ColorScheme scheme) {
-    return Text(text, style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant));
+    return Text(text,
+        style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant));
   }
 }
 
@@ -455,22 +504,29 @@ class _UnsuccessfulCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(e.courseName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            Text(e.courseName,
+                style:
+                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
             if (e.teacherName.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: Text(e.teacherName, style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
+                child: Text(e.teacherName,
+                    style: TextStyle(
+                        fontSize: 13, color: scheme.onSurfaceVariant)),
               ),
             if (e.reason.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: scheme.errorContainer,
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Text(e.reason, style: TextStyle(fontSize: 12, color: scheme.onErrorContainer)),
+                  child: Text(e.reason,
+                      style: TextStyle(
+                          fontSize: 12, color: scheme.onErrorContainer)),
                 ),
               ),
           ],
@@ -501,11 +557,14 @@ class _LogCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(e.courseName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  Text(e.courseName,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 14)),
                   const SizedBox(height: 2),
                   Text(
                     '${e.deleteOperateTypeName.isNotEmpty ? '${e.deleteOperateTypeName} · ' : ''}${e.deleteOperateTime}',
-                    style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                    style:
+                        TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
                   ),
                 ],
               ),

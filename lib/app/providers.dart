@@ -54,12 +54,13 @@ class OcrApiController extends StateNotifier<OcrApiConfig?> {
 
   Future<void> set(OcrApiConfig? cfg) async {
     state = cfg;
-    await _storage.setOcrApiConfigJson(cfg == null ? null : jsonEncode(cfg.toJson()));
+    await _storage
+        .setOcrApiConfigJson(cfg == null ? null : jsonEncode(cfg.toJson()));
   }
 }
 
-final ocrApiProvider =
-    StateNotifierProvider<OcrApiController, OcrApiConfig?>((ref) => OcrApiController(ref.watch(storageProvider)));
+final ocrApiProvider = StateNotifierProvider<OcrApiController, OcrApiConfig?>(
+    (ref) => OcrApiController(ref.watch(storageProvider)));
 
 /// The active captcha solver. Uses the user's OCR API if configured and valid,
 /// otherwise the built-in on-device model (no-op on web). Rebuilds when the OCR
@@ -74,17 +75,21 @@ final captchaSolverProvider = StateProvider<CaptchaSolver>((ref) {
   return solver;
 });
 
-final authServiceProvider = Provider<AuthService>((ref) => AuthService(ref.watch(apiClientProvider)));
+final authServiceProvider =
+    Provider<AuthService>((ref) => AuthService(ref.watch(apiClientProvider)));
 
-final courseServiceProvider = Provider<CourseService>((ref) => CourseService(ref.watch(apiClientProvider)));
+final courseServiceProvider = Provider<CourseService>(
+    (ref) => CourseService(ref.watch(apiClientProvider)));
 
-final enrollServiceProvider = Provider<EnrollService>((ref) => EnrollService(ref.watch(apiClientProvider)));
-final infoServiceProvider = Provider<InfoService>((ref) => InfoService(ref.watch(apiClientProvider)));
+final enrollServiceProvider = Provider<EnrollService>(
+    (ref) => EnrollService(ref.watch(apiClientProvider)));
+final infoServiceProvider =
+    Provider<InfoService>((ref) => InfoService(ref.watch(apiClientProvider)));
+
 /// Monotonic signal for server-backed selection data. Every successful
 /// enrollment mutation or batch switch increments it; dependent providers then
 /// refetch instead of leaving stale state until a manual refresh.
 final selectionDataRevisionProvider = StateProvider<int>((ref) => 0);
-
 
 final sessionManagerProvider = Provider<SessionManager>((ref) {
   final mgr = SessionManager(
@@ -94,7 +99,8 @@ final sessionManagerProvider = Provider<SessionManager>((ref) {
     info: ref.watch(infoServiceProvider),
   );
   // Keep the manager's solver in sync when the user configures OCR.
-  ref.listen<CaptchaSolver>(captchaSolverProvider, (_, next) => mgr.solver = next);
+  ref.listen<CaptchaSolver>(
+      captchaSolverProvider, (_, next) => mgr.solver = next);
   return mgr;
 });
 
@@ -122,7 +128,9 @@ class MonitorConfigController extends StateNotifier<MonitorConfig> {
   Future<void> update(MonitorConfig cfg) async {
     state = cfg;
     _ref.read(monitorEngineProvider).config = cfg;
-    await _ref.read(storageProvider).setMonitorConfigJson(jsonEncode(cfg.toJson()));
+    await _ref
+        .read(storageProvider)
+        .setMonitorConfigJson(jsonEncode(cfg.toJson()));
   }
 }
 
@@ -188,7 +196,8 @@ class ThemeController extends StateNotifier<ThemeSettings> {
 }
 
 final themeControllerProvider =
-    StateNotifierProvider<ThemeController, ThemeSettings>((ref) => ThemeController(ref.watch(storageProvider)));
+    StateNotifierProvider<ThemeController, ThemeSettings>(
+        (ref) => ThemeController(ref.watch(storageProvider)));
 
 // ---------------------------------------------------------------------------
 // Session / account state
@@ -263,7 +272,9 @@ class SessionController extends StateNotifier<SessionState> {
       final account = Account(
         id: loginName,
         loginName: loginName,
-        displayName: _mgr.student?.name.isNotEmpty == true ? _mgr.student!.name : loginName,
+        displayName: _mgr.student?.name.isNotEmpty == true
+            ? _mgr.student!.name
+            : loginName,
         studentCode: _mgr.studentCode ?? '',
         lastBatchCode: _mgr.activeBatch?.code ?? '',
         lastToken: _mgr.client.token ?? '',
@@ -324,6 +335,49 @@ class SessionController extends StateNotifier<SessionState> {
     _ref.read(selectionDataRevisionProvider.notifier).state++;
   }
 
+  Future<void> reloadContext() async {
+    final code = _mgr.studentCode ?? state.student?.studentCode;
+    if (code == null || code.isEmpty) return;
+    final (student, batches) = await _mgr.auth.loadContext(code);
+    final previousStudent = state.student;
+    final mergedStudent = student.copyWith(
+      name: student.name.isEmpty ? previousStudent?.name : student.name,
+      campus: student.campus.isEmpty ? previousStudent?.campus : student.campus,
+      collegeName: student.collegeName.isEmpty
+          ? previousStudent?.collegeName
+          : student.collegeName,
+      majorName: student.majorName.isEmpty
+          ? previousStudent?.majorName
+          : student.majorName,
+      grade: student.grade.isEmpty ? previousStudent?.grade : student.grade,
+      schoolClassName: student.schoolClassName.isEmpty
+          ? previousStudent?.schoolClassName
+          : student.schoolClassName,
+    );
+    ElectiveBatch? active;
+    final previousCode = state.activeBatch?.code;
+    if (previousCode != null) {
+      for (final batch in batches) {
+        if (batch.code == previousCode) {
+          active = batch;
+          break;
+        }
+      }
+    }
+    active ??= selectInitialBatch(batches).batch;
+    _mgr.student = mergedStudent;
+    _mgr.batches = batches;
+    _mgr.activeBatch = active;
+    state = SessionState(
+      phase: AuthPhase.loggedIn,
+      student: mergedStudent,
+      batches: batches,
+      activeBatch: active,
+      account: state.account,
+    );
+    _ref.read(selectionDataRevisionProvider.notifier).state++;
+  }
+
   Future<void> logout() async {
     _ref.read(monitorEngineProvider).stop();
     final code = state.student?.studentCode;
@@ -342,18 +396,21 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   String _describe(Object e) {
-    if (e is AppError) return e.hint != null ? '${e.message} · ${e.hint}' : e.message;
+    if (e is AppError) {
+      return e.hint != null ? '${e.message} · ${e.hint}' : e.message;
+    }
     if (e is LoginException) return e.message;
     return e.toString();
   }
 }
 
-final sessionProvider =
-    StateNotifierProvider<SessionController, SessionState>((ref) => SessionController(ref));
+final sessionProvider = StateNotifierProvider<SessionController, SessionState>(
+    (ref) => SessionController(ref));
 
 /// The list of saved accounts (rebuilds when storage changes via refresh()).
-final accountsProvider = StateNotifierProvider<AccountsController, List<Account>>(
-    (ref) => AccountsController(ref.watch(storageProvider)));
+final accountsProvider =
+    StateNotifierProvider<AccountsController, List<Account>>(
+        (ref) => AccountsController(ref.watch(storageProvider)));
 
 class AccountsController extends StateNotifier<List<Account>> {
   AccountsController(this._storage) : super(_storage.accounts());

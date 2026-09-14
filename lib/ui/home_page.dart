@@ -11,8 +11,8 @@ import '../data/monitor_engine.dart';
 import 'batch_pick_dialog.dart';
 import 'widgets.dart';
 
-final noticesProvider =
-    FutureProvider.autoDispose<List<Notice>>((ref) => ref.read(infoServiceProvider).fetchNotices());
+final noticesProvider = FutureProvider.autoDispose<List<Notice>>(
+    (ref) => ref.read(infoServiceProvider).fetchNotices());
 
 final creditInfoProvider = FutureProvider.autoDispose<CreditInfo>((ref) async {
   ref.watch(selectionDataRevisionProvider);
@@ -81,18 +81,11 @@ class HomePage extends ConsumerWidget {
   }
 
   Future<void> _reloadContext(BuildContext context, WidgetRef ref) async {
-    final mgr = ref.read(sessionManagerProvider);
-    final code = mgr.studentCode;
-    if (code == null) return;
+    final controller = ref.read(sessionProvider.notifier);
     try {
-      final (info, batches) = await mgr.auth.loadContext(code);
-      mgr.student = info;
-      mgr.batches = batches;
-      if (context.mounted) showToast(context, '轮次已刷新', success: true);
-      // Nudge the session state so UI rebuilds.
-      ref.read(sessionProvider.notifier).setActiveBatch(mgr.activeBatch ?? (batches.isNotEmpty ? batches.first : ElectiveBatch(code: '', name: '', batchType: '', canSelect: false)));
+      await controller.reloadContext();
       ref.invalidate(noticesProvider);
-      ref.invalidate(creditInfoProvider);
+      if (context.mounted) showToast(context, '选课信息已刷新', success: true);
     } catch (e) {
       if (context.mounted) showToast(context, '刷新失败：$e', success: false);
     }
@@ -106,7 +99,10 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+      style: Theme.of(context)
+          .textTheme
+          .titleMedium
+          ?.copyWith(fontWeight: FontWeight.w700),
     );
   }
 }
@@ -133,7 +129,8 @@ class _ProfileCard extends StatelessWidget {
           CircleAvatar(
             radius: 28,
             backgroundColor: scheme.onPrimaryContainer.withValues(alpha: 0.15),
-            child: Icon(Icons.school, color: scheme.onPrimaryContainer, size: 30),
+            child:
+                Icon(Icons.school, color: scheme.onPrimaryContainer, size: 30),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -150,12 +147,15 @@ class _ProfileCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   student?.studentCode ?? '',
-                  style: TextStyle(color: scheme.onPrimaryContainer.withValues(alpha: 0.85)),
+                  style: TextStyle(
+                      color: scheme.onPrimaryContainer.withValues(alpha: 0.85)),
                 ),
                 if (student?.majorName.isNotEmpty == true) ...[
                   const SizedBox(height: 2),
                   Text(
-                    [student?.collegeName, student?.majorName].where((e) => (e ?? '').isNotEmpty).join(' · '),
+                    [student?.collegeName, student?.majorName]
+                        .where((e) => (e ?? '').isNotEmpty)
+                        .join(' · '),
                     style: TextStyle(
                       color: scheme.onPrimaryContainer.withValues(alpha: 0.75),
                       fontSize: 12,
@@ -207,7 +207,8 @@ class _BatchSelector extends ConsumerWidget {
                 value: batch.code,
                 title: Text(batch.name.isEmpty ? batch.code : batch.name),
                 subtitle: batch.beginTime.isNotEmpty
-                    ? Text('${batch.beginTime}  →  ${batch.endTime}', style: const TextStyle(fontSize: 12))
+                    ? Text('${batch.beginTime}  →  ${batch.endTime}',
+                        style: const TextStyle(fontSize: 12))
                     : null,
                 secondary: StatusPill(
                   label: batch.canSelect ? '开放' : '未开放',
@@ -230,7 +231,8 @@ class _MonitorSummary extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final watches = ref.watch(watchesProvider);
-    final grabbed = watches.where((w) => w.status == WatchStatus.grabbed).length;
+    final grabbed =
+        watches.where((w) => w.status == WatchStatus.grabbed).length;
 
     return Card(
       child: Padding(
@@ -243,7 +245,9 @@ class _MonitorSummary extends ConsumerWidget {
                   height: 44,
                   width: 44,
                   decoration: BoxDecoration(
-                    color: running ? Colors.green.withValues(alpha: 0.15) : scheme.surfaceContainerHighest,
+                    color: running
+                        ? Colors.green.withValues(alpha: 0.15)
+                        : scheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
@@ -257,9 +261,11 @@ class _MonitorSummary extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(running ? '监控运行中' : '监控已停止',
-                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 16)),
                       Text('$watchCount 个课程监控中 · 已抢到 $grabbed',
-                          style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+                          style: TextStyle(
+                              color: scheme.onSurfaceVariant, fontSize: 13)),
                     ],
                   ),
                 ),
@@ -285,10 +291,7 @@ class _NoticesCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final noticesAsync = ref.watch(noticesProvider);
-    final notices = noticesAsync.valueOrNull ?? <Notice>[];
-    if (notices.isEmpty) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -297,47 +300,61 @@ class _NoticesCard extends ConsumerWidget {
           children: [
             Row(
               children: [
-                const Text('选课公告',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                const SizedBox(width: 4),
-                const Icon(Icons.chevron_right, size: 18),
+                const Text(
+                  '选课公告',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                ),
                 const Spacer(),
-                GestureDetector(
-                  onTap: notices.isNotEmpty
-                      ? () => _showNoticeDetail(context, ref, notices.first.wid)
-                      : null,
-                  child: Text('更多',
-                      style: TextStyle(color: scheme.primary)),
+                IconButton(
+                  onPressed: () => ref.invalidate(noticesProvider),
+                  icon: const Icon(Icons.refresh, size: 18),
+                  tooltip: '刷新公告',
+                  visualDensity: VisualDensity.compact,
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 36,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: notices.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (_, i) {
-                  final n = notices[i];
-                  return GestureDetector(
-                    onTap: () => _showNoticeDetail(context, ref, n.wid),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: scheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        n.title.length > 14
-                            ? '${n.title.substring(0, 14)}…'
-                            : n.title,
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    ),
-                  );
-                },
+            const SizedBox(height: 8),
+            noticesAsync.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (error, _) => Row(
+                children: [
+                  Icon(Icons.cloud_off_outlined, color: scheme.error),
+                  const SizedBox(width: 8),
+                  const Expanded(child: Text('公告加载失败')),
+                  TextButton(
+                    onPressed: () => ref.invalidate(noticesProvider),
+                    child: const Text('重试'),
+                  ),
+                ],
               ),
+              data: (notices) {
+                if (notices.isEmpty) {
+                  return Text(
+                    '当前没有新公告',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  );
+                }
+                return SizedBox(
+                  height: 36,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: notices.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (_, i) {
+                      final notice = notices[i];
+                      return ActionChip(
+                        onPressed: () =>
+                            _showNoticeDetail(context, ref, notice.wid),
+                        label: Text(
+                          notice.title.length > 14
+                              ? '${notice.title.substring(0, 14)}…'
+                              : notice.title,
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -369,6 +386,17 @@ class _NoticeDetailSheet extends StatelessWidget {
             child: Center(child: CircularProgressIndicator()),
           );
         }
+        if (snapshot.hasError) {
+          return SizedBox(
+            height: 200,
+            child: Center(
+              child: Text(
+                '公告加载失败：${snapshot.error}',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
+        }
         final notice = snapshot.data;
         if (notice == null) {
           return const SizedBox(
@@ -384,7 +412,8 @@ class _NoticeDetailSheet extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(notice.title,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w700)),
               if (notice.timeDescription.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Text(notice.timeDescription,
@@ -426,14 +455,11 @@ class _CreditCard extends ConsumerWidget {
                     style:
                         TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
                 const Spacer(),
-                SizedBox(
-                  height: 28,
-                  width: 28,
-                  child: InkWell(
-                    onTap: () => ref.invalidate(creditInfoProvider),
-                    borderRadius: BorderRadius.circular(8),
-                    child: Icon(Icons.refresh, size: 18, color: scheme.primary),
-                  ),
+                IconButton(
+                  onPressed: () => ref.invalidate(creditInfoProvider),
+                  icon: const Icon(Icons.refresh, size: 18),
+                  tooltip: '刷新学分',
+                  visualDensity: VisualDensity.compact,
                 ),
               ],
             ),
@@ -457,7 +483,8 @@ class _CreditCard extends ConsumerWidget {
                             value: info.needCredit.toStringAsFixed(1),
                           ),
                         ),
-                        Expanded(child: _StatTile(label: '还需', value: remaining)),
+                        Expanded(
+                            child: _StatTile(label: '还需', value: remaining)),
                       ],
                     ),
                     if (info.noSelectReason.isNotEmpty) ...[
@@ -467,13 +494,12 @@ class _CreditCard extends ConsumerWidget {
                           Expanded(
                             child: Text(
                               info.noSelectReason,
-                              style: TextStyle(
-                                  fontSize: 12, color: scheme.error),
+                              style:
+                                  TextStyle(fontSize: 12, color: scheme.error),
                             ),
                           ),
                           const SizedBox(width: 8),
-                          StatusPill(
-                              label: '无法选课', color: scheme.error),
+                          StatusPill(label: '无法选课', color: scheme.error),
                         ],
                       ),
                     ],
@@ -488,8 +514,17 @@ class _CreditCard extends ConsumerWidget {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2))),
               ),
-              error: (e, _) => Text('加载失败',
-                  style: TextStyle(color: scheme.error)),
+              error: (error, _) => Row(
+                children: [
+                  Icon(Icons.cloud_off_outlined, color: scheme.error, size: 20),
+                  const SizedBox(width: 8),
+                  const Expanded(child: Text('学分加载失败')),
+                  TextButton(
+                    onPressed: () => ref.invalidate(creditInfoProvider),
+                    child: const Text('重试'),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -555,10 +590,12 @@ class _BatchClosedBanner extends ConsumerWidget {
           ),
           const SizedBox(width: 8),
           TextButton(
-            onPressed: () => showBatchPickDialog(context, ref, batches: batches),
+            onPressed: () =>
+                showBatchPickDialog(context, ref, batches: batches),
             child: Text(
               batch == null ? '去选择' : '重新选择',
-              style: TextStyle(color: scheme.onErrorContainer, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                  color: scheme.onErrorContainer, fontWeight: FontWeight.w700),
             ),
           ),
         ],
