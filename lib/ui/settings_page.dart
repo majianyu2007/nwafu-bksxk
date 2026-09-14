@@ -10,6 +10,7 @@ import '../app/providers.dart';
 import '../app/theme.dart';
 import '../data/http_ocr_solver.dart';
 import '../data/notifications.dart';
+import '../data/storage.dart';
 import 'diagnostics_page.dart';
 import 'widgets.dart';
 
@@ -26,9 +27,12 @@ class SettingsPage extends ConsumerWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
       children: [
-        Text('设置', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+        Text('设置',
+            style: Theme.of(context)
+                .textTheme
+                .headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 16),
-
         _Group(
           title: '外观',
           children: [
@@ -42,9 +46,13 @@ class SettingsPage extends ConsumerWidget {
               }),
               trailing: SegmentedButton<ThemeMode>(
                 segments: const [
-                  ButtonSegment(value: ThemeMode.system, icon: Icon(Icons.brightness_auto)),
-                  ButtonSegment(value: ThemeMode.light, icon: Icon(Icons.light_mode)),
-                  ButtonSegment(value: ThemeMode.dark, icon: Icon(Icons.dark_mode)),
+                  ButtonSegment(
+                      value: ThemeMode.system,
+                      icon: Icon(Icons.brightness_auto)),
+                  ButtonSegment(
+                      value: ThemeMode.light, icon: Icon(Icons.light_mode)),
+                  ButtonSegment(
+                      value: ThemeMode.dark, icon: Icon(Icons.dark_mode)),
                 ],
                 selected: {theme.mode},
                 showSelectedIcon: false,
@@ -56,7 +64,10 @@ class SettingsPage extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('主题色', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                  Text('主题色',
+                      style: TextStyle(
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant)),
                   const SizedBox(height: 10),
                   Wrap(
                     spacing: 12,
@@ -78,7 +89,8 @@ class SettingsPage extends ConsumerWidget {
                               ),
                             ),
                             child: theme.seed.toARGB32() == c.toARGB32()
-                                ? const Icon(Icons.check, color: Colors.white, size: 18)
+                                ? const Icon(Icons.check,
+                                    color: Colors.white, size: 18)
                                 : null,
                           ),
                         ),
@@ -89,7 +101,6 @@ class SettingsPage extends ConsumerWidget {
             ),
           ],
         ),
-
         const _Group(
           title: '抢课设置',
           children: [
@@ -117,7 +128,8 @@ class SettingsPage extends ConsumerWidget {
                 subtitle: Text(a.loginName),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline),
-                  onPressed: () => ref.read(accountsProvider.notifier).remove(a.id),
+                  onPressed: () =>
+                      ref.read(accountsProvider.notifier).remove(a.id),
                 ),
               ),
             Padding(
@@ -132,17 +144,18 @@ class SettingsPage extends ConsumerWidget {
             ),
           ],
         ),
-
         const _Group(
           title: '高级',
           children: [
-            _OriginSetting(),
+            ServerOriginSetting(),
             _BrowserNotificationSetting(),
             _DiagnosticsEntry(),
             ListTile(
               leading: Icon(Icons.info_outline),
               title: Text('关于'),
-              subtitle: Text('西农本科选课 · 选课/抢课快人一步。仅连接 bksxk.nwafu.edu.cn，登录密码使用与官网一致的 DES 加密。'),
+              subtitle: Text(
+                '西农本科选课 · 选课/抢课快人一步。仅连接您配置的选课服务器，登录密码使用与官网一致的 DES 加密。',
+              ),
               isThreeLine: true,
             ),
           ],
@@ -250,7 +263,8 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
     final cfg = ref.read(ocrApiProvider);
     _url = TextEditingController(text: cfg?.url ?? '');
     _imageField = TextEditingController(text: cfg?.imageField ?? 'image');
-    _responseField = TextEditingController(text: cfg?.responseField ?? 'result');
+    _responseField =
+        TextEditingController(text: cfg?.responseField ?? 'result');
     if (cfg != null) {
       _req = cfg.requestFormat;
       _resp = cfg.responseFormat;
@@ -269,7 +283,9 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
   Widget build(BuildContext context) {
     return Padding(
       padding: EdgeInsets.only(
-        left: 20, right: 20, top: 8,
+        left: 20,
+        right: 20,
+        top: 8,
         bottom: MediaQuery.of(context).viewInsets.bottom + 20,
       ),
       child: SingleChildScrollView(
@@ -280,11 +296,14 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
             Text('自定义 OCR API', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 4),
             Text('留空并保存即恢复使用内置离线模型。',
-                style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 13)),
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 13)),
             const SizedBox(height: 16),
             TextField(
               controller: _url,
-              decoration: const InputDecoration(labelText: '接口地址', hintText: 'https://127.0.0.1:8000/ocr'),
+              decoration: const InputDecoration(
+                  labelText: '接口地址', hintText: 'https://127.0.0.1:8000/ocr'),
             ),
             const SizedBox(height: 12),
             InputDecorator(
@@ -295,9 +314,15 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
                   isExpanded: true,
                   onChanged: (v) => setState(() => _req = v ?? _req),
                   items: const [
-                    DropdownMenuItem(value: OcrRequestFormat.base64Json, child: Text('JSON 内 base64')),
-                    DropdownMenuItem(value: OcrRequestFormat.multipart, child: Text('multipart 文件上传')),
-                    DropdownMenuItem(value: OcrRequestFormat.rawBytes, child: Text('原始字节 body')),
+                    DropdownMenuItem(
+                        value: OcrRequestFormat.base64Json,
+                        child: Text('JSON 内 base64')),
+                    DropdownMenuItem(
+                        value: OcrRequestFormat.multipart,
+                        child: Text('multipart 文件上传')),
+                    DropdownMenuItem(
+                        value: OcrRequestFormat.rawBytes,
+                        child: Text('原始字节 body')),
                   ],
                 ),
               ),
@@ -306,7 +331,8 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
             if (_req != OcrRequestFormat.rawBytes)
               TextField(
                 controller: _imageField,
-                decoration: const InputDecoration(labelText: '图片字段名', hintText: 'image'),
+                decoration: const InputDecoration(
+                    labelText: '图片字段名', hintText: 'image'),
               ),
             const SizedBox(height: 12),
             InputDecorator(
@@ -317,8 +343,11 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
                   isExpanded: true,
                   onChanged: (v) => setState(() => _resp = v ?? _resp),
                   items: const [
-                    DropdownMenuItem(value: OcrResponseFormat.jsonField, child: Text('JSON 字段')),
-                    DropdownMenuItem(value: OcrResponseFormat.plainText, child: Text('纯文本')),
+                    DropdownMenuItem(
+                        value: OcrResponseFormat.jsonField,
+                        child: Text('JSON 字段')),
+                    DropdownMenuItem(
+                        value: OcrResponseFormat.plainText, child: Text('纯文本')),
                   ],
                 ),
               ),
@@ -327,7 +356,8 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
             if (_resp == OcrResponseFormat.jsonField)
               TextField(
                 controller: _responseField,
-                decoration: const InputDecoration(labelText: '结果字段名', hintText: 'result'),
+                decoration: const InputDecoration(
+                    labelText: '结果字段名', hintText: 'result'),
               ),
             const SizedBox(height: 20),
             Row(
@@ -351,13 +381,19 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
                           : OcrApiConfig(
                               url: url,
                               requestFormat: _req,
-                              imageField: _imageField.text.trim().isEmpty ? 'image' : _imageField.text.trim(),
+                              imageField: _imageField.text.trim().isEmpty
+                                  ? 'image'
+                                  : _imageField.text.trim(),
                               responseFormat: _resp,
-                              responseField: _responseField.text.trim().isEmpty ? 'result' : _responseField.text.trim(),
+                              responseField: _responseField.text.trim().isEmpty
+                                  ? 'result'
+                                  : _responseField.text.trim(),
                             );
                       await ref.read(ocrApiProvider.notifier).set(cfg);
                       if (context.mounted) {
-                        showToast(context, cfg == null ? '已恢复内置模型' : '已保存 OCR API', success: true);
+                        showToast(
+                            context, cfg == null ? '已恢复内置模型' : '已保存 OCR API',
+                            success: true);
                         Navigator.pop(context);
                       }
                     },
@@ -393,7 +429,8 @@ class _MonitorSettings extends ConsumerWidget {
               const SizedBox(width: 12),
               const Expanded(child: Text('检查余量间隔')),
               Text('${baseSecs.toStringAsFixed(1)} 秒',
-                  style: TextStyle(color: scheme.primary, fontWeight: FontWeight.w700)),
+                  style: TextStyle(
+                      color: scheme.primary, fontWeight: FontWeight.w700)),
             ],
           ),
         ),
@@ -418,7 +455,8 @@ class _MonitorSettings extends ConsumerWidget {
         SwitchListTile(
           secondary: const Icon(Icons.rocket_launch_outlined),
           title: const Text('抢开模式'),
-          subtitle: const Text('选课开放瞬间服务器常因人多而崩溃/繁忙。开启后，遇到 5xx、超时或“系统繁忙”视为临时过载，自动退避重试直到成功，而不是停止。账号或验证码错误仍会停止。'),
+          subtitle: const Text(
+              '选课开放瞬间服务器常因人多而崩溃/繁忙。开启后，遇到 5xx、超时或“系统繁忙”视为临时过载，自动退避重试直到成功，而不是停止。账号或验证码错误仍会停止。'),
           isThreeLine: true,
           value: cfg.rushMode,
           onChanged: (v) => ctrl.update(cfg.copyWith(rushMode: v)),
@@ -426,7 +464,8 @@ class _MonitorSettings extends ConsumerWidget {
         const ListTile(
           leading: Icon(Icons.verified),
           title: Text('结果确认与自动保护'),
-          subtitle: Text('提交后读取服务器最终回执才算成功；正常模式下遇到验证码、账号异常、系统维护或限流会立即停止，不会重复提交同一空位。'),
+          subtitle:
+              Text('提交后读取服务器最终回执才算成功；正常模式下遇到验证码、账号异常、系统维护或限流会立即停止，不会重复提交同一空位。'),
           isThreeLine: true,
         ),
       ],
@@ -490,14 +529,21 @@ class _BrowserNotificationSettingState
   }
 }
 
-class _OriginSetting extends ConsumerStatefulWidget {
-  const _OriginSetting();
+class ServerOriginSetting extends ConsumerStatefulWidget {
+  const ServerOriginSetting({super.key, this.compact = false, this.onSaved});
+
+  final bool compact;
+  final Future<void> Function()? onSaved;
+
   @override
-  ConsumerState<_OriginSetting> createState() => _OriginSettingState();
+  ConsumerState<ServerOriginSetting> createState() =>
+      _ServerOriginSettingState();
 }
 
-class _OriginSettingState extends ConsumerState<_OriginSetting> {
+class _ServerOriginSettingState extends ConsumerState<ServerOriginSetting> {
   late final TextEditingController _ctrl;
+  bool _saving = false;
+  String? _error;
 
   @override
   void initState() {
@@ -513,37 +559,127 @@ class _OriginSettingState extends ConsumerState<_OriginSetting> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final locked = Storage.originLockedByBuild;
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(widget.compact ? 0 : 16),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Row(
             children: [
               Icon(Icons.dns_outlined),
               SizedBox(width: 12),
-              Text('服务器地址'),
+              Text('选课服务器', style: TextStyle(fontWeight: FontWeight.w700)),
             ],
-          ),          const SizedBox(height: 10),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            locked
+                ? '本次调试构建已固定服务器地址；正式构建可在这里切换。'
+                : '登录、验证码和选课请求都将发送到此地址。更改服务器后需要重新登录。',
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 10),
           TextField(
             controller: _ctrl,
-            decoration: const InputDecoration(hintText: 'https://bksxk.nwafu.edu.cn'),
+            enabled: !locked && !_saving,
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            decoration: InputDecoration(
+              labelText: '服务器地址',
+              hintText: Storage.defaultOrigin,
+              errorText: _error,
+              prefixIcon: const Icon(Icons.link),
+            ),
           ),
           const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.tonal(
-              onPressed: () async {
-                final origin = _ctrl.text.trim();
-                await ref.read(storageProvider).setOrigin(origin);
-                ref.read(apiClientProvider).origin = origin;
-                if (context.mounted) showToast(context, '已保存服务器地址', success: true);
-              },
-              child: const Text('保存'),
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: locked || _saving
+                    ? null
+                    : () => setState(() {
+                          _ctrl.text = Storage.defaultOrigin;
+                          _error = null;
+                        }),
+                child: const Text('恢复默认'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonalIcon(
+                onPressed: locked || _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save_outlined, size: 18),
+                label: Text(_saving ? '保存中' : '保存并应用'),
+              ),
+            ],
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _save() async {
+    var origin = _ctrl.text.trim();
+    while (origin.endsWith('/')) {
+      origin = origin.substring(0, origin.length - 1);
+    }
+    final uri = Uri.tryParse(origin);
+    if (uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty) {
+      setState(() => _error = '请输入完整的 http:// 或 https:// 地址');
+      return;
+    }
+
+    final session = ref.read(sessionProvider);
+    if (session.phase == AuthPhase.loggedIn) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('切换选课服务器？'),
+          content: const Text('当前登录会话将安全退出。保存新地址后需要重新登录。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('退出并切换'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final storage = ref.read(storageProvider);
+    final client = ref.read(apiClientProvider);
+    final sessionController = ref.read(sessionProvider.notifier);
+    try {
+      await storage.setOrigin(origin);
+      if (session.phase == AuthPhase.loggedIn) {
+        await sessionController.logout();
+      }
+      client.origin = origin;
+      await widget.onSaved?.call();
+      if (mounted) showToast(context, '服务器地址已应用', success: true);
+    } catch (error) {
+      if (mounted) setState(() => _error = '保存失败：$error');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 }

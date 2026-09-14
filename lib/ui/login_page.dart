@@ -12,10 +12,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../core/errors.dart';
+import '../core/constants.dart';
 import '../core/web_env.dart';
 import '../data/auth_service.dart';
 import '../data/storage.dart';
 import 'diagnostics_page.dart';
+import 'settings_page.dart';
 
 /// Visual state of the OCR captcha recognizer.
 enum OcrStatus { idle, warming, recognizing, recognized, failed }
@@ -64,6 +66,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   /// install it. Native builds skip this entirely.
   void _maybePromptWebBridge() {
     if (!isWebRuntime || isWebBridgeReady) return;
+    final configured = Uri.tryParse(ref.read(storageProvider).origin());
+    if (configured?.host != Uri.parse(Env.defaultOrigin).host) return;
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -77,7 +81,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           '桌面端 / 手机端 App 无需此步骤。',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('我知道了')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('我知道了')),
           FilledButton.icon(
             onPressed: openWebBridgeInstaller,
             icon: const Icon(Icons.install_desktop),
@@ -148,7 +154,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       // surface the campus-network hint prominently.
       setState(() {
         _error = e.hint != null ? '${e.message}：${e.hint}' : e.message;
-        _showCampusHint = e.kind == AppErrorKind.campusNetwork || e.kind == AppErrorKind.timeout;
+        _showCampusHint = e.kind == AppErrorKind.campusNetwork ||
+            e.kind == AppErrorKind.timeout;
         _ocrStatus = OcrStatus.idle;
       });
     } catch (e) {
@@ -268,7 +275,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     _SavedAccounts(
                       accounts: accounts,
                       onPick: _useSavedAccount,
-                      onRemove: (a) => ref.read(accountsProvider.notifier).remove(a.id),
+                      onRemove: (a) =>
+                          ref.read(accountsProvider.notifier).remove(a.id),
                     ),
                     const SizedBox(height: 16),
                   ],
@@ -290,7 +298,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       labelText: '密码',
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
-                        icon: Icon(_obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                        tooltip: _obscure ? '显示密码' : '隐藏密码',
+                        icon: Icon(_obscure
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined),
                         onPressed: () => setState(() => _obscure = !_obscure),
                       ),
                     ),
@@ -336,10 +347,13 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.error_outline, color: scheme.onErrorContainer, size: 18),
+                          Icon(Icons.error_outline,
+                              color: scheme.onErrorContainer, size: 18),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(_error!, style: TextStyle(color: scheme.onErrorContainer)),
+                            child: Text(_error!,
+                                style:
+                                    TextStyle(color: scheme.onErrorContainer)),
                           ),
                         ],
                       ),
@@ -356,23 +370,55 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.wifi_off, color: scheme.onTertiaryContainer, size: 18),
+                          Icon(Icons.wifi_off,
+                              color: scheme.onTertiaryContainer, size: 18),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('连不上选课服务器？',
-                                    style: TextStyle(color: scheme.onTertiaryContainer, fontWeight: FontWeight.w700)),
-                                const SizedBox(height: 2),
-                                Text('本系统仅在校园网内可用。请连接校园网，或用 VPN 接入校园网后重试。',
-                                    style: TextStyle(color: scheme.onTertiaryContainer, fontSize: 13)),
-                                TextButton(
-                                  style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 32)),
-                                  onPressed: () => Navigator.of(context).push(
-                                    MaterialPageRoute<void>(builder: (_) => const DiagnosticsPage()),
+                                Text(
+                                  '当前选课服务器不可用',
+                                  style: TextStyle(
+                                    color: scheme.onTertiaryContainer,
+                                    fontWeight: FontWeight.w700,
                                   ),
-                                  child: const Text('打开连接诊断'),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '当前地址：${ref.read(storageProvider).origin()}\n'
+                                  '正式服务器通常需要校园网或学校 VPN；也可以切换到其他服务器。',
+                                  style: TextStyle(
+                                    color: scheme.onTertiaryContainer,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                Wrap(
+                                  spacing: 8,
+                                  children: [
+                                    TextButton(
+                                      style: TextButton.styleFrom(
+                                        padding: EdgeInsets.zero,
+                                        minimumSize: const Size(0, 32),
+                                      ),
+                                      onPressed: _showServerSettings,
+                                      child: const Text('更改服务器'),
+                                    ),
+                                    TextButton(
+                                      style: TextButton.styleFrom(
+                                        padding: EdgeInsets.zero,
+                                        minimumSize: const Size(0, 32),
+                                      ),
+                                      onPressed: () =>
+                                          Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) =>
+                                              const DiagnosticsPage(),
+                                        ),
+                                      ),
+                                      child: const Text('连接诊断'),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -386,16 +432,48 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     onPressed: busy ? null : _submit,
                     child: busy
                         ? const SizedBox(
-                            height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2.4))
+                            height: 22,
+                            width: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2.4))
                         : const Text('登录'),
                   ),
                   const SizedBox(height: 8),
-                  const _SettingsShortcut(),
+                  _SettingsShortcut(onServer: _showServerSettings),
                 ],
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Future<void> _showServerSettings() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('连接设置'),
+        content: SizedBox(
+          width: 480,
+          child: ServerOriginSetting(
+            compact: true,
+            onSaved: () async {
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+              if (!mounted) return;
+              setState(() {
+                _error = null;
+                _showCampusHint = false;
+              });
+              await _refreshCaptcha();
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('关闭'),
+          ),
+        ],
       ),
     );
   }
@@ -423,7 +501,11 @@ class _Brand extends StatelessWidget {
           child: const Icon(Icons.bolt, color: Colors.white, size: 40),
         ),
         const SizedBox(height: 16),
-        Text('西农本科选课', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+        Text('西农本科选课',
+            style: Theme.of(context)
+                .textTheme
+                .headlineSmall
+                ?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 4),
         Text('选课 · 抢课，快人一步', style: TextStyle(color: scheme.onSurfaceVariant)),
       ],
@@ -432,7 +514,8 @@ class _Brand extends StatelessWidget {
 }
 
 class _SavedAccounts extends StatelessWidget {
-  const _SavedAccounts({required this.accounts, required this.onPick, required this.onRemove});
+  const _SavedAccounts(
+      {required this.accounts, required this.onPick, required this.onRemove});
   final List<Account> accounts;
   final void Function(Account) onPick;
   final void Function(Account) onRemove;
@@ -507,29 +590,42 @@ class _CaptchaRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        GestureDetector(
-          onTap: onRefresh,
-          child: Container(
-            height: 52,
-            width: 120,
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: scheme.outlineVariant),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: loading
-                ? const Center(
-                    child: SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)))
-                : challenge != null && challenge!.imageBytes.isNotEmpty
-                    ? Image.memory(
-                        Uint8List.fromList(challenge!.imageBytes),
-                        fit: BoxFit.cover,
-                        gaplessPlayback: true,
+        Semantics(
+          button: true,
+          label: '刷新验证码',
+          child: Tooltip(
+            message: '点击刷新验证码',
+            child: GestureDetector(
+              onTap: onRefresh,
+              child: Container(
+                height: 52,
+                width: 120,
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: scheme.outlineVariant),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: loading
+                    ? const Center(
+                        child: SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
                       )
-                    : Center(
-                        child: Icon(Icons.refresh, color: scheme.onSurfaceVariant),
-                      ),
+                    : challenge != null && challenge!.imageBytes.isNotEmpty
+                        ? Image.memory(
+                            Uint8List.fromList(challenge!.imageBytes),
+                            fit: BoxFit.cover,
+                            gaplessPlayback: true,
+                          )
+                        : Center(
+                            child: Icon(Icons.refresh,
+                                color: scheme.onSurfaceVariant),
+                          ),
+              ),
+            ),
           ),
         ),
       ],
@@ -543,18 +639,25 @@ class _CaptchaRow extends StatelessWidget {
           message: '识别模型加载中…',
           child: Padding(
             padding: EdgeInsets.all(12),
-            child: SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+            child: SizedBox(
+                height: 16,
+                width: 16,
+                child: CircularProgressIndicator(strokeWidth: 2)),
           ),
         );
       case OcrStatus.recognizing:
         return const Padding(
           padding: EdgeInsets.all(12),
-          child: SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          child: SizedBox(
+              height: 16,
+              width: 16,
+              child: CircularProgressIndicator(strokeWidth: 2)),
         );
       case OcrStatus.recognized:
         return const Icon(Icons.auto_awesome, color: Colors.green, size: 20);
       case OcrStatus.failed:
-        return Icon(Icons.edit_outlined, color: scheme.onSurfaceVariant, size: 20);
+        return Icon(Icons.edit_outlined,
+            color: scheme.onSurfaceVariant, size: 20);
       case OcrStatus.idle:
         return null;
     }
@@ -562,16 +665,25 @@ class _CaptchaRow extends StatelessWidget {
 }
 
 class _SettingsShortcut extends ConsumerWidget {
-  const _SettingsShortcut();
+  const _SettingsShortcut({required this.onServer});
+
+  final VoidCallback onServer;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(themeControllerProvider);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 8,
       children: [
         TextButton.icon(
-          onPressed: () => ref.read(themeControllerProvider.notifier).cycleMode(),
+          onPressed: onServer,
+          icon: const Icon(Icons.dns_outlined),
+          label: const Text('服务器'),
+        ),
+        TextButton.icon(
+          onPressed: () =>
+              ref.read(themeControllerProvider.notifier).cycleMode(),
           icon: Icon(switch (theme.mode) {
             ThemeMode.light => Icons.light_mode_outlined,
             ThemeMode.dark => Icons.dark_mode_outlined,
@@ -582,6 +694,13 @@ class _SettingsShortcut extends ConsumerWidget {
             ThemeMode.dark => '深色',
             ThemeMode.system => '跟随系统',
           }),
+        ),
+        TextButton.icon(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const DiagnosticsPage()),
+          ),
+          icon: const Icon(Icons.monitor_heart_outlined),
+          label: const Text('连接诊断'),
         ),
       ],
     );

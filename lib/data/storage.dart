@@ -10,6 +10,7 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/constants.dart';
 
 /// A saved login. The password is stored securely and referenced by [id];
 /// it is never serialised into SharedPreferences.
@@ -93,18 +94,22 @@ class Storage {
   static const _kAutoOcr = 'auto_ocr.v1';
   static String _pwKey(String id) => 'pw::$id';
 
-  static Future<Storage> open() async => Storage(await SharedPreferences.getInstance());
+  static Future<Storage> open() async =>
+      Storage(await SharedPreferences.getInstance());
 
   // ---- Accounts ----
   List<Account> accounts() {
     final raw = _prefs.getString(_kAccounts);
     if (raw == null) return [];
     final list = jsonDecode(raw) as List;
-    return list.map((e) => Account.fromJson((e as Map).cast<String, dynamic>())).toList();
+    return list
+        .map((e) => Account.fromJson((e as Map).cast<String, dynamic>()))
+        .toList();
   }
 
   Future<void> _saveAccounts(List<Account> list) async {
-    await _prefs.setString(_kAccounts, jsonEncode(list.map((e) => e.toJson()).toList()));
+    await _prefs.setString(
+        _kAccounts, jsonEncode(list.map((e) => e.toJson()).toList()));
   }
 
   /// Set false when a secure-storage operation throws (e.g. missing keychain
@@ -191,7 +196,8 @@ class Storage {
 
   // ---- Watch list (monitor targets) ----
   String watchesJson() => _prefs.getString(_kWatches) ?? '[]';
-  Future<void> setWatchesJson(String json) async => _prefs.setString(_kWatches, json);
+  Future<void> setWatchesJson(String json) async =>
+      _prefs.setString(_kWatches, json);
 
   // ---- Preferences ----
   /// 0 system, 1 light, 2 dark.
@@ -204,16 +210,20 @@ class Storage {
   /// A build/run-time override for temporary backends. This deliberately wins
   /// over persisted settings so `flutter run --dart-define=BKSXK_API_ORIGIN=…`
   /// cannot accidentally contact production during a simulator session.
+  static const defaultOrigin = Env.defaultOrigin;
   static const _definedOrigin = String.fromEnvironment('BKSXK_API_ORIGIN');
+
+  static bool get originLockedByBuild => _definedOrigin.isNotEmpty;
 
   String origin() => _definedOrigin.isNotEmpty
       ? _definedOrigin
-      : (_prefs.getString(_kOrigin) ?? 'https://bksxk.nwafu.edu.cn');
+      : (_prefs.getString(_kOrigin) ?? defaultOrigin);
   Future<void> setOrigin(String v) async => _prefs.setString(_kOrigin, v);
 
   /// Monitor config JSON (cadence + rush mode). Null until the user customizes.
   String? monitorConfigJson() => _prefs.getString(_kMonitorConfig);
-  Future<void> setMonitorConfigJson(String v) async => _prefs.setString(_kMonitorConfig, v);
+  Future<void> setMonitorConfigJson(String v) async =>
+      _prefs.setString(_kMonitorConfig, v);
 
   /// OCR-API config JSON. Null means use the built-in on-device model.
   String? ocrApiConfigJson() => _prefs.getString(_kOcrApi);
