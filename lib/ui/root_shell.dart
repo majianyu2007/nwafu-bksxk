@@ -7,12 +7,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/monitor_providers.dart';
 import '../app/providers.dart';
+import '../data/notifications.dart';
+import 'courses_controller.dart';
 import 'courses_page.dart';
 import 'home_page.dart';
 import 'monitor_page.dart';
 import 'selected_page.dart';
 import 'settings_page.dart';
 import 'batch_pick_dialog.dart';
+
+@visibleForTesting
+int notificationDestinationIndex(String? payload) => switch (payload) {
+      'selected' => 3,
+      'monitor' => 2,
+      _ => 0,
+    };
 
 class RootShell extends ConsumerStatefulWidget {
   const RootShell({super.key});
@@ -33,6 +42,7 @@ class _RootShellState extends ConsumerState<RootShell> {
   @override
   void initState() {
     super.initState();
+    NotificationService.instance.init(onTap: _openNotificationTarget);
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOnboard());
   }
 
@@ -49,6 +59,17 @@ class _RootShellState extends ConsumerState<RootShell> {
   int _index = 0;
   bool _onboardingChecked = false;
 
+  void _openNotificationTarget(String? payload) {
+    if (!mounted) return;
+    _selectPage(notificationDestinationIndex(payload));
+  }
+
+  void _selectPage(int index) {
+    if (index == 1) ref.read(coursesProvider.notifier).load();
+    if (_index != index) setState(() => _index = index);
+  }
+
+
   @override
   Widget build(BuildContext context) {
     // Keep the notification bridge alive for the app's lifetime.
@@ -63,7 +84,7 @@ class _RootShellState extends ConsumerState<RootShell> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        onDestinationSelected: _selectPage,
         destinations: [
           const NavigationDestination(
             icon: Icon(Icons.home_outlined),

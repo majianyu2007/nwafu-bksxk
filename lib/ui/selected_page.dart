@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../data/models.dart';
+import '../data/notifications.dart';
 import 'widgets.dart';
 
 /// Loads selected courses for the active session.
@@ -343,6 +344,10 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
       showToast(context, outcome.message, success: outcome.success);
       if (outcome.success) {
         ref.read(selectionDataRevisionProvider.notifier).state++;
+        NotificationService.instance.dropped(
+          courseName: widget.tc.courseName,
+          className: widget.tc.displayTitle,
+        );
       }
     } catch (e) {
       if (!mounted) return;

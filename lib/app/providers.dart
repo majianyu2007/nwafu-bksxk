@@ -6,6 +6,7 @@ library;
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -278,9 +279,9 @@ class SessionController extends StateNotifier<SessionState> {
         activeBatch: _mgr.activeBatch,
         account: account,
       );
-      // Now that the user is in, ask for notification permission so grab/seat
-      // alerts can reach them when the app is backgrounded.
-      await NotificationService.instance.requestPermission();
+      // Native platforms can request from the signed-in flow. Browsers require
+      // a direct, explicit action, exposed in Settings.
+      if (!kIsWeb) await NotificationService.instance.requestPermission();
     } catch (e) {
       state = state.copyWith(phase: AuthPhase.loggedOut, error: _describe(e));
       rethrow;

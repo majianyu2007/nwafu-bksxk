@@ -2,12 +2,14 @@
 /// accounts, and logout.
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../app/theme.dart';
 import '../data/http_ocr_solver.dart';
+import '../data/notifications.dart';
 import 'diagnostics_page.dart';
 import 'widgets.dart';
 
@@ -135,6 +137,7 @@ class SettingsPage extends ConsumerWidget {
           title: '高级',
           children: [
             _OriginSetting(),
+            _BrowserNotificationSetting(),
             _DiagnosticsEntry(),
             ListTile(
               leading: Icon(Icons.info_outline),
@@ -428,6 +431,62 @@ class _MonitorSettings extends ConsumerWidget {
         ),
       ],
     );
+  }
+}
+
+class _BrowserNotificationSetting extends StatefulWidget {
+  const _BrowserNotificationSetting();
+
+  @override
+  State<_BrowserNotificationSetting> createState() =>
+      _BrowserNotificationSettingState();
+}
+
+class _BrowserNotificationSettingState
+    extends State<_BrowserNotificationSetting> {
+  late String _permission;
+  bool _requesting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _permission = NotificationService.instance.browserPermission;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!kIsWeb) return const SizedBox.shrink();
+    final granted = _permission == 'granted';
+    final denied = _permission == 'denied';
+    return ListTile(
+      leading: Icon(granted
+          ? Icons.notifications_active_outlined
+          : Icons.notifications_outlined),
+      title: const Text('浏览器系统通知'),
+      subtitle: Text(
+        granted
+            ? '已启用；监控到余量、抢课成功或异常停止时会发送通知。'
+            : denied
+                ? '浏览器已拒绝通知。请在站点权限中允许后刷新页面。'
+                : '在网页切到后台时，仍可收到监控结果。',
+      ),
+      trailing: granted
+          ? const Icon(Icons.check_circle_outline)
+          : FilledButton.tonal(
+              onPressed: denied || _requesting ? null : _request,
+              child: Text(_requesting ? '请求中' : '启用'),
+            ),
+    );
+  }
+
+  Future<void> _request() async {
+    setState(() => _requesting = true);
+    await NotificationService.instance.requestPermission();
+    if (!mounted) return;
+    setState(() {
+      _requesting = false;
+      _permission = NotificationService.instance.browserPermission;
+    });
   }
 }
 
