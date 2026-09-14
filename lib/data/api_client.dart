@@ -14,6 +14,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
@@ -51,12 +52,13 @@ class ApiClient {
           // The API returns JSON with assorted content-types; parse leniently.
           responseType: ResponseType.plain,
           headers: {
-            'User-Agent':
-                'Mozilla/5.0 (compatible; nwafu-xk/1.0; +local) AppleWebKit/537.36',
+            if (!kIsWeb)
+              'User-Agent':
+                  'Mozilla/5.0 (compatible; nwafu-xk/1.0; +local) AppleWebKit/537.36',
             'X-Requested-With': 'XMLHttpRequest',
           },
         ));
-    _dio.interceptors.add(CookieManager(_cookieJar));
+    if (!kIsWeb) _dio.interceptors.add(CookieManager(_cookieJar));
   }
 
   late final Dio _dio;
@@ -106,7 +108,9 @@ class ApiClient {
     bool allowRelogin = true,
   }) async {
     final q = <String, dynamic>{...?query};
-    if (addTimestamp && !q.containsKey('timestamp')) q['timestamp'] = nowStamp();
+    if (addTimestamp && !q.containsKey('timestamp')) {
+      q['timestamp'] = nowStamp();
+    }
     return _request(
       () => _dio.get(
         _url(path),
@@ -115,7 +119,11 @@ class ApiClient {
       ),
       auth: auth,
       allowRelogin: allowRelogin,
-      retry: () => getJson(path, query: query, auth: auth, addTimestamp: addTimestamp, allowRelogin: false),
+      retry: () => getJson(path,
+          query: query,
+          auth: auth,
+          addTimestamp: addTimestamp,
+          allowRelogin: false),
     );
   }
 
@@ -139,12 +147,14 @@ class ApiClient {
       ),
       auth: auth,
       allowRelogin: allowRelogin,
-      retry: () => postForm(path, form, auth: auth, query: query, allowRelogin: false),
+      retry: () =>
+          postForm(path, form, auth: auth, query: query, allowRelogin: false),
     );
   }
 
   /// Fetches raw bytes (e.g. captcha image). No envelope parsing.
-  Future<List<int>> getBytes(String path, {Map<String, dynamic>? query, bool auth = false}) async {
+  Future<List<int>> getBytes(String path,
+      {Map<String, dynamic>? query, bool auth = false}) async {
     try {
       final resp = await _dio.get<List<int>>(
         _url(path),
@@ -202,8 +212,15 @@ class ApiClient {
       if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
         try {
           final decoded = _decode(trimmed);
-          if (decoded is Map) return ApiResult.fromJson(decoded.cast<String, dynamic>());
-          return ApiResult(code: '1', msg: '', data: decoded, dataList: decoded is List ? decoded : const [], totalCount: 0);
+          if (decoded is Map) {
+            return ApiResult.fromJson(decoded.cast<String, dynamic>());
+          }
+          return ApiResult(
+              code: '1',
+              msg: '',
+              data: decoded,
+              dataList: decoded is List ? decoded : const [],
+              totalCount: 0);
         } catch (_) {
           // Fall through to non-JSON handling.
         }
@@ -219,7 +236,8 @@ class ApiClient {
         raw: const {},
       );
     }
-    return ApiResult(code: '0', msg: 'empty', data: null, dataList: const [], totalCount: 0);
+    return ApiResult(
+        code: '0', msg: 'empty', data: null, dataList: const [], totalCount: 0);
   }
 
   dynamic _decode(String s) => jsonDecode(s);
@@ -229,7 +247,11 @@ class ApiClient {
     if (resp.statusCode == 401 || resp.statusCode == 403) return true;
     // Some deployments return code with an expiry message rather than a flag.
     final m = r.msg;
-    if (!r.ok && (m.contains('登录') || m.contains('token') || m.contains('会话') || m.contains('超时'))) {
+    if (!r.ok &&
+        (m.contains('登录') ||
+            m.contains('token') ||
+            m.contains('会话') ||
+            m.contains('超时'))) {
       return true;
     }
     return false;
