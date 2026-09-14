@@ -197,12 +197,17 @@ class _ProfileCard extends StatelessWidget {
                   style: TextStyle(
                       color: scheme.onPrimaryContainer.withValues(alpha: 0.85)),
                 ),
-                if (student?.majorName.isNotEmpty == true) ...[
+                if (student?.majorName.isNotEmpty == true ||
+                    student?.schoolClassName.isNotEmpty == true) ...[
                   const SizedBox(height: 2),
                   Text(
-                    [student?.collegeName, student?.majorName]
-                        .where((e) => (e ?? '').isNotEmpty)
-                        .join(' · '),
+                    [
+                      student?.collegeName,
+                      student?.majorName,
+                      if (student?.grade.isNotEmpty == true)
+                        '${student!.grade}级',
+                      student?.schoolClassName,
+                    ].where((e) => (e ?? '').isNotEmpty).join(' · '),
                     style: TextStyle(
                       color: scheme.onPrimaryContainer.withValues(alpha: 0.75),
                       fontSize: 12,
@@ -253,10 +258,15 @@ class _BatchSelector extends ConsumerWidget {
               RadioListTile<String>(
                 value: batch.code,
                 title: Text(batch.name.isEmpty ? batch.code : batch.name),
-                subtitle: batch.beginTime.isNotEmpty
-                    ? Text('${batch.beginTime}  →  ${batch.endTime}',
-                        style: const TextStyle(fontSize: 12))
-                    : null,
+                subtitle: Text(
+                  [
+                    if (batch.beginTime.isNotEmpty)
+                      '${batch.beginTime}  →  ${batch.endTime}',
+                    if (!batch.canSelect && batch.noSelectReason.isNotEmpty)
+                      batch.noSelectReason,
+                  ].join('\n'),
+                  style: const TextStyle(fontSize: 12),
+                ),
                 secondary: StatusPill(
                   label: batch.canSelect ? '开放' : '未开放',
                   color: batch.canSelect ? Colors.green : scheme.error,
@@ -513,25 +523,29 @@ class _CreditCard extends ConsumerWidget {
             const SizedBox(height: 12),
             creditAsync.when(
               data: (info) {
-                final remaining = info.remainingCredit.toStringAsFixed(1);
+                // Same three figures, same labels, as the official 学分 chart.
                 return Column(
                   children: [
                     Row(
                       children: [
                         Expanded(
                           child: _StatTile(
-                            label: '已修学分',
+                            label: '总学分',
+                            value: info.totalCredit.toStringAsFixed(1),
+                          ),
+                        ),
+                        Expanded(
+                          child: _StatTile(
+                            label: '已获学分',
                             value: info.getCredit.toStringAsFixed(1),
                           ),
                         ),
                         Expanded(
                           child: _StatTile(
-                            label: '需修学分',
-                            value: info.needCredit.toStringAsFixed(1),
+                            label: '本轮已选',
+                            value: info.selectedCredit.toStringAsFixed(1),
                           ),
                         ),
-                        Expanded(
-                            child: _StatTile(label: '还需', value: remaining)),
                       ],
                     ),
                     if (info.noSelectReason.isNotEmpty) ...[

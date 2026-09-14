@@ -19,6 +19,7 @@ class TeachingClassTile extends StatelessWidget {
     required this.onRefresh,
     this.busy = false,
     this.bordered = true,
+    this.browseOnly = false,
   });
 
   final TeachingClass teachingClass;
@@ -31,6 +32,11 @@ class TeachingClassTile extends StatelessWidget {
   /// Draw the top separator used when tiles stack inside a course card. Off
   /// when the tile is the sole child of its own card (wide detail pane).
   final bool bordered;
+
+  /// Whole-school query rows: the official page only lets you look these up
+  /// (selection happens under the class's own category), and the rows carry
+  /// no capacity, so no grab/monitor actions are offered.
+  final bool browseOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -56,20 +62,24 @@ class TeachingClassTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(tc.displayTitle, style: const TextStyle(fontWeight: FontWeight.w700)),
+                    Text(tc.displayTitle,
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
                     if (tc.teachingPlace.isNotEmpty) ...[
                       const SizedBox(height: 2),
                       Text(tc.teachingPlace,
-                          style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+                          style: TextStyle(
+                              color: scheme.onSurfaceVariant, fontSize: 12)),
                     ],
                   ],
                 ),
               ),
               if (tc.isChoose)
-                const StatusPill(label: '已选', color: Colors.green, icon: Icons.check),
+                const StatusPill(
+                    label: '已选', color: Colors.green, icon: Icons.check),
               IconButton(
                 visualDensity: VisualDensity.compact,
-                icon: Icon(Icons.info_outline, size: 20, color: scheme.onSurfaceVariant),
+                icon: Icon(Icons.info_outline,
+                    size: 20, color: scheme.onSurfaceVariant),
                 tooltip: '教学班详情',
                 onPressed: () => showTeachingClassDetail(context, tc),
               ),
@@ -80,28 +90,62 @@ class TeachingClassTile extends StatelessWidget {
             spacing: 6,
             runSpacing: 6,
             children: [
-              if (tc.hasTest) const StatusPill(label: '含实验课', color: Colors.indigo, icon: Icons.science_outlined),
-              if (tc.hasBook) const StatusPill(label: '需教材', color: Colors.brown, icon: Icons.menu_book_outlined),
-              if (tc.isConflict) StatusPill(label: '冲突', color: Theme.of(context).colorScheme.error, icon: Icons.warning_amber),
+              if (tc.hasTest)
+                const StatusPill(
+                    label: '含实验课',
+                    color: Colors.indigo,
+                    icon: Icons.science_outlined),
+              if (tc.hasBook)
+                const StatusPill(
+                    label: '需教材',
+                    color: Colors.brown,
+                    icon: Icons.menu_book_outlined),
+              if (tc.isConflict)
+                StatusPill(
+                    label: '冲突',
+                    color: Theme.of(context).colorScheme.error,
+                    icon: Icons.warning_amber),
             ],
           ),
           if (tc.isConflict && tc.conflictDesc.isNotEmpty) ...[
             const SizedBox(height: 4),
-            Text(tc.conflictDesc, style: TextStyle(color: scheme.error, fontSize: 12)),
+            Text(tc.conflictDesc,
+                style: TextStyle(color: scheme.error, fontSize: 12)),
           ],
           const SizedBox(height: 10),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
-                child: CapacityBar(selected: tc.numberOfSelected, capacity: tc.classCapacity),
+                child: CapacityBar(
+                  selected: tc.numberOfSelected,
+                  capacity: tc.classCapacity,
+                  known: tc.hasCapacityInfo,
+                ),
               ),
-              const SizedBox(width: 12),
-              _RefreshButton(onRefresh: onRefresh),
+              if (!browseOnly) ...[
+                const SizedBox(width: 12),
+                _RefreshButton(onRefresh: onRefresh),
+              ],
             ],
           ),
           const SizedBox(height: 10),
-          if (tc.isChoose)
+          if (browseOnly)
+            Row(
+              children: [
+                Icon(Icons.info_outline,
+                    size: 16, color: scheme.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '全校课程仅供查询，请在对应课程类别中选课',
+                    style:
+                        TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                  ),
+                ),
+              ],
+            )
+          else if (tc.isChoose)
             SizedBox(
               width: double.infinity,
               child: FilledButton.tonalIcon(
@@ -132,7 +176,8 @@ class TeachingClassTile extends StatelessWidget {
                               ? const SizedBox(
                                   height: 16,
                                   width: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2))
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2))
                               : const Icon(Icons.warning_amber, size: 18),
                           label: Text(busy ? '提交中' : '有冲突，仍要选'),
                         )
@@ -142,7 +187,8 @@ class TeachingClassTile extends StatelessWidget {
                               ? const SizedBox(
                                   height: 16,
                                   width: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2))
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2))
                               : const Icon(Icons.bolt, size: 18),
                           label: Text(busy ? '提交中' : '立即选课'),
                         ),
@@ -165,7 +211,10 @@ class TeachingClassTile extends StatelessWidget {
                   child: FilledButton.icon(
                     onPressed: busy ? null : onMonitor,
                     icon: busy
-                        ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
                         : const Icon(Icons.radar, size: 18),
                     label: Text(busy ? '处理中' : '满员，监控空位'),
                   ),
@@ -203,7 +252,10 @@ class _RefreshButtonState extends State<_RefreshButton> {
               }
             },
       icon: _busy
-          ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+          ? const SizedBox(
+              height: 16,
+              width: 16,
+              child: CircularProgressIndicator(strokeWidth: 2))
           : const Icon(Icons.refresh, size: 18),
       tooltip: '刷新余量',
     );

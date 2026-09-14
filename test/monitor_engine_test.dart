@@ -24,7 +24,8 @@ class FakeCourseService implements CourseService {
   final AppError? throwOnPoll;
 
   @override
-  Future<TeachingClass> refreshCapacity(TeachingClass tc, String studentCode) async {
+  Future<TeachingClass> refreshCapacity(
+      TeachingClass tc, String studentCode) async {
     if (throwOnPoll != null) throw throwOnPoll!;
     final id = tc.teachingClassId;
     final seq = _script[id] ?? const [0];
@@ -32,7 +33,10 @@ class FakeCourseService implements CourseService {
     _calls[id] = (i + 1);
     final remaining = seq[i];
     // Represent remaining via capacity - selected.
-    return tc.withCapacity(classCapacity: 10, numberOfSelected: 10 - remaining, isFull: remaining <= 0);
+    return tc.withCapacity(
+        classCapacity: 10,
+        numberOfSelected: 10 - remaining,
+        isFull: remaining <= 0);
   }
 
   @override
@@ -41,7 +45,12 @@ class FakeCourseService implements CourseService {
 
 /// An EnrollService double that records submissions and returns a scripted result.
 class FakeEnrollService implements EnrollService {
-  FakeEnrollService({this.succeed = true, this.outcomeCode, this.outcomeMsg, this.confirmOk = true, this.submitDelay = Duration.zero});
+  FakeEnrollService(
+      {this.succeed = true,
+      this.outcomeCode,
+      this.outcomeMsg,
+      this.confirmOk = true,
+      this.submitDelay = Duration.zero});
   final bool succeed;
   final String? outcomeCode;
   final String? outcomeMsg;
@@ -63,9 +72,16 @@ class FakeEnrollService implements EnrollService {
   }
 
   @override
-  Future<ApiResult> confirmStatus(String studentCode, {int attempts = 6, Duration interval = const Duration(milliseconds: 400)}) async {
+  Future<ApiResult> confirmStatus(String studentCode,
+      {int attempts = 6,
+      Duration interval = const Duration(milliseconds: 400)}) async {
     confirmCalls++;
-    return ApiResult(code: confirmOk ? '1' : '0', msg: confirmOk ? 'done' : '未成功', data: null, dataList: const [], totalCount: 0);
+    return ApiResult(
+        code: confirmOk ? '1' : '0',
+        msg: confirmOk ? 'done' : '未成功',
+        data: null,
+        dataList: const [],
+        totalCount: 0);
   }
 
   @override
@@ -95,7 +111,9 @@ Watch watchFor(TeachingClass tc) => Watch(
 void main() {
   test('grabs once when a seat opens, then stops', () async {
     // Seat closed, closed, then opens.
-    final course = FakeCourseService({'TC1': [0, 0, 1, 1]});
+    final course = FakeCourseService({
+      'TC1': [0, 0, 1, 1]
+    });
     final enroll = FakeEnrollService(succeed: true);
     final engine = MonitorEngine(
       courseService: course,
@@ -123,7 +141,8 @@ void main() {
     engine.dispose();
   });
 
-  test('watch needing a test class is flagged needsSetup, never grabs', () async {
+  test('watch needing a test class is flagged needsSetup, never grabs',
+      () async {
     final tc = TeachingClass.fromJson({
       'teachingClassID': 'TCX',
       'courseName': 'Lab',
@@ -134,12 +153,15 @@ void main() {
       'testTeachingClassID': '',
       'hasBook': '0',
     });
-    final course = FakeCourseService({'TCX': [5, 5, 5]});
+    final course = FakeCourseService({
+      'TCX': [5, 5, 5]
+    });
     final enroll = FakeEnrollService(succeed: true);
     final engine = MonitorEngine(
       courseService: course,
       enrollService: enroll,
-      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+      config: const MonitorConfig(
+          basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
     );
 
     engine.addWatch(watchFor(tc));
@@ -148,7 +170,8 @@ void main() {
     engine.stop();
 
     expect(engine.watches.first.status, WatchStatus.needsSetup);
-    expect(enroll.submitted, isEmpty, reason: 'must not grab without test class');
+    expect(enroll.submitted, isEmpty,
+        reason: 'must not grab without test class');
     engine.dispose();
   });
 
@@ -163,12 +186,15 @@ void main() {
       'testTeachingClassID': '',
       'hasBook': '0',
     });
-    final course = FakeCourseService({'TCY': [1, 1, 1, 1]});
+    final course = FakeCourseService({
+      'TCY': [1, 1, 1, 1]
+    });
     final enroll = FakeEnrollService(succeed: true);
     final engine = MonitorEngine(
       courseService: course,
       enrollService: enroll,
-      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+      config: const MonitorConfig(
+          basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
     );
 
     final w = watchFor(tc);
@@ -189,32 +215,79 @@ void main() {
     engine.dispose();
   });
 
-  test('maintenance/throttle response hard-stops the whole engine', () async {
-    // Seat is open, but the submit comes back with a throttle message.
-    final course = FakeCourseService({'TCM': [3, 3, 3, 3]});
-    final enroll = FakeEnrollService(succeed: false, outcomeCode: '0', outcomeMsg: '系统繁忙，请稍后再试');
+  test(
+      'a lost session pauses the whole engine but keeps the watch for a re-login',
+      () async {
+    final tc = plainTc('TC-S');
+    final course = FakeCourseService(
+      {
+        'TC-S': [0]
+      },
+      throwOnPoll:
+          AppError(AppErrorKind.sessionExpired, message: '会话已过期，且自动重新登录失败'),
+    );
+    final enroll = FakeEnrollService();
     final engine = MonitorEngine(
       courseService: course,
       enrollService: enroll,
-      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+      config: const MonitorConfig(
+          basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+    );
+
+    engine.addWatch(watchFor(tc));
+    engine.start();
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+
+    expect(engine.isRunning, isFalse,
+        reason: 'polling a dead session is pointless');
+    expect(engine.haltedForSession, isTrue);
+    expect(engine.stopReason, contains('登录已失效'));
+    expect(engine.watches.first.status, WatchStatus.watching,
+        reason: 'the watch itself did nothing wrong');
+    expect(enroll.submitted, isEmpty);
+
+    // A re-login restarts the engine and clears the session flag.
+    engine.start();
+    expect(engine.isRunning, isTrue);
+    expect(engine.haltedForSession, isFalse);
+    engine.stop();
+    engine.dispose();
+  });
+
+  test('maintenance/throttle response hard-stops the whole engine', () async {
+    // Seat is open, but the submit comes back with a throttle message.
+    final course = FakeCourseService({
+      'TCM': [3, 3, 3, 3]
+    });
+    final enroll = FakeEnrollService(
+        succeed: false, outcomeCode: '0', outcomeMsg: '系统繁忙，请稍后再试');
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(
+          basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
     );
     engine.addWatch(watchFor(plainTc('TCM')));
     engine.start();
 
-    final halted = await _waitFor(() => !engine.isRunning, timeout: const Duration(seconds: 2));
+    final halted = await _waitFor(() => !engine.isRunning,
+        timeout: const Duration(seconds: 2));
     expect(halted, isTrue, reason: 'engine must stop itself on throttle');
     expect(engine.stopReason, isNotNull);
     // It must not keep submitting after being told the system is busy.
     final submitsAtHalt = enroll.submitted.length;
     await Future<void>.delayed(const Duration(milliseconds: 40));
-    expect(enroll.submitted.length, submitsAtHalt, reason: 'no submits after hard-stop');
+    expect(enroll.submitted.length, submitsAtHalt,
+        reason: 'no submits after hard-stop');
     engine.dispose();
   });
 
-  test('rush mode treats throttle as transient: keeps running and retries', () async {
+  test('rush mode treats throttle as transient: keeps running and retries',
+      () async {
     // Same throttle response, but rush mode is on — the opening-stampede case.
     final course = FakeCourseService({'TCR': List.filled(30, 3)});
-    final enroll = FakeEnrollService(succeed: false, outcomeCode: '0', outcomeMsg: '系统繁忙，请稍后再试');
+    final enroll = FakeEnrollService(
+        succeed: false, outcomeCode: '0', outcomeMsg: '系统繁忙，请稍后再试');
     final engine = MonitorEngine(
       courseService: course,
       enrollService: enroll,
@@ -231,10 +304,13 @@ void main() {
     engine.start();
 
     // Give it time to attempt several times.
-    await _waitFor(() => enroll.submitted.length >= 2, timeout: const Duration(seconds: 2));
+    await _waitFor(() => enroll.submitted.length >= 2,
+        timeout: const Duration(seconds: 2));
     // The engine must NOT have halted, and must have retried the submit.
-    expect(engine.isRunning, isTrue, reason: 'rush mode must not hard-stop on throttle');
-    expect(enroll.submitted.length, greaterThanOrEqualTo(2), reason: 'rush mode retries the grab');
+    expect(engine.isRunning, isTrue,
+        reason: 'rush mode must not hard-stop on throttle');
+    expect(enroll.submitted.length, greaterThanOrEqualTo(2),
+        reason: 'rush mode retries the grab');
     expect(engine.watches.first.status, isNot(WatchStatus.failed));
     engine.stop();
     engine.dispose();
@@ -242,12 +318,15 @@ void main() {
 
   test('success is only declared when the server confirms it', () async {
     // Submit "succeeds" but confirmStatus says it did not stick.
-    final course = FakeCourseService({'TCC': [2, 2, 2, 2]});
+    final course = FakeCourseService({
+      'TCC': [2, 2, 2, 2]
+    });
     final enroll = FakeEnrollService(succeed: true, confirmOk: false);
     final engine = MonitorEngine(
       courseService: course,
       enrollService: enroll,
-      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+      config: const MonitorConfig(
+          basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
     );
     engine.addWatch(watchFor(plainTc('TCC')));
     engine.start();
@@ -256,7 +335,8 @@ void main() {
 
     // It must NOT be marked grabbed on an unconfirmed submit.
     expect(engine.watches.first.status, isNot(WatchStatus.grabbed));
-    expect(enroll.confirmCalls, greaterThan(0), reason: 'confirmStatus must be consulted');
+    expect(enroll.confirmCalls, greaterThan(0),
+        reason: 'confirmStatus must be consulted');
     engine.dispose();
   });
 
@@ -264,17 +344,21 @@ void main() {
     // Seat stays open and submit is slow; the fast poll interval would fire a
     // second grab if the in-flight guard were missing.
     final course = FakeCourseService({'TCD': List.filled(20, 5)});
-    final enroll = FakeEnrollService(succeed: true, submitDelay: const Duration(milliseconds: 60));
+    final enroll = FakeEnrollService(
+        succeed: true, submitDelay: const Duration(milliseconds: 60));
     final engine = MonitorEngine(
       courseService: course,
       enrollService: enroll,
-      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 3), jitter: Duration.zero),
+      config: const MonitorConfig(
+          basePollInterval: Duration(milliseconds: 3), jitter: Duration.zero),
     );
     engine.addWatch(watchFor(plainTc('TCD')));
     engine.start();
-    await _waitFor(() => engine.watches.first.status == WatchStatus.grabbed, timeout: const Duration(seconds: 2));
+    await _waitFor(() => engine.watches.first.status == WatchStatus.grabbed,
+        timeout: const Duration(seconds: 2));
     engine.stop();
-    expect(enroll.submitted.length, 1, reason: 'in-flight guard prevents double submit');
+    expect(enroll.submitted.length, 1,
+        reason: 'in-flight guard prevents double submit');
     engine.dispose();
   });
 
@@ -286,7 +370,8 @@ void main() {
     final engine = MonitorEngine(
       courseService: course,
       enrollService: enroll,
-      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+      config: const MonitorConfig(
+          basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
     );
     engine.addWatch(watchFor(plainTc('TCG')));
     engine.closeGate();
@@ -294,7 +379,8 @@ void main() {
 
     // Let it poll several times; it must NOT have grabbed while gated.
     await Future<void>.delayed(const Duration(milliseconds: 60));
-    expect(enroll.submitted, isEmpty, reason: 'closed gate must hold submission');
+    expect(enroll.submitted, isEmpty,
+        reason: 'closed gate must hold submission');
     expect(engine.watches.first.status, isNot(WatchStatus.grabbed));
 
     // Open the gate — it should grab on the next (immediate) tick.

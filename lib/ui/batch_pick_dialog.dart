@@ -1,6 +1,6 @@
 /// Post-login batch picker: mirrors the official site's flow of consciously
 /// choosing a selection round before entering the grabbing UI, and surfaces the
-/// student's 已修/还需 credits so they can plan.
+/// student's 总/已获/已选 credits so they can plan.
 library;
 
 import 'dart:math' as math;
@@ -151,9 +151,13 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
                             b.name.isEmpty ? b.code : b.name,
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
-                          subtitle: b.beginTime.isNotEmpty
-                              ? Text('${b.beginTime}  →  ${b.endTime}', style: const TextStyle(fontSize: 11))
-                              : null,
+                          subtitle: Text(
+                            [
+                              if (b.beginTime.isNotEmpty) '${b.beginTime}  →  ${b.endTime}',
+                              if (!b.canSelect && b.noSelectReason.isNotEmpty) b.noSelectReason,
+                            ].join('\n'),
+                            style: const TextStyle(fontSize: 11),
+                          ),
                           secondary: StatusPill(
                             label: b.canSelect ? '开放' : '未开放',
                             color: b.canSelect ? Colors.green : scheme.error,
@@ -228,11 +232,11 @@ class _CreditSummary extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: _Stat('已修', _creditText(c.getCredit))),
+              Expanded(child: _Stat('总学分', _creditText(c.totalCredit))),
               _CreditDivider(color: scheme.outlineVariant),
-              Expanded(child: _Stat('需修', _creditText(c.needCredit))),
+              Expanded(child: _Stat('已获', _creditText(c.getCredit))),
               _CreditDivider(color: scheme.outlineVariant),
-              Expanded(child: _Stat('还需', _creditText(c.remainingCredit), highlight: true)),
+              Expanded(child: _Stat('本轮已选', _creditText(c.selectedCredit), highlight: true)),
             ],
           ),
           if (c.noSelectReason.isNotEmpty) ...[

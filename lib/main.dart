@@ -55,7 +55,12 @@ class NwafuXkApp extends ConsumerWidget {
             seed: theme.seed,
             dynamicScheme: darkDynamic?.harmonized(),
           ),
-          home: phase == AuthPhase.loggedIn ? const RootShell() : const LoginPage(),
+          // An expired session keeps the shell (and the user's place in it);
+          // the shell overlays the re-login dialog.
+          home: switch (phase) {
+            AuthPhase.loggedIn || AuthPhase.expired => const RootShell(),
+            AuthPhase.loggedOut || AuthPhase.loggingIn => const LoginPage(),
+          },
         );
       },
     );

@@ -141,6 +141,7 @@ class SettingsPage extends ConsumerWidget {
             title: Text(session.student?.name ?? '未登录'),
             subtitle: Text(session.student?.studentCode ?? ''),
           ),
+          const _SilentReloginSetting(),
           for (final a in accounts)
             ListTile(
               leading: const Icon(Icons.account_circle_outlined),
@@ -181,6 +182,49 @@ class SettingsPage extends ConsumerWidget {
         ],
       ),
     ];
+  }
+}
+
+/// How hard the app tries to recover a dropped session on its own before
+/// asking the user (each attempt = one captcha fetch + OCR + login).
+class _SilentReloginSetting extends ConsumerWidget {
+  const _SilentReloginSetting();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final attempts = ref.watch(silentReloginAttemptsProvider);
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          leading: const Icon(Icons.autorenew),
+          title: const Text('掉线后自动重新登录'),
+          subtitle: Text(attempts == 0
+              ? '关闭：登录一失效就弹窗让你手动登录'
+              : '先用验证码自动识别在后台重登，最多 $attempts 次；仍失败再弹窗让你手动登录'),
+          trailing: Text('$attempts 次',
+              style: TextStyle(
+                  color: scheme.primary, fontWeight: FontWeight.w700)),
+        ),
+        Slider(
+          value: attempts.toDouble(),
+          min: 0,
+          max: 6,
+          divisions: 6,
+          label: '$attempts',
+          onChanged: (v) =>
+              ref.read(silentReloginAttemptsProvider.notifier).set(v.round()),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Text(
+            '每次尝试都会向学校服务器要一张新验证码；请求过于频繁会被学校网关暂时拦截，建议保持 3 次左右。',
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+        ),
+      ],
+    );
   }
 }
 

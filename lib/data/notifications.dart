@@ -181,6 +181,14 @@ class NotificationService {
         tag: 'dropped',
       );
 
+  /// The session dropped and silent re-login failed; the user must log in.
+  Future<void> sessionExpired() => _show(
+        '登录已失效',
+        '自动重新登录未成功，请回到应用重新登录（监控已暂停）',
+        payload: 'home',
+        tag: 'session-expired',
+      );
+
   /// Monitoring auto-stopped (maintenance/throttle/abnormal).
   Future<void> monitorStopped(String reason) => _show(
         '监控已自动停止',

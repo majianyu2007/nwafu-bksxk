@@ -52,8 +52,9 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
   static String _keyOf(CourseRow row) {
     // QXKC wraps every teaching class as its own row, so the course number
     // alone is not unique there.
-    final first =
-        row.teachingClasses.isEmpty ? '' : row.teachingClasses.first.teachingClassId;
+    final first = row.teachingClasses.isEmpty
+        ? ''
+        : row.teachingClasses.first.teachingClassId;
     return '${row.courseNumber}:$first';
   }
 
@@ -61,6 +62,13 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
   Widget build(BuildContext context) {
     final state = ref.watch(coursesProvider);
     final ctrl = ref.read(coursesProvider.notifier);
+    final batch = ref.watch(sessionProvider.select((s) => s.activeBatch));
+    // Each round says which categories it exposes (display* flags); offer
+    // only those, as the official tab bar does.
+    final kinds = [
+      for (final k in CourseKind.values)
+        if (batch == null || batch.showsKind(k)) k,
+    ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -69,6 +77,7 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
           children: [
             _Header(
               kind: state.kind,
+              kinds: kinds,
               onKind: ctrl.setKind,
               searchCtrl: _searchCtrl,
               onSearch: (q) {
@@ -200,6 +209,7 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
 class _Header extends StatelessWidget {
   const _Header({
     required this.kind,
+    required this.kinds,
     required this.onKind,
     required this.searchCtrl,
     required this.onSearch,
@@ -208,6 +218,7 @@ class _Header extends StatelessWidget {
   });
 
   final CourseKind kind;
+  final List<CourseKind> kinds;
   final ValueChanged<CourseKind> onKind;
   final TextEditingController searchCtrl;
   final ValueChanged<String> onSearch;
@@ -236,7 +247,7 @@ class _Header extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.symmetric(horizontal: wide ? 0 : 12),
         children: [
-          for (final k in CourseKind.values)
+          for (final k in kinds)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: ChoiceChip(
@@ -377,7 +388,11 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     } else if (tc.hasTest) {
       testId = tc.testTeachingClassId;
     }
-    if (tc.hasBook) {
+    // The official page only asks about textbooks when the round has
+    // ordering open (batch canSelectBook); otherwise needBook is not sent.
+    final orderingOpen =
+        ref.read(sessionProvider).activeBatch?.canSelectBook ?? true;
+    if (tc.hasBook && orderingOpen) {
       final sel = await _promptTextbookSelection(tc);
       if (sel == null) return null;
       book = sel.jcxx;
@@ -424,12 +439,22 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     );
 
     try {
-      final options =
-          await ref.read(courseServiceProvider).fetchTextbookOptions(
-                studentCode: student.studentCode,
-                batchCode: batch.code,
-                teachingClassId: tc.teachingClassId,
-              );
+      final course = ref.read(courseServiceProvider);
+      final info = ref.read(infoServiceProvider);
+      final results = await Future.wait([
+        course.fetchTextbookOptions(
+          studentCode: student.studentCode,
+          batchCode: batch.code,
+          teachingClassId: tc.teachingClassId,
+        ),
+        // Decline reasons live in the dictionary, not on the rows.
+        info.fetchTextbookReasons(),
+      ]);
+      final reasons = results[1] as List<TextbookReason>;
+      final options = [
+        for (final o in results[0] as List<TextbookOption>)
+          o.copyWith(reasonCodes: reasons),
+      ];
       if (!mounted) return null;
       Navigator.of(context).pop();
       if (options.isEmpty) {
@@ -498,7 +523,9 @@ class _CourseListTile extends StatelessWidget {
                         if (row.selected) ...[
                           const SizedBox(width: 8),
                           const StatusPill(
-                              label: '已选', color: Colors.green, icon: Icons.check),
+                              label: '已选',
+                              color: Colors.green,
+                              icon: Icons.check),
                         ],
                       ],
                     ),
@@ -520,7 +547,8 @@ class _CourseListTile extends StatelessWidget {
               ),
               Icon(Icons.chevron_right,
                   size: 18,
-                  color: selected ? scheme.onSecondaryContainer : scheme.outline),
+                  color:
+                      selected ? scheme.onSecondaryContainer : scheme.outline),
             ],
           ),
         ),
@@ -601,6 +629,7 @@ class _CourseDetailPaneState extends ConsumerState<_CourseDetailPane>
                     teachingClass: tc,
                     kind: widget.kind,
                     bordered: false,
+                    browseOnly: widget.kind == CourseKind.qxkc,
                     onGrab: () => _grab(tc),
                     onMonitor: () => _monitor(tc),
                     onRefresh: () =>
@@ -695,6 +724,7 @@ class _CourseCardState extends ConsumerState<_CourseCard>
               TeachingClassTile(
                 teachingClass: tc,
                 kind: widget.kind,
+                browseOnly: widget.kind == CourseKind.qxkc,
                 onGrab: () => _grab(tc),
                 onMonitor: () => _monitor(tc),
                 onRefresh: () => ref.read(coursesProvider.notifier).refresh(tc),

@@ -92,6 +92,7 @@ class Storage {
   static const _kMonitorConfig = 'monitor_config.v1';
   static const _kOcrApi = 'ocr_api.v1';
   static const _kAutoOcr = 'auto_ocr.v1';
+  static const _kSilentRelogin = 'silent_relogin_attempts.v1';
   static String _pwKey(String id) => 'pw::$id';
 
   static Future<Storage> open() async =>
@@ -234,6 +235,14 @@ class Storage {
       await _prefs.setString(_kOcrApi, v);
     }
   }
+
+  /// How many captcha-solving attempts the silent re-login makes when the
+  /// session drops before giving up and asking the user. 0 = always ask.
+  static const defaultSilentReloginAttempts = 3;
+  int silentReloginAttempts() =>
+      _prefs.getInt(_kSilentRelogin) ?? defaultSilentReloginAttempts;
+  Future<void> setSilentReloginAttempts(int v) async =>
+      _prefs.setInt(_kSilentRelogin, v);
 
   /// Whether captcha auto-recognition is on. Defaults to true (the OCR solver
   /// is bundled; the user can opt out on the login screen).

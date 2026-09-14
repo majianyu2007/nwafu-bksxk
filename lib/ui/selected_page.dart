@@ -160,7 +160,10 @@ class SelectedPage extends ConsumerWidget {
             maxColumns: 3,
             spacing: 8,
             runSpacing: 8,
-            children: [for (final entry in list) _ScheduleCard(entry: entry)],
+            children: [
+              for (final group in _groupSchedule(list))
+                _ScheduleCard(group: group),
+            ],
           ));
           items.add(const SizedBox(height: 8));
         }
@@ -319,6 +322,17 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tc = widget.tc;
+    final batch = ref.watch(sessionProvider.select((s) => s.activeBatch));
+    // The server marks selections from other rounds canDelete="0", and a
+    // 选后不可退 round (tacticCode 02) disables dropping altogether. Show the
+    // state instead of letting the request bounce.
+    final roundAllows = batch?.allowsDrop ?? true;
+    final canDrop = tc.canDelete && roundAllows;
+    final dropHint = !roundAllows
+        ? '本轮次选后不可退'
+        : !tc.canDelete
+            ? '非本轮次所选，本轮不可退'
+            : null;
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -342,16 +356,20 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
                 const StatusPill(
                     label: '已选', color: Colors.green, icon: Icons.check),
                 const Spacer(),
-                OutlinedButton.icon(
-                  onPressed: _dropping ? null : _confirmDrop,
-                  icon: _dropping
-                      ? const SizedBox(
-                          height: 16,
-                          width: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : Icon(Icons.remove_circle_outline,
-                          size: 18, color: scheme.error),
-                  label: Text('退选', style: TextStyle(color: scheme.error)),
+                Tooltip(
+                  message: dropHint ?? '',
+                  child: OutlinedButton.icon(
+                    onPressed: _dropping || !canDrop ? null : _confirmDrop,
+                    icon: _dropping
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : Icon(Icons.remove_circle_outline,
+                            size: 18, color: canDrop ? scheme.error : null),
+                    label: Text(canDrop ? '退选' : '本轮不可退',
+                        style: TextStyle(color: canDrop ? scheme.error : null)),
+                  ),
                 ),
               ],
             ),
@@ -410,14 +428,50 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
 // Schedule entry card
 // ---------------------------------------------------------------------------
 
+/// teachingTime.do returns one row per (class, weekday, week pattern), so a
+/// two-slot course arrives as several near-identical rows. Group them by
+/// teaching class and show each slot on its own line, like a timetable.
+class _ScheduleGroup {
+  _ScheduleGroup(this.first);
+  final ScheduleEntry first;
+  final List<ScheduleEntry> slots = [];
+}
+
+List<_ScheduleGroup> _groupSchedule(List<ScheduleEntry> entries) {
+  final groups = <String, _ScheduleGroup>{};
+  for (final e in entries) {
+    final key = e.teachingClassId.isNotEmpty
+        ? e.teachingClassId
+        : '${e.courseNumber}:${e.courseIndex}';
+    final g = groups.putIfAbsent(key, () => _ScheduleGroup(e));
+    if (e.hasSlot) g.slots.add(e);
+  }
+  for (final g in groups.values) {
+    g.slots.sort((a, b) {
+      final d = a.dayOfWeek.compareTo(b.dayOfWeek);
+      if (d != 0) return d;
+      final sec = a.beginSection.compareTo(b.beginSection);
+      if (sec != 0) return sec;
+      return a.weeks.isEmpty || b.weeks.isEmpty
+          ? 0
+          : a.weeks.first.compareTo(b.weeks.first);
+    });
+  }
+  return groups.values.toList();
+}
+
 class _ScheduleCard extends StatelessWidget {
-  const _ScheduleCard({required this.entry});
-  final ScheduleEntry entry;
+  const _ScheduleCard({required this.group});
+  final _ScheduleGroup group;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final e = entry;
+    final e = group.first;
+    final meta = [
+      if (e.courseIndex.isNotEmpty) '[${e.courseIndex}]',
+      if (e.teacherName.isNotEmpty) e.teacherName,
+    ].join(' ');
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -425,21 +479,49 @@ class _ScheduleCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Title row
             Text(e.courseName,
                 style:
                     const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-            const SizedBox(height: 6),
-            // Meta row 1
-            _meta(e.courseIndex, scheme),
-            const SizedBox(height: 4),
-            // Meta row 2
-            _meta(e.teacherName, scheme),
-            // Teaching place (may be empty for unarranged)
-            if (e.teachingPlace.isNotEmpty && e.teacherName.isNotEmpty)
+            if (meta.isNotEmpty) ...[
               const SizedBox(height: 4),
-            if (e.teachingPlace.isNotEmpty) _meta(e.teachingPlace, scheme),
-            // Credit / hours
+              Text(meta,
+                  style:
+                      TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
+            ],
+            const SizedBox(height: 8),
+            if (group.slots.isEmpty)
+              Row(
+                children: [
+                  Icon(Icons.schedule, size: 15, color: scheme.error),
+                  const SizedBox(width: 6),
+                  Text(e.isUnarranged ? '未排课' : '时间待定',
+                      style: TextStyle(fontSize: 12, color: scheme.error)),
+                ],
+              )
+            else
+              for (final slot in group.slots)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.schedule,
+                          size: 15, color: scheme.onSurfaceVariant),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          [
+                            slot.slotLabel,
+                            if (slot.weekName.isNotEmpty) slot.weekName,
+                            if (slot.teachingPlace.isNotEmpty)
+                              slot.teachingPlace,
+                          ].join(' · '),
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             if (e.credit.isNotEmpty || e.hours.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
@@ -473,14 +555,9 @@ class _ScheduleCard extends StatelessWidget {
                                 fontSize: 11,
                                 color: scheme.onSecondaryContainer)),
                       ),
-                    const Spacer(),
-                    if (e.isUnarranged)
-                      Text('未排课',
-                          style: TextStyle(fontSize: 11, color: scheme.error)),
                   ],
                 ),
               ),
-            // Exam time when present
             if (e.examTime.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
@@ -492,11 +569,6 @@ class _ScheduleCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  Widget _meta(String text, ColorScheme scheme) {
-    return Text(text,
-        style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant));
   }
 }
 

@@ -91,6 +91,22 @@ final infoServiceProvider =
 /// refetch instead of leaving stale state until a manual refresh.
 final selectionDataRevisionProvider = StateProvider<int>((ref) => 0);
 
+/// How many captcha attempts a silent re-login may spend (Settings).
+class SilentReloginController extends StateNotifier<int> {
+  SilentReloginController(this._storage)
+      : super(_storage.silentReloginAttempts());
+  final Storage _storage;
+
+  Future<void> set(int attempts) async {
+    state = attempts;
+    await _storage.setSilentReloginAttempts(attempts);
+  }
+}
+
+final silentReloginAttemptsProvider =
+    StateNotifierProvider<SilentReloginController, int>(
+        (ref) => SilentReloginController(ref.watch(storageProvider)));
+
 final sessionManagerProvider = Provider<SessionManager>((ref) {
   final mgr = SessionManager(
     client: ref.watch(apiClientProvider),
@@ -101,6 +117,15 @@ final sessionManagerProvider = Provider<SessionManager>((ref) {
   // Keep the manager's solver in sync when the user configures OCR.
   ref.listen<CaptchaSolver>(
       captchaSolverProvider, (_, next) => mgr.solver = next);
+  mgr.maxSilentReloginAttempts = ref.read(silentReloginAttemptsProvider);
+  ref.listen<int>(silentReloginAttemptsProvider,
+      (_, next) => mgr.maxSilentReloginAttempts = next);
+  // A dropped session that silent re-login could not recover is surfaced by
+  // the session controller (dialog + notification, monitor paused).
+  mgr.onSilentReloginFailed =
+      () => ref.read(sessionProvider.notifier).markSessionExpired();
+  mgr.onSilentReloginSucceeded = (token) =>
+      ref.read(sessionProvider.notifier).onSilentReloginSucceeded(token);
   return mgr;
 });
 
@@ -204,7 +229,15 @@ final themeControllerProvider =
 // ---------------------------------------------------------------------------
 
 /// High-level auth state for the UI.
-enum AuthPhase { loggedOut, loggingIn, loggedIn }
+enum AuthPhase {
+  loggedOut,
+  loggingIn,
+  loggedIn,
+
+  /// The server dropped the session and silent re-login failed. The shell
+  /// stays mounted and asks the user to log in again in a dialog.
+  expired,
+}
 
 class SessionState {
   SessionState({
@@ -250,8 +283,85 @@ class SessionController extends StateNotifier<SessionState> {
   SessionManager get _mgr => _ref.read(sessionManagerProvider);
   Storage get _storage => _ref.read(storageProvider);
 
+  /// Whether the monitor was running when the session dropped, so a
+  /// successful re-login can start it again.
+  bool _resumeMonitorAfterRelogin = false;
+
   /// Fetches a fresh captcha challenge for the login screen.
   Future<CaptchaChallenge> fetchCaptcha() => _mgr.auth.fetchCaptcha();
+
+  /// Called when the API client detected an expired session and the silent
+  /// re-login budget is spent. Pauses the monitor (without failing watches),
+  /// notifies, and flips the phase so the shell shows the re-login dialog.
+  void markSessionExpired() {
+    if (state.phase != AuthPhase.loggedIn) return;
+    final engine = _ref.read(monitorEngineProvider);
+    _resumeMonitorAfterRelogin = engine.isRunning || engine.haltedForSession;
+    engine.haltForSession();
+    state = state.copyWith(
+      phase: AuthPhase.expired,
+      error: '登录已失效，自动重新登录未成功',
+    );
+    NotificationService.instance.sessionExpired();
+  }
+
+  /// A silent re-login recovered the session: remember the new token so a
+  /// warm start next launch uses it.
+  Future<void> onSilentReloginSucceeded(String token) async {
+    final account = state.account;
+    if (account == null) return;
+    final updated = account.copyWith(lastToken: token);
+    state = state.copyWith(account: updated);
+    await _storage.upsertAccount(updated);
+  }
+
+  /// Interactive re-login from the expired-session dialog. Keeps the shell
+  /// (phase stays [AuthPhase.expired] until success), keeps the active round
+  /// when it still exists, and restarts the monitor if it had been running.
+  Future<void> relogin({
+    required String password,
+    required String verifyCode,
+    required String vtoken,
+  }) async {
+    final account = state.account;
+    final loginName = account?.loginName ?? state.student?.studentCode ?? '';
+    if (loginName.isEmpty) throw LoginException('0', '没有可用的账号信息，请退出后重新登录');
+    state = state.copyWith(clearError: true);
+    final previousActive = state.activeBatch?.code;
+    await _mgr.loginInteractive(
+      loginName: loginName,
+      password: password,
+      verifyCode: verifyCode,
+      vtoken: vtoken,
+    );
+    ElectiveBatch? active;
+    for (final b in _mgr.batches) {
+      if (b.code == previousActive) active = b;
+    }
+    active ??= _mgr.activeBatch;
+    _mgr.activeBatch = active;
+    final updated = (account ??
+            Account(
+              id: loginName,
+              loginName: loginName,
+              displayName: _mgr.student?.name ?? loginName,
+              studentCode: _mgr.studentCode ?? '',
+            ))
+        .copyWith(lastToken: _mgr.client.token ?? '');
+    await _storage.upsertAccount(updated, password: password);
+    state = SessionState(
+      phase: AuthPhase.loggedIn,
+      student: _mgr.student,
+      batches: _mgr.batches,
+      activeBatch: active,
+      account: updated,
+    );
+    _ref.read(selectionDataRevisionProvider.notifier).state++;
+    if (_resumeMonitorAfterRelogin) {
+      _resumeMonitorAfterRelogin = false;
+      _ref.read(monitorEngineProvider).start();
+    }
+  }
 
   /// Performs interactive login and persists the account (password secured).
   Future<void> login({

@@ -13,6 +13,7 @@ import 'courses_page.dart';
 import 'home_page.dart';
 import 'layout.dart';
 import 'monitor_page.dart';
+import 'relogin_dialog.dart';
 import 'selected_page.dart';
 import 'settings_page.dart';
 import 'batch_pick_dialog.dart';
@@ -63,6 +64,23 @@ class _RootShellState extends ConsumerState<RootShell> {
 
   int _index = 0;
   bool _onboardingChecked = false;
+  bool _reloginShowing = false;
+
+  /// The session dropped and silent re-login gave up: ask for a login without
+  /// tearing the shell down. One dialog at a time.
+  Future<void> _showRelogin() async {
+    if (_reloginShowing || !mounted) return;
+    _reloginShowing = true;
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const ReloginDialog(),
+      );
+    } finally {
+      _reloginShowing = false;
+    }
+  }
 
   void _openNotificationTarget(String? payload) {
     if (!mounted) return;
@@ -94,6 +112,9 @@ class _RootShellState extends ConsumerState<RootShell> {
   Widget build(BuildContext context) {
     // Keep the notification bridge alive for the app's lifetime.
     ref.watch(notificationBridgeProvider);
+    ref.listen<AuthPhase>(sessionProvider.select((s) => s.phase), (_, next) {
+      if (next == AuthPhase.expired) _showRelogin();
+    });
     // Badge the Monitor tab with the count of active watches.
     final activeWatches = ref.watch(watchCountProvider);
 

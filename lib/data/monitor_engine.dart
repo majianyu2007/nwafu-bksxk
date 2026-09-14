@@ -299,6 +299,24 @@ class MonitorEngine {
   String? _stopReason;
   String? get stopReason => _stopReason;
 
+  /// True when the last halt was caused by a lost session. Watches keep their
+  /// state so a re-login can simply start() again.
+  bool _haltedForSession = false;
+  bool get haltedForSession => _haltedForSession;
+
+  /// Halts polling because the login is gone (silent re-login failed). Unlike
+  /// account/captcha errors this is not the watch's fault, so nothing is
+  /// marked failed.
+  void haltForSession() {
+    _haltedForSession = true;
+    if (_running) {
+      _haltAll('登录已失效，重新登录后可继续');
+    } else {
+      _stopReason = '登录已失效，重新登录后可继续';
+      _changes.add(null);
+    }
+  }
+
   final _events = StreamController<MonitorEvent>.broadcast();
   final _changes = StreamController<void>.broadcast();
 
@@ -417,6 +435,7 @@ class MonitorEngine {
     if (_running) return;
     _running = true;
     _stopReason = null; // fresh start clears any prior auto-halt reason
+    _haltedForSession = false;
     // Reset backoff so a restart after an error storm probes promptly.
     for (final w in _watches.values) {
       w.consecutiveErrors = 0;
@@ -491,6 +510,14 @@ class MonitorEngine {
   /// watch (or the whole engine); everything else backs off and retries.
   void _onWatchError(Watch w, AppError e) {
     w.note = e.message;
+    if (e.kind == AppErrorKind.sessionExpired) {
+      // The client already spent its silent re-login budget. Stop everything
+      // without failing the watch; the shell asks the user to log in again
+      // and restarts the engine afterwards.
+      _emit(w.id, '登录已失效，监控暂停：${e.message}', success: false);
+      haltForSession();
+      return;
+    }
     if (e.kind == AppErrorKind.maintenanceOrThrottle) {
       if (config.rushMode) {
         // Opening rush: the server is overloaded, not telling us to go away for

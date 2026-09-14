@@ -269,6 +269,18 @@ class SessionManager {
   String? _loginName;
   String? _password;
 
+  /// Captcha attempts the silent re-login may spend before giving up.
+  /// 0 disables silent re-login: the first expiry goes straight to the user.
+  int maxSilentReloginAttempts = 3;
+
+  /// Fired when a silent re-login could not recover the session (attempts
+  /// exhausted, no stored password, or the account was rejected). The UI
+  /// prompts the user to log in again.
+  void Function()? onSilentReloginFailed;
+
+  /// Fired after a silent re-login succeeded; carries the fresh token.
+  void Function(String token)? onSilentReloginSucceeded;
+
   StudentInfo? student;
   List<ElectiveBatch> batches = [];
   ElectiveBatch? activeBatch;
@@ -435,12 +447,25 @@ class SessionManager {
   /// retrying a few times through transient failures (server flaky right after a
   /// restart) and OCR misreads. Returns a fresh token or null.
   Future<String?> _onExpired() async {
+    final token = await _silentRelogin();
+    if (token == null) {
+      onSilentReloginFailed?.call();
+    } else {
+      onSilentReloginSucceeded?.call(token);
+    }
+    return token;
+  }
+
+  /// One captcha fetch + OCR + login per attempt, at most
+  /// [maxSilentReloginAttempts] times. Each captcha fetch is a server request,
+  /// and the school's gateway blocks clients that hammer vcode.do, so the
+  /// budget is deliberately small.
+  Future<String?> _silentRelogin() async {
     final name = _loginName;
     final pw = _password;
     if (name == null || pw == null) return null;
 
-    const maxTries = 5;
-    for (var attempt = 1; attempt <= maxTries; attempt++) {
+    for (var attempt = 1; attempt <= maxSilentReloginAttempts; attempt++) {
       try {
         final challenge = await _auth.fetchCaptcha();
         final solved = await _solver.solve(challenge.imageBytes);

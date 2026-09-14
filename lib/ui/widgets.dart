@@ -6,7 +6,8 @@ import 'package:flutter/material.dart';
 
 /// A soft status pill.
 class StatusPill extends StatelessWidget {
-  const StatusPill({super.key, required this.label, required this.color, this.icon});
+  const StatusPill(
+      {super.key, required this.label, required this.color, this.icon});
   final String label;
   final Color color;
   final IconData? icon;
@@ -28,7 +29,8 @@ class StatusPill extends StatelessWidget {
           ],
           Text(
             label,
-            style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700),
+            style: TextStyle(
+                color: color, fontSize: 12, fontWeight: FontWeight.w700),
           ),
         ],
       ),
@@ -43,14 +45,43 @@ class CapacityBar extends StatelessWidget {
     required this.selected,
     required this.capacity,
     this.height = 6,
+    this.known = true,
   });
   final int selected;
   final int capacity;
   final double height;
 
+  /// False when the server gave no figures (whole-school query rows), so the
+  /// bar must not read as "full".
+  final bool known;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    if (!known) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: 0,
+              minHeight: height,
+              backgroundColor: scheme.surfaceContainerHighest,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '余量未知',
+            style: TextStyle(
+              fontSize: 12,
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      );
+    }
     final ratio = capacity <= 0 ? 1.0 : (selected / capacity).clamp(0.0, 1.0);
     final remaining = capacity - selected;
     final full = remaining <= 0;
@@ -74,7 +105,9 @@ class CapacityBar extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          full ? '已满 $selected/$capacity' : '余 $remaining · $selected/$capacity',
+          full
+              ? '已满 $selected/$capacity'
+              : '余 $remaining · $selected/$capacity',
           style: TextStyle(
             fontSize: 12,
             color: full ? scheme.error : scheme.onSurfaceVariant,
@@ -88,7 +121,8 @@ class CapacityBar extends StatelessWidget {
 
 /// A centered empty-state with icon + message.
 class EmptyState extends StatelessWidget {
-  const EmptyState({super.key, required this.icon, required this.title, this.subtitle});
+  const EmptyState(
+      {super.key, required this.icon, required this.title, this.subtitle});
   final IconData icon;
   final String title;
   final String? subtitle;
@@ -102,9 +136,13 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 56, color: scheme.onSurfaceVariant.withValues(alpha: 0.5)),
+            Icon(icon,
+                size: 56,
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.5)),
             const SizedBox(height: 16),
-            Text(title, style: Theme.of(context).textTheme.titleMedium, textAlign: TextAlign.center),
+            Text(title,
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center),
             if (subtitle != null) ...[
               const SizedBox(height: 6),
               Text(

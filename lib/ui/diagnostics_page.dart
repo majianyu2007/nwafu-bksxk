@@ -207,6 +207,7 @@ class DiagnosticsPage extends ConsumerWidget {
                   AuthPhase.loggedIn => '已登录',
                   AuthPhase.loggingIn => '登录中',
                   AuthPhase.loggedOut => '未登录',
+                  AuthPhase.expired => '登录已失效',
                 },
                 icon: Icons.verified_user_outlined),
             _Tile(

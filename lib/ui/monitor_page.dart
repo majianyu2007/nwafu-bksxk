@@ -214,8 +214,8 @@ class _PlanBanner extends ConsumerWidget {
                   plan.batchOpen
                       ? '选课已开放，正在提交计划'
                       : '正在等待选课开放，一旦开放立即提交${plan.lastCheckedAt != null ? '（上次检查 ${_fmtHms(plan.lastCheckedAt!)}）' : ''}',
-                  style:
-                      TextStyle(color: scheme.onTertiaryContainer, fontSize: 12),
+                  style: TextStyle(
+                      color: scheme.onTertiaryContainer, fontSize: 12),
                 ),
               ],
             ),
@@ -435,12 +435,19 @@ class _WatchCard extends ConsumerWidget {
         );
         if (testId == null || testId.isEmpty || !context.mounted) return;
       }
-      if (tc.hasBook && (bookSelection == null || bookSelection.isEmpty)) {
-        final options = await course.fetchTextbookOptions(
-          studentCode: watch.studentCode,
-          batchCode: watch.batchCode,
-          teachingClassId: tc.teachingClassId,
-        );
+      if (tc.hasBook &&
+          watch.textbookOrderingOpen &&
+          (bookSelection == null || bookSelection.isEmpty)) {
+        final reasons =
+            await ref.read(infoServiceProvider).fetchTextbookReasons();
+        final options = [
+          for (final o in await course.fetchTextbookOptions(
+            studentCode: watch.studentCode,
+            batchCode: watch.batchCode,
+            teachingClassId: tc.teachingClassId,
+          ))
+            o.copyWith(reasonCodes: reasons),
+        ];
         if (!context.mounted) return;
         if (options.isEmpty) {
           showToast(context, '未获取到教材清单，暂时无法完成设置', success: false);
@@ -505,7 +512,8 @@ class _ActivityLog extends ConsumerWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.receipt_long, size: 16, color: scheme.onSurfaceVariant),
+              Icon(Icons.receipt_long,
+                  size: 16, color: scheme.onSurfaceVariant),
               const SizedBox(width: 6),
               Text('活动日志',
                   style: TextStyle(

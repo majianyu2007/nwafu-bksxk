@@ -101,6 +101,18 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
 
   static String _s(dynamic v) => v == null ? '' : v.toString().trim();
 
+  /// A field from the querykcxx.do payload, or ''.
+  String _kcxx(String key) => _s(_courseDetail?[key]);
+
+  /// querykcxx.do gives the exam type as text (上机考试); queryjxb.do only a
+  /// code ("2"), which is not worth showing on its own.
+  String get _examTypeLabel {
+    final text = _kcxx('examtype');
+    if (text.isNotEmpty) return text;
+    final code = _tc.examType;
+    return int.tryParse(code) == null ? code : '';
+  }
+
   // ---------------------------------------------------------------------------
   // Build
   // ---------------------------------------------------------------------------
@@ -207,8 +219,16 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
         _row(context, Icons.cast_for_education, '授课方式', _tc.teachingMethod),
       if (_tc.examTime.isNotEmpty)
         _row(context, Icons.event_note, '考试时间', _tc.examTime),
-      if (_tc.examType.isNotEmpty)
-        _row(context, Icons.assignment_outlined, '考核方式', _tc.examType),
+      if (_examTypeLabel.isNotEmpty)
+        _row(context, Icons.assignment_outlined, '考核方式', _examTypeLabel),
+      if (_kcxx('englishCourseName').isNotEmpty)
+        _row(context, Icons.translate, '英文名', _kcxx('englishCourseName')),
+      if (_kcxx('courselanguage').isNotEmpty)
+        _row(context, Icons.language, '授课语言', _kcxx('courselanguage')),
+      if (_kcxx('courselevel').isNotEmpty)
+        _row(context, Icons.stairs_outlined, '课程层次', _kcxx('courselevel')),
+      if (_tc.recommendSchoolClass.isNotEmpty)
+        _row(context, Icons.groups_outlined, '推荐班级', _tc.recommendSchoolClass),
 
       _introBlock(),
 
@@ -238,14 +258,12 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
       );
     }
     final parts = <String>[];
-    final title = _courseDetail?['teacherTitle'] ?? _courseDetail?['title'];
-    if (title is String && title.isNotEmpty && title != _tc.teacherName) {
-      parts.add(title);
+    // queryjxb.do's teacherNameList carries the title: "武春芳(副教授)|工号|".
+    final withTitle = _tc.teacherWithTitle;
+    if (withTitle.isNotEmpty && withTitle != _tc.teacherName) {
+      parts.add(withTitle);
     }
-    if (_departmentName.isNotEmpty &&
-        (parts.isEmpty || _departmentName != title)) {
-      parts.add(_departmentName);
-    }
+    if (_departmentName.isNotEmpty) parts.add(_departmentName);
     if (parts.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(left: 30, bottom: 8),
@@ -284,6 +302,8 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
       );
     }
     final rawIntro = _courseDetail?['introduction'] ??
+        _courseDetail?['coursesummary'] ??
+        _courseDetail?['courseoutline'] ??
         _courseDetail?['content'] ??
         _courseDetail?['description'];
     if (rawIntro == null) return const SizedBox.shrink();
