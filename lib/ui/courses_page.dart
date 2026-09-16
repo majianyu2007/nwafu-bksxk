@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../core/constants.dart';
+import '../core/errors.dart';
 import '../data/models.dart';
 import '../data/monitor_engine.dart';
 import '../data/param_builders.dart';
@@ -311,28 +312,68 @@ class _Header extends StatelessWidget {
 mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   String? _busyClassId;
 
+  /// The active round is a 预选 (volunteer) round.
+  bool get _volunteerRound =>
+      ref.read(sessionProvider).activeBatch?.isVolunteerRound ?? false;
+
+  /// Asks which volunteer grade to file. Prefers the grades the server says
+  /// this course still accepts (course/volunteer.do); when that list is empty
+  /// (it is, for every course on this deployment) falls back to the global
+  /// grade dictionary. Returns null when the user cancels.
+  Future<String?> _pickVolunteerGrade(TeachingClass tc) async {
+    final ctrl = ref.read(coursesProvider.notifier);
+    var grades = <VolunteerGrade>[];
+    try {
+      grades = await ctrl.fetchVolunteerGrades(tc);
+    } catch (_) {
+      // Fall through to the global list.
+    }
+    if (grades.isEmpty) {
+      try {
+        grades = await ref.read(infoServiceProvider).fetchVolunteerGrades();
+      } catch (_) {}
+    }
+    if (!mounted) return null;
+    if (grades.isEmpty) {
+      grades = [
+        for (var i = 1; i <= 5; i++) VolunteerGrade(grade: '$i', name: '第$i志愿'),
+      ];
+    }
+    return showAdaptiveSheet<String>(
+      context,
+      maxWidth: 420,
+      builder: (context) => _VolunteerGradePicker(tc: tc, grades: grades),
+    );
+  }
+
   Future<void> _grab(TeachingClass tc) async {
     if (_busyClassId != null) return;
     final ctrl = ref.read(coursesProvider.notifier);
+    final volunteer = _volunteerRound;
     if (tc.isConflict) {
       final proceed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('课程时间冲突'),
           content: Text(tc.conflictDesc.isNotEmpty
-              ? '该教学班与已选课程冲突：\n${tc.conflictDesc}\n\n仍要尝试选课吗？'
-              : '该教学班与已选课程存在时间冲突。仍要尝试选课吗？'),
+              ? '该教学班与已选课程冲突：\n${tc.conflictDesc}\n\n学校系统通常会拒绝冲突的选课；仍要提交吗？'
+              : '该教学班与已选课程存在时间冲突。学校系统通常会拒绝冲突的选课；仍要提交吗？'),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(context, false),
                 child: const Text('取消')),
             FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('仍要选')),
+                child: const Text('仍要提交')),
           ],
         ),
       );
       if (proceed != true) return;
+    }
+    String? grade;
+    if (volunteer) {
+      grade = await _pickVolunteerGrade(tc);
+      if (grade == null || !mounted) return;
     }
     setState(() => _busyClassId = tc.teachingClassId);
     try {
@@ -340,9 +381,22 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       if (selections == null) return;
       final (testId, book) = selections;
       final outcome = await ctrl.grabNow(tc,
-          testTeachingClassId: testId, bookSelection: book);
+          testTeachingClassId: testId,
+          bookSelection: book,
+          volunteerGrade: grade);
       if (!mounted) return;
-      showToast(context, outcome.message, success: outcome.success);
+      if (outcome.success) {
+        showToast(context, outcome.message, success: true);
+      } else {
+        // Classify so a rule (already holds the course, conflict, capacity)
+        // reads as a rule and not as a generic failure.
+        final err = AppError.fromBusiness(outcome.code, outcome.message);
+        showToast(
+          context,
+          err.hint != null ? '${err.message}\n${err.hint}' : err.message,
+          success: false,
+        );
+      }
     } on MissingSelectionError catch (e) {
       if (mounted) showToast(context, e.reason, success: false);
     } catch (e) {
@@ -355,13 +409,46 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   Future<void> _monitor(TeachingClass tc) async {
     if (_busyClassId != null) return;
     final ctrl = ref.read(coursesProvider.notifier);
+    var allowConflict = false;
+    if (tc.isConflict) {
+      // A conflicting class is polled but never submitted unless the user
+      // explicitly opts in; say so up front instead of watching forever.
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('该教学班与已选课程冲突'),
+          content: Text(
+            '${tc.conflictDesc.isNotEmpty ? '${tc.conflictDesc}\n\n' : ''}'
+            '空位出现时是否仍然自动提交？学校系统通常会拒绝冲突的选课，除非你先退掉冲突的课程。',
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('只监控，不提交')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('有空位就提交')),
+          ],
+        ),
+      );
+      if (proceed == null || !mounted) return;
+      allowConflict = proceed;
+    }
+    String? grade;
+    if (_volunteerRound) {
+      grade = await _pickVolunteerGrade(tc);
+      if (grade == null || !mounted) return;
+    }
     setState(() => _busyClassId = tc.teachingClassId);
     try {
       final selections = await _resolveSelectionsIfNeeded(tc);
       if (selections == null) return;
       final (testId, book) = selections;
       final watch = ctrl.addToMonitor(tc,
-          testTeachingClassId: testId, bookSelection: book);
+          testTeachingClassId: testId,
+          bookSelection: book,
+          volunteerGrade: grade,
+          allowConflict: allowConflict);
       if (!mounted) return;
       final needsSetup = watch.status == WatchStatus.needsSetup;
       showToast(
@@ -630,6 +717,8 @@ class _CourseDetailPaneState extends ConsumerState<_CourseDetailPane>
                     kind: widget.kind,
                     bordered: false,
                     browseOnly: widget.kind == CourseKind.qxkc,
+                    volunteerRound: _volunteerRound,
+                    courseAlreadyHeld: row.selected && !tc.isChoose,
                     onGrab: () => _grab(tc),
                     onMonitor: () => _monitor(tc),
                     onRefresh: () =>
@@ -725,11 +814,61 @@ class _CourseCardState extends ConsumerState<_CourseCard>
                 teachingClass: tc,
                 kind: widget.kind,
                 browseOnly: widget.kind == CourseKind.qxkc,
+                volunteerRound: _volunteerRound,
+                courseAlreadyHeld: row.selected && !tc.isChoose,
                 onGrab: () => _grab(tc),
                 onMonitor: () => _monitor(tc),
                 onRefresh: () => ref.read(coursesProvider.notifier).refresh(tc),
                 busy: _busyClassId == tc.teachingClassId,
               ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 预选: pick the volunteer grade to file for [tc].
+class _VolunteerGradePicker extends StatelessWidget {
+  const _VolunteerGradePicker({required this.tc, required this.grades});
+  final TeachingClass tc;
+  final List<VolunteerGrade> grades;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text('填报志愿', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 4),
+          Text('${tc.courseName} · ${tc.displayTitle}',
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+          const SizedBox(height: 4),
+          Text(
+            '预选按志愿顺序录取，第一志愿优先；同一课程只能填报一个教学班。',
+            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          for (final g in grades)
+            ListTile(
+              leading: CircleAvatar(
+                radius: 16,
+                backgroundColor: g.grade == '1'
+                    ? scheme.primary
+                    : scheme.surfaceContainerHighest,
+                child: Text(g.grade,
+                    style: TextStyle(
+                        color: g.grade == '1'
+                            ? scheme.onPrimary
+                            : scheme.onSurface,
+                        fontWeight: FontWeight.w700)),
+              ),
+              title: Text(g.name),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).pop(g.grade),
+            ),
         ],
       ),
     );

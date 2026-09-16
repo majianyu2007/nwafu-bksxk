@@ -60,6 +60,8 @@ class Watch {
     this.selectedTestTeachingClassId,
     this.bookSelection,
     this.textbookOrderingOpen = true,
+    this.allowConflict = false,
+    this.volunteerGrade,
     this.status = WatchStatus.watching,
     this.lastRemaining = 0,
     this.lastCheckedAt,
@@ -87,6 +89,19 @@ class Watch {
   /// does; defaults to true so watches saved before this flag existed keep
   /// their stricter behaviour.
   bool textbookOrderingOpen;
+
+  /// The user chose to grab this class even though the server flags a
+  /// timetable conflict. Without this a conflicting class is polled but never
+  /// submitted.
+  bool allowConflict;
+
+  /// Volunteer grade for 预选 rounds ("1" = 第一志愿); null in 正选 rounds.
+  String? volunteerGrade;
+
+  /// Consecutive identical soft rejections; a class that keeps being refused
+  /// for the same reason is not going to succeed by retrying.
+  int repeatedRejections = 0;
+  String? lastRejection;
 
   WatchStatus status;
   int lastRemaining;
@@ -123,6 +138,8 @@ class Watch {
         'testId': selectedTestTeachingClassId,
         'book': bookSelection,
         'bookOpen': textbookOrderingOpen,
+        'allowConflict': allowConflict,
+        'volunteer': volunteerGrade,
         'status': status.name,
         'note': note,
         'priority': priority,
@@ -151,6 +168,8 @@ class Watch {
         selectedTestTeachingClassId: j['testId'] as String?,
         bookSelection: j['book'] as String?,
         textbookOrderingOpen: j['bookOpen'] as bool? ?? true,
+        allowConflict: j['allowConflict'] as bool? ?? false,
+        volunteerGrade: j['volunteer'] as String?,
         status: WatchStatus.values.firstWhere(
           (s) => s.name == (j['status'] as String? ?? 'watching'),
           orElse: () => WatchStatus.watching,
@@ -422,6 +441,7 @@ class MonitorEngine {
         selectedTestTeachingClassId: w.selectedTestTeachingClassId,
         bookSelection: w.bookSelection,
         textbookOrderingOpen: w.textbookOrderingOpen,
+        volunteerGrade: w.volunteerGrade,
       );
       if (w.status == WatchStatus.needsSetup) w.status = WatchStatus.watching;
     } on MissingSelectionError catch (e) {
@@ -439,6 +459,8 @@ class MonitorEngine {
     // Reset backoff so a restart after an error storm probes promptly.
     for (final w in _watches.values) {
       w.consecutiveErrors = 0;
+      w.repeatedRejections = 0;
+      w.lastRejection = null;
       if (w.status == WatchStatus.watching) _schedule(w, immediate: true);
     }
     _emit('', '监控已启动');
@@ -492,7 +514,9 @@ class MonitorEngine {
       w.consecutiveErrors = 0; // healthy poll resets backoff
       _changes.add(null);
 
-      if (fresh.isGrabbable && _gateOpen) {
+      final grabbable =
+          fresh.remaining > 0 && (!fresh.isConflict || w.allowConflict);
+      if (grabbable && _gateOpen) {
         await _attemptGrab(w);
       }
     } on AppError catch (e) {
@@ -575,6 +599,7 @@ class MonitorEngine {
         selectedTestTeachingClassId: w.selectedTestTeachingClassId,
         bookSelection: w.bookSelection,
         textbookOrderingOpen: w.textbookOrderingOpen,
+        volunteerGrade: w.volunteerGrade,
       );
       final outcome = await _enroll.submitAdd(plan);
 
@@ -625,6 +650,14 @@ class MonitorEngine {
           w.status = WatchStatus.failed;
           w.note = err.message;
           _emit(w.id, '抢课失败次数过多，已停止：${w.title}', success: false);
+        } else if (err.kind != AppErrorKind.courseFull &&
+            _repeatedRejection(w, err.message)) {
+          // The same non-capacity refusal three times in a row (credit cap,
+          // eligibility, …) is a rule, not a race; stop hammering the server.
+          w.status = WatchStatus.failed;
+          w.note = err.message;
+          _timers.remove(w.id)?.cancel();
+          _emit(w.id, '服务器连续拒绝，已停止该监控：${err.message}', success: false);
         } else {
           // Seat vanished (courseFull) or a soft rejection — keep watching.
           w.status = WatchStatus.watching;
@@ -657,6 +690,17 @@ class MonitorEngine {
   bool _capReached(Watch w) =>
       config.maxAttemptsPerWatch > 0 &&
       w.attempts >= config.maxAttemptsPerWatch;
+
+  /// Counts identical consecutive rejections; true from the third one.
+  bool _repeatedRejection(Watch w, String message) {
+    if (w.lastRejection == message) {
+      w.repeatedRejections++;
+    } else {
+      w.lastRejection = message;
+      w.repeatedRejections = 1;
+    }
+    return w.repeatedRejections >= 3;
+  }
 
   void _emit(String watchId, String message,
       {bool? success,

@@ -89,6 +89,11 @@ class ElectiveBatch {
   /// 选后不可退 rounds carry tacticCode "02"; the official page disables 退选.
   bool get allowsDrop => tacticCode != '02';
 
+  /// typeCode "01" = 预选 (volunteer ranking, curriculavariable page): every
+  /// add carries a chooseVolunteer grade. "02" = 正选/抢课 (grablessons page).
+  bool get isVolunteerRound => _s(raw['typeCode']) == '01';
+  String get typeName => _s(raw['typeName']);
+
   /// The official page only shows the round notice (and posts xklcqr.do)
   /// when needConfirm is "1" and the student has not confirmed yet.
   bool get needsNoticeConfirmation =>
@@ -334,6 +339,15 @@ class TeachingClass {
 
   /// True when there is at least one open seat and no conflict blocking us.
   bool get isGrabbable => remaining > 0 && !isConflict;
+
+  /// 预选 rounds: how many students already listed this class as their first
+  /// choice. The official page shows "已报第一志愿 N 人" and marks the class
+  /// 人数已满 once it reaches the capacity.
+  int get firstVolunteers => _i(raw['numberOfFirstVolunteer']);
+
+  /// The volunteer grade this student currently holds on the class ("1" =
+  /// 第一志愿), '' when not selected in a 预选 round.
+  String get heldVolunteerGrade => chooseVolunteer;
 
   /// Whether the server gave us any capacity figures at all. Whole-school
   /// (QXKC) rows carry null capacity/selected, so "0/0" there means unknown,

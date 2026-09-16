@@ -20,6 +20,8 @@ class TeachingClassTile extends StatelessWidget {
     this.busy = false,
     this.bordered = true,
     this.browseOnly = false,
+    this.volunteerRound = false,
+    this.courseAlreadyHeld = false,
   });
 
   final TeachingClass teachingClass;
@@ -37,6 +39,15 @@ class TeachingClassTile extends StatelessWidget {
   /// (selection happens under the class's own category), and the rows carry
   /// no capacity, so no grab/monitor actions are offered.
   final bool browseOnly;
+
+  /// 预选 round: capacity is expressed as first-choice volunteers vs seats and
+  /// the primary action files a volunteer grade instead of grabbing a seat.
+  final bool volunteerRound;
+
+  /// The student already holds another class of this course. The server
+  /// refuses a second class of the same course (该课程已存在预选课程结果中), so
+  /// the tile says so instead of offering a grab that cannot succeed.
+  final bool courseAlreadyHeld;
 
   @override
   Widget build(BuildContext context) {
@@ -74,8 +85,12 @@ class TeachingClassTile extends StatelessWidget {
                 ),
               ),
               if (tc.isChoose)
-                const StatusPill(
-                    label: '已选', color: Colors.green, icon: Icons.check),
+                StatusPill(
+                    label: volunteerRound && tc.heldVolunteerGrade.isNotEmpty
+                        ? '第${tc.heldVolunteerGrade}志愿'
+                        : '已选',
+                    color: Colors.green,
+                    icon: Icons.check),
               IconButton(
                 visualDensity: VisualDensity.compact,
                 icon: Icon(Icons.info_outline,
@@ -118,9 +133,12 @@ class TeachingClassTile extends StatelessWidget {
             children: [
               Expanded(
                 child: CapacityBar(
-                  selected: tc.numberOfSelected,
+                  // 预选: the number that matters is first-choice volunteers.
+                  selected:
+                      volunteerRound ? tc.firstVolunteers : tc.numberOfSelected,
                   capacity: tc.classCapacity,
                   known: tc.hasCapacityInfo,
+                  label: volunteerRound ? '第一志愿' : null,
                 ),
               ),
               if (!browseOnly) ...[
@@ -151,8 +169,51 @@ class TeachingClassTile extends StatelessWidget {
               child: FilledButton.tonalIcon(
                 onPressed: null,
                 icon: const Icon(Icons.check, size: 18),
-                label: const Text('已选课程'),
+                label: Text(volunteerRound ? '已填报志愿' : '已选课程'),
               ),
+            )
+          else if (courseAlreadyHeld)
+            Row(
+              children: [
+                Icon(Icons.info_outline,
+                    size: 16, color: scheme.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '你已选了本课程的另一个教学班，服务器不接受同一课程的第二个班；要换班请先退选。',
+                    style:
+                        TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                  ),
+                ),
+              ],
+            )
+          else if (volunteerRound)
+            // 预选: there is no seat race. Filing a volunteer is the only
+            // action; the server ranks volunteers when the round closes.
+            Row(
+              children: [
+                if (tc.isConflict)
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: busy ? null : onGrab,
+                      icon: const Icon(Icons.warning_amber, size: 18),
+                      label: Text(busy ? '提交中' : '有冲突，仍要填报志愿'),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: busy ? null : onGrab,
+                      icon: busy
+                          ? const SizedBox(
+                              height: 16,
+                              width: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.how_to_vote_outlined, size: 18),
+                      label: Text(busy ? '提交中' : '填报志愿'),
+                    ),
+                  ),
+              ],
             )
           else if (tc.remaining > 0)
             // Seats exist. A conflicting class still gets a primary action, but

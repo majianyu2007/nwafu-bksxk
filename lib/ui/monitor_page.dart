@@ -322,6 +322,26 @@ class _WatchCard extends ConsumerWidget {
               Text(tc.teachingPlace,
                   style:
                       TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+            if (watch.volunteerGrade != null || tc.isConflict) ...[
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  if (watch.volunteerGrade != null)
+                    StatusPill(
+                        label: '第${watch.volunteerGrade}志愿',
+                        color: scheme.primary,
+                        icon: Icons.how_to_vote_outlined),
+                  if (tc.isConflict)
+                    StatusPill(
+                        label: watch.allowConflict ? '冲突·仍会提交' : '冲突·只监控不提交',
+                        color:
+                            watch.allowConflict ? Colors.orange : scheme.error,
+                        icon: Icons.warning_amber),
+                ],
+              ),
+            ],
             const SizedBox(height: 10),
             CapacityBar(
                 selected: tc.numberOfSelected, capacity: tc.classCapacity),

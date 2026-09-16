@@ -66,6 +66,7 @@ class AddParamPlan {
     required this.teachingClassId,
     this.testTeachingClassId,
     this.needBook,
+    this.chooseVolunteer,
   });
 
   /// The form body to POST to volunteer.do.
@@ -75,17 +76,17 @@ class AddParamPlan {
   final String? testTeachingClassId;
   final String? needBook;
 
+  /// Volunteer grade sent in 预选 rounds, null in 正选/抢课 rounds.
+  final String? chooseVolunteer;
+
   String get shapeLabel {
-    switch (shape) {
-      case AddShape.plain:
-        return '直接选课';
-      case AddShape.withTest:
-        return '含实验课选择';
-      case AddShape.withBook:
-        return '含教材选择';
-      case AddShape.withTestAndBook:
-        return '含实验课与教材';
-    }
+    final base = switch (shape) {
+      AddShape.plain => '直接选课',
+      AddShape.withTest => '含实验课选择',
+      AddShape.withBook => '含教材选择',
+      AddShape.withTestAndBook => '含实验课与教材',
+    };
+    return chooseVolunteer == null ? base : '$base · 第$chooseVolunteer志愿';
   }
 }
 
@@ -102,6 +103,7 @@ Map<String, String> buildAddVolunteerParam({
   String isMajor = '1',
   String? needBook,
   String? testTeachingClassId,
+  String? chooseVolunteer,
 }) {
   final data = <String, dynamic>{
     'operationType': '1',
@@ -112,9 +114,19 @@ Map<String, String> buildAddVolunteerParam({
     'campus': campus,
     'teachingClassType': teachingClassType,
   };
-  if (needBook != null && needBook.isNotEmpty) data['needBook'] = needBook;
-  if (testTeachingClassId != null && testTeachingClassId.isNotEmpty) {
-    data['testTeachingClassID'] = testTeachingClassId;
+  // Two official pages build this and their key order differs:
+  //  - 正选/抢课 (grablessons.js): needBook, then testTeachingClassID
+  //  - 预选/志愿 (curriculavariable.js): chooseVolunteer (always present, the
+  //    volunteer grade "1" = 第一志愿), then testTeachingClassID, then needBook
+  final hasBook = needBook != null && needBook.isNotEmpty;
+  final hasTest = testTeachingClassId != null && testTeachingClassId.isNotEmpty;
+  if (chooseVolunteer != null && chooseVolunteer.isNotEmpty) {
+    data['chooseVolunteer'] = chooseVolunteer;
+    if (hasTest) data['testTeachingClassID'] = testTeachingClassId;
+    if (hasBook) data['needBook'] = needBook;
+  } else {
+    if (hasBook) data['needBook'] = needBook;
+    if (hasTest) data['testTeachingClassID'] = testTeachingClassId;
   }
   return {
     'addParam': jsonEncode({'data': data})
@@ -136,6 +148,7 @@ AddParamPlan resolveAddParam({
   String? selectedTestTeachingClassId,
   String? bookSelection,
   bool textbookOrderingOpen = true,
+  String? volunteerGrade,
 }) {
   final needsTest = tc.hasTest;
   final needsBook = tc.hasBook && textbookOrderingOpen;
@@ -166,6 +179,7 @@ AddParamPlan resolveAddParam({
     isMajor: kind.isMajor,
     needBook: needsBook ? bookSelection : null,
     testTeachingClassId: needsTest ? testId : null,
+    chooseVolunteer: volunteerGrade,
   );
 
   final shape = needsTest && needsBook
@@ -182,6 +196,7 @@ AddParamPlan resolveAddParam({
     teachingClassId: tc.teachingClassId,
     testTeachingClassId: needsTest ? testId : null,
     needBook: needsBook ? bookSelection : null,
+    chooseVolunteer: volunteerGrade,
   );
 }
 
@@ -379,10 +394,13 @@ Map<String, String> buildCourseDetailQuery(String courseNumber) =>
     {'kch': courseNumber};
 
 /// Builds the `queryParam` form field for course/volunteer.do (课程可选志愿等级).
+/// curriculavariable.js also sends the category and the class id as `wid`.
 Map<String, String> buildCourseVolunteerParam({
   required String studentCode,
   required String electiveBatchCode,
   required String courseNumber,
+  String teachingClassType = '',
+  String teachingClassId = '',
 }) =>
     {
       'queryParam': jsonEncode({
@@ -390,6 +408,9 @@ Map<String, String> buildCourseVolunteerParam({
           'studentCode': studentCode,
           'electiveBatchCode': electiveBatchCode,
           'courseNumber': courseNumber,
+          if (teachingClassType.isNotEmpty)
+            'teachingClassType': teachingClassType,
+          if (teachingClassId.isNotEmpty) 'wid': teachingClassId,
         },
       }),
     };

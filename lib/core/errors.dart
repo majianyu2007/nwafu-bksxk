@@ -46,6 +46,10 @@ enum AppErrorKind {
   /// JSON was expected — often a login redirect or an interface change.
   schemaOrRedirect,
 
+  /// The server refuses because the student already holds this course (a
+  /// different class), e.g. 该课程已存在预选课程结果中. Retrying cannot help.
+  duplicateSelection,
+
   /// A business rejection with a message we pass through verbatim.
   businessRejected,
 
@@ -86,7 +90,8 @@ class AppError implements Exception {
         AppErrorKind.captcha ||
         AppErrorKind.account ||
         AppErrorKind.maintenanceOrThrottle ||
-        AppErrorKind.sessionExpired =>
+        AppErrorKind.sessionExpired ||
+        AppErrorKind.duplicateSelection =>
           true,
         _ => false,
       };
@@ -190,6 +195,14 @@ class AppError implements Exception {
     if (has(['维护', '繁忙', '频繁', '限流', '稍后', '拥挤', '排队'])) {
       return AppError(AppErrorKind.maintenanceOrThrottle,
           message: msg, hint: '系统繁忙或维护中，已暂停自动操作以免加重负载。', retryable: false, serverCode: code, raw: raw);
+    }
+    if (has(['已存在', '已选', '重复', '已有'])) {
+      return AppError(AppErrorKind.duplicateSelection,
+          message: msg,
+          hint: '你已选了这门课的其他教学班；要换班请先退选原班级。',
+          retryable: false,
+          serverCode: code,
+          raw: raw);
     }
     if (has(['已满', '容量', '名额', '满员'])) {
       return AppError(AppErrorKind.courseFull,

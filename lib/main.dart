@@ -48,12 +48,13 @@ class NwafuXkApp extends ConsumerWidget {
           theme: AppTheme.build(
             brightness: Brightness.light,
             seed: theme.seed,
-            dynamicScheme: lightDynamic?.harmonized(),
+            dynamicScheme:
+                theme.useDynamic ? lightDynamic?.harmonized() : null,
           ),
           darkTheme: AppTheme.build(
             brightness: Brightness.dark,
             seed: theme.seed,
-            dynamicScheme: darkDynamic?.harmonized(),
+            dynamicScheme: theme.useDynamic ? darkDynamic?.harmonized() : null,
           ),
           // An expired session keeps the shell (and the user's place in it);
           // the shell overlays the re-login dialog.

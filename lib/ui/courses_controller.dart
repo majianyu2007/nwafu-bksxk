@@ -138,6 +138,7 @@ class CoursesController extends StateNotifier<CoursesState> {
     TeachingClass tc, {
     String? testTeachingClassId,
     String? bookSelection,
+    String? volunteerGrade,
   }) async {
     final session = _ref.read(sessionProvider);
     final student = session.student!;
@@ -151,6 +152,7 @@ class CoursesController extends StateNotifier<CoursesState> {
       selectedTestTeachingClassId: testTeachingClassId,
       bookSelection: bookSelection,
       textbookOrderingOpen: batch.canSelectBook,
+      volunteerGrade: volunteerGrade,
     );
     if (outcome.success) {
       _ref.read(selectionDataRevisionProvider.notifier).state++;
@@ -163,6 +165,8 @@ class CoursesController extends StateNotifier<CoursesState> {
     TeachingClass tc, {
     String? testTeachingClassId,
     String? bookSelection,
+    String? volunteerGrade,
+    bool allowConflict = false,
     int priority = 0,
   }) {
     final session = _ref.read(sessionProvider);
@@ -178,11 +182,26 @@ class CoursesController extends StateNotifier<CoursesState> {
       selectedTestTeachingClassId: testTeachingClassId,
       bookSelection: bookSelection,
       textbookOrderingOpen: batch.canSelectBook,
+      volunteerGrade: volunteerGrade,
+      allowConflict: allowConflict,
       priority: priority,
     );
     final engine = _ref.read(monitorEngineProvider);
     engine.addWatch(watch);
     return watch;
+  }
+
+  /// Volunteer grades the course still accepts (预选 rounds only).
+  Future<List<VolunteerGrade>> fetchVolunteerGrades(TeachingClass tc) {
+    final session = _ref.read(sessionProvider);
+    final student = session.student!;
+    final batch = session.activeBatch!;
+    return _course.fetchCourseVolunteerGrades(
+      tc: tc,
+      studentCode: student.studentCode,
+      batchCode: batch.code,
+      kind: state.kind,
+    );
   }
 
   /// Loads experiment classes for a class that has hasTest==1.

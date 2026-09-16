@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/constants.dart';
 import '../core/errors.dart';
 import '../data/api_client.dart';
 import '../data/auth_service.dart';
@@ -140,6 +141,13 @@ final monitorEngineProvider = Provider<MonitorEngine>((ref) {
     enrollService: ref.watch(enrollServiceProvider),
     config: cfg,
   );
+  // Watches are persisted on every change; restore them (paused) so a
+  // restart never loses the list. They were saved but never loaded before.
+  try {
+    engine.loadWatches(storage.watchesJson());
+  } catch (_) {
+    // A corrupt blob must not block startup.
+  }
   ref.onDispose(engine.dispose);
   return engine;
 });
@@ -170,12 +178,20 @@ final monitorConfigProvider =
 // ---------------------------------------------------------------------------
 
 class ThemeSettings {
-  ThemeSettings({required this.mode, required this.seed});
+  ThemeSettings(
+      {required this.mode, required this.seed, this.useDynamic = false});
   final ThemeMode mode;
   final Color seed;
 
-  ThemeSettings copyWith({ThemeMode? mode, Color? seed}) =>
-      ThemeSettings(mode: mode ?? this.mode, seed: seed ?? this.seed);
+  /// Use the platform accent instead of [seed].
+  final bool useDynamic;
+
+  ThemeSettings copyWith({ThemeMode? mode, Color? seed, bool? useDynamic}) =>
+      ThemeSettings(
+        mode: mode ?? this.mode,
+        seed: seed ?? this.seed,
+        useDynamic: useDynamic ?? this.useDynamic,
+      );
 }
 
 class ThemeController extends StateNotifier<ThemeSettings> {
@@ -183,6 +199,7 @@ class ThemeController extends StateNotifier<ThemeSettings> {
       : super(ThemeSettings(
           mode: _modeFromIndex(_storage.themeModeIndex()),
           seed: Color(_storage.seedColor()),
+          useDynamic: _storage.useDynamicColor(),
         ));
 
   final Storage _storage;
@@ -215,8 +232,15 @@ class ThemeController extends StateNotifier<ThemeSettings> {
   }
 
   Future<void> setSeed(Color seed) async {
-    state = state.copyWith(seed: seed);
+    // Picking a colour is an explicit choice; it must win over the accent.
+    state = state.copyWith(seed: seed, useDynamic: false);
     await _storage.setSeedColor(seed.toARGB32());
+    await _storage.setUseDynamicColor(false);
+  }
+
+  Future<void> setUseDynamic(bool v) async {
+    state = state.copyWith(useDynamic: v);
+    await _storage.setUseDynamicColor(v);
   }
 }
 
@@ -289,6 +313,22 @@ class SessionController extends StateNotifier<SessionState> {
 
   /// Fetches a fresh captcha challenge for the login screen.
   Future<CaptchaChallenge> fetchCaptcha() => _mgr.auth.fetchCaptcha();
+
+  /// Periodic cheap authenticated call so a dropped session (login elsewhere,
+  /// server restart) is noticed within a minute instead of at the next
+  /// user action. The client's expiry path handles silent re-login; this
+  /// only provokes it. Skipped while the monitor is polling anyway.
+  Future<void> heartbeat() async {
+    if (state.phase != AuthPhase.loggedIn) return;
+    if (_ref.read(monitorEngineProvider).isRunning) return;
+    final code = state.student?.studentCode;
+    if (code == null || code.isEmpty) return;
+    try {
+      await _mgr.client.getJson(Api.studentInfo(code));
+    } catch (_) {
+      // Network blips are not session losses; expiry is signalled separately.
+    }
+  }
 
   /// Called when the API client detected an expired session and the silent
   /// re-login budget is spent. Pauses the monitor (without failing watches),

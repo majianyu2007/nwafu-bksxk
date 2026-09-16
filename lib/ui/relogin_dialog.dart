@@ -184,7 +184,9 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
             Text(
               attempts == 0
                   ? '学校服务器已结束当前会话（例如在别处登录了同一账号）。'
-                  : '学校服务器已结束当前会话（例如在别处登录了同一账号），后台自动重登 $attempts 次仍未成功。',
+                  : attempts < 0
+                      ? '学校服务器已结束当前会话（例如在别处登录了同一账号），后台自动重登被账号错误终止。'
+                      : '学校服务器已结束当前会话（例如在别处登录了同一账号），后台自动重登 $attempts 次仍未成功。',
               style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
             ),
             const SizedBox(height: 14),

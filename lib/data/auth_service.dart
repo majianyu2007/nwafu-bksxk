@@ -270,7 +270,8 @@ class SessionManager {
   String? _password;
 
   /// Captcha attempts the silent re-login may spend before giving up.
-  /// 0 disables silent re-login: the first expiry goes straight to the user.
+  /// 0 disables silent re-login: the first expiry goes straight to the user;
+  /// a negative value means unlimited (keeps trying with backoff).
   int maxSilentReloginAttempts = 3;
 
   /// Fired when a silent re-login could not recover the session (attempts
@@ -311,6 +312,9 @@ class SessionManager {
       verifyCode: verifyCode,
       vtoken: vtoken,
     );
+    // Silent re-login replays exactly these; without them every expiry went
+    // straight to the user (this call was missing until 2026-09-16).
+    rememberCredentials(loginName, password);
     final (info, batchList) = await _auth.loadContext(res.studentCode);
     final initialChoice = selectInitialBatch(batchList);
     var merged = info;
@@ -465,7 +469,16 @@ class SessionManager {
     final pw = _password;
     if (name == null || pw == null) return null;
 
-    for (var attempt = 1; attempt <= maxSilentReloginAttempts; attempt++) {
+    final unlimited = maxSilentReloginAttempts < 0;
+    for (var attempt = 1;
+        unlimited || attempt <= maxSilentReloginAttempts;
+        attempt++) {
+      if (unlimited && attempt > 1) {
+        // Space unlimited retries out so the captcha endpoint's rate limit
+        // (which blocks the client outright) is not tripped.
+        await Future<void>.delayed(
+            Duration(seconds: (2 * (attempt - 1)).clamp(2, 30)));
+      }
       try {
         final challenge = await _auth.fetchCaptcha();
         final solved = await _solver.solve(challenge.imageBytes);

@@ -2,6 +2,8 @@
 /// and Settings, with a persistent header showing student + active batch.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -48,8 +50,12 @@ class _RootShellState extends ConsumerState<RootShell> {
     // Start collecting monitor events now, not when the Monitor tab first
     // builds its log widget.
     ref.read(monitorLogProvider);
+    _heartbeat = Timer.periodic(const Duration(seconds: 45),
+        (_) => ref.read(sessionProvider.notifier).heartbeat());
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOnboard());
   }
+
+  Timer? _heartbeat;
 
   /// One-shot post-login prompt. The official site always asks the student to
   /// choose a round; we keep it non-blocking ("稍后再说") but still surface it
@@ -89,6 +95,7 @@ class _RootShellState extends ConsumerState<RootShell> {
 
   @override
   void dispose() {
+    _heartbeat?.cancel();
     // Taps that arrive while no shell is mounted are buffered and replayed by
     // the next shell's init(); a stale handler would silently drop them.
     NotificationService.instance.detachTapHandler(_openNotificationTarget);
@@ -124,7 +131,9 @@ class _RootShellState extends ConsumerState<RootShell> {
         final content = SafeArea(
           bottom: !useRail,
           child: Align(
-            alignment: Alignment.topCenter,
+            // Left-aligned next to the rail: centring left a wide empty band
+            // between the rail and the page on large displays.
+            alignment: Alignment.topLeft,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: kContentMaxWidth),
               child: SizedBox.expand(

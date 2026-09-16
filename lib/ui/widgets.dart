@@ -46,10 +46,14 @@ class CapacityBar extends StatelessWidget {
     required this.capacity,
     this.height = 6,
     this.known = true,
+    this.label,
   });
   final int selected;
   final int capacity;
   final double height;
+
+  /// Optional prefix naming what [selected] counts (e.g. 第一志愿).
+  final String? label;
 
   /// False when the server gave no figures (whole-school query rows), so the
   /// bar must not read as "full".
@@ -105,9 +109,8 @@ class CapacityBar extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          full
-              ? '已满 $selected/$capacity'
-              : '余 $remaining · $selected/$capacity',
+          '${label == null ? '' : '$label '}'
+          '${full ? '已满 $selected/$capacity' : '余 $remaining · $selected/$capacity'}',
           style: TextStyle(
             fontSize: 12,
             color: full ? scheme.error : scheme.onSurfaceVariant,

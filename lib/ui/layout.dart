@@ -34,7 +34,7 @@ const double kRailBreakpoint = 840;
 const double kExtendedRailBreakpoint = 1280;
 
 /// Widest the shell lets page content grow; pages lay out columns inside it.
-const double kContentMaxWidth = 1480;
+const double kContentMaxWidth = 1720;
 
 /// A comfortable single-column reading width for settings-like pages.
 const double kReadableMaxWidth = 860;

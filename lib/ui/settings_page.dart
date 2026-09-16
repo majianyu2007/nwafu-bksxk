@@ -4,6 +4,7 @@ library;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
@@ -80,6 +81,13 @@ class SettingsPage extends ConsumerWidget {
               onSelectionChanged: (s) => themeCtrl.setMode(s.first),
             ),
           ),
+          SwitchListTile(
+            secondary: const Icon(Icons.palette_outlined),
+            title: const Text('跟随系统强调色'),
+            subtitle: const Text('开启后使用系统（macOS/Android 12+）的强调色，忽略下面的主题色'),
+            value: theme.useDynamic,
+            onChanged: themeCtrl.setUseDynamic,
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
             child: Column(
@@ -95,23 +103,28 @@ class SettingsPage extends ConsumerWidget {
                     for (final c in kSeedPresets)
                       GestureDetector(
                         onTap: () => themeCtrl.setSeed(c),
-                        child: Container(
-                          height: 36,
-                          width: 36,
-                          decoration: BoxDecoration(
-                            color: c,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: theme.seed.toARGB32() == c.toARGB32()
-                                  ? Theme.of(context).colorScheme.onSurface
-                                  : Colors.transparent,
-                              width: 3,
+                        child: Opacity(
+                          opacity: theme.useDynamic ? 0.4 : 1,
+                          child: Container(
+                            height: 36,
+                            width: 36,
+                            decoration: BoxDecoration(
+                              color: c,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: !theme.useDynamic &&
+                                        theme.seed.toARGB32() == c.toARGB32()
+                                    ? Theme.of(context).colorScheme.onSurface
+                                    : Colors.transparent,
+                                width: 3,
+                              ),
                             ),
+                            child: !theme.useDynamic &&
+                                    theme.seed.toARGB32() == c.toARGB32()
+                                ? const Icon(Icons.check,
+                                    color: Colors.white, size: 18)
+                                : null,
                           ),
-                          child: theme.seed.toARGB32() == c.toARGB32()
-                              ? const Icon(Icons.check,
-                                  color: Colors.white, size: 18)
-                              : null,
                         ),
                       ),
                   ],
@@ -187,39 +200,93 @@ class SettingsPage extends ConsumerWidget {
 
 /// How hard the app tries to recover a dropped session on its own before
 /// asking the user (each attempt = one captcha fetch + OCR + login).
-class _SilentReloginSetting extends ConsumerWidget {
+class _SilentReloginSetting extends ConsumerStatefulWidget {
   const _SilentReloginSetting();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_SilentReloginSetting> createState() =>
+      _SilentReloginSettingState();
+}
+
+class _SilentReloginSettingState extends ConsumerState<_SilentReloginSetting> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    final v = ref.read(silentReloginAttemptsProvider);
+    _ctrl = TextEditingController(text: v < 0 ? '' : '$v');
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _apply(String text) async {
+    final n = int.tryParse(text.trim());
+    if (n == null || n < 0) return;
+    await ref.read(silentReloginAttemptsProvider.notifier).set(n.clamp(0, 999));
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final attempts = ref.watch(silentReloginAttemptsProvider);
     final scheme = Theme.of(context).colorScheme;
+    final unlimited = attempts < 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ListTile(
           leading: const Icon(Icons.autorenew),
           title: const Text('掉线后自动重新登录'),
-          subtitle: Text(attempts == 0
-              ? '关闭：登录一失效就弹窗让你手动登录'
-              : '先用验证码自动识别在后台重登，最多 $attempts 次；仍失败再弹窗让你手动登录'),
-          trailing: Text('$attempts 次',
-              style: TextStyle(
-                  color: scheme.primary, fontWeight: FontWeight.w700)),
-        ),
-        Slider(
-          value: attempts.toDouble(),
-          min: 0,
-          max: 6,
-          divisions: 6,
-          label: '$attempts',
-          onChanged: (v) =>
-              ref.read(silentReloginAttemptsProvider.notifier).set(v.round()),
+          subtitle: Text(unlimited
+              ? '不限次数：用验证码自动识别在后台一直重登（间隔逐步拉长），直到成功'
+              : attempts == 0
+                  ? '关闭：登录一失效就弹窗让你手动登录'
+                  : '先用验证码自动识别在后台重登，最多 $attempts 次；仍失败再弹窗让你手动登录'),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 120,
+                child: TextField(
+                  controller: _ctrl,
+                  enabled: !unlimited,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  decoration: const InputDecoration(
+                    labelText: '尝试次数',
+                    isDense: true,
+                    suffixText: '次',
+                  ),
+                  onSubmitted: _apply,
+                  onTapOutside: (_) => _apply(_ctrl.text),
+                ),
+              ),
+              const SizedBox(width: 16),
+              FilterChip(
+                label: const Text('不限次数'),
+                selected: unlimited,
+                onSelected: (v) {
+                  if (v) {
+                    ref.read(silentReloginAttemptsProvider.notifier).set(-1);
+                  } else {
+                    _ctrl.text = '3';
+                    ref.read(silentReloginAttemptsProvider.notifier).set(3);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
           child: Text(
-            '每次尝试都会向学校服务器要一张新验证码；请求过于频繁会被学校网关暂时拦截，建议保持 3 次左右。',
+            '每次尝试都会向学校服务器要一张新验证码；请求过于频繁会被学校网关暂时拦截，不限次数时会自动拉长间隔。',
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
         ),

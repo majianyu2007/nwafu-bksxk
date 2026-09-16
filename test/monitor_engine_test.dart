@@ -254,6 +254,90 @@ void main() {
     engine.dispose();
   });
 
+  test('a conflicting class is only submitted when the watch opts in', () async {
+    TeachingClass conflicting(String id) => TeachingClass.fromJson({
+          'teachingClassID': id,
+          'courseName': 'C',
+          'classCapacity': '10',
+          'numberOfSelected': '0',
+          'capacitySuffix': '',
+          'isConflict': '1',
+          'hasTest': '0',
+          'hasBook': '0',
+        });
+    final course = FakeCourseService({'A': [5], 'B': [5]});
+    final enroll = FakeEnrollService(succeed: true);
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+    );
+    engine.addWatch(watchFor(conflicting('A')));
+    engine.addWatch(watchFor(conflicting('B'))..allowConflict = true);
+    engine.start();
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    engine.stop();
+
+    expect(enroll.submitted.map((p) => p.teachingClassId), ['B']);
+    expect(engine.watches.firstWhere((w) => w.id == 'w-A').status, WatchStatus.watching);
+    expect(engine.watches.firstWhere((w) => w.id == 'w-B').status, WatchStatus.grabbed);
+    engine.dispose();
+  });
+
+  test('the same non-capacity rejection three times stops the watch', () async {
+    final course = FakeCourseService({'R': [5, 5, 5, 5, 5, 5]});
+    final enroll = FakeEnrollService(succeed: false, outcomeCode: '0', outcomeMsg: '超过本轮次可选学分上限');
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+    );
+    engine.addWatch(watchFor(plainTc('R')));
+    engine.start();
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    engine.stop();
+
+    expect(enroll.submitted.length, 3);
+    expect(engine.watches.first.status, WatchStatus.failed);
+    engine.dispose();
+  });
+
+  test('a duplicate-selection refusal is a hard stop for the watch', () async {
+    final course = FakeCourseService({'D': [5, 5, 5]});
+    final enroll = FakeEnrollService(succeed: false, outcomeCode: '0', outcomeMsg: '该课程已存在预选课程结果中');
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+    );
+    engine.addWatch(watchFor(plainTc('D')));
+    engine.start();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    engine.stop();
+
+    expect(enroll.submitted.length, 1);
+    expect(engine.watches.first.status, WatchStatus.failed);
+    engine.dispose();
+  });
+
+  test('a volunteer watch submits chooseVolunteer in the 预选 key order', () async {
+    final course = FakeCourseService({'V': [5]});
+    final enroll = FakeEnrollService(succeed: true);
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+    );
+    engine.addWatch(watchFor(plainTc('V'))..volunteerGrade = '1');
+    engine.start();
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+    engine.stop();
+
+    expect(enroll.submitted.single.chooseVolunteer, '1');
+    expect(enroll.submitted.single.form['addParam'], contains('"teachingClassType":"FANKC","chooseVolunteer":"1"}'));
+    engine.dispose();
+  });
+
   test('maintenance/throttle response hard-stops the whole engine', () async {
     // Seat is open, but the submit comes back with a throttle message.
     final course = FakeCourseService({

@@ -61,6 +61,7 @@ class EnrollService {
     String? selectedTestTeachingClassId,
     String? bookSelection,
     bool textbookOrderingOpen = true,
+    String? volunteerGrade,
   }) async {
     final plan = resolveAddParam(
       tc: tc,
@@ -71,6 +72,7 @@ class EnrollService {
       selectedTestTeachingClassId: selectedTestTeachingClassId,
       bookSelection: bookSelection,
       textbookOrderingOpen: textbookOrderingOpen,
+      volunteerGrade: volunteerGrade,
     );
     return submitAdd(plan);
   }

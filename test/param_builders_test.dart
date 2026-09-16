@@ -138,6 +138,49 @@ void main() {
     });
   });
 
+  group('预选 (volunteer) rounds', () {
+    const ctx = (studentCode: 'S', batch: 'B', campus: 'CA');
+    test('chooseVolunteer comes right after teachingClassType, then test, then book', () {
+      final plan = resolveAddParam(
+        tc: tc(hasTest: true, hasBook: true),
+        studentCode: ctx.studentCode, electiveBatchCode: ctx.batch,
+        campus: ctx.campus, kind: CourseKind.xgxk,
+        selectedTestTeachingClassId: 'TEST9',
+        bookSelection: 'BK1',
+        volunteerGrade: '2',
+      );
+      expect(
+        plan.form['addParam'],
+        '{"data":{"operationType":"1","studentCode":"S","electiveBatchCode":"B",'
+        '"teachingClassId":"TC1","isMajor":"1","campus":"CA","teachingClassType":"XGXK",'
+        '"chooseVolunteer":"2","testTeachingClassID":"TEST9","needBook":"BK1"}}',
+      );
+      expect(plan.shapeLabel, contains('第2志愿'));
+    });
+
+    test('no grade means the 正选 shape without chooseVolunteer', () {
+      final plan = resolveAddParam(
+        tc: tc(),
+        studentCode: ctx.studentCode, electiveBatchCode: ctx.batch,
+        campus: ctx.campus, kind: CourseKind.fankc,
+      );
+      expect(plan.form['addParam'], isNot(contains('chooseVolunteer')));
+      expect(plan.chooseVolunteer, isNull);
+    });
+
+    test('course/volunteer.do query carries the category and the class id as wid', () {
+      final q = buildCourseVolunteerParam(
+        studentCode: 'S', electiveBatchCode: 'B', courseNumber: 'K1',
+        teachingClassType: 'XGXK', teachingClassId: 'TC1',
+      );
+      expect(
+        q['queryParam'],
+        '{"data":{"studentCode":"S","electiveBatchCode":"B","courseNumber":"K1",'
+        '"teachingClassType":"XGXK","wid":"TC1"}}',
+      );
+    });
+  });
+
   group('buildDeleteVolunteerParam', () {
     test('matches frontend shape', () {
       final f = buildDeleteVolunteerParam(

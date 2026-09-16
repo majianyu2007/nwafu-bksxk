@@ -88,6 +88,7 @@ class Storage {
   static const _kWatches = 'watches.v1';
   static const _kThemeMode = 'theme_mode.v1';
   static const _kSeedColor = 'seed_color.v1';
+  static const _kUseDynamicColor = 'use_dynamic_color.v1';
   static const _kOrigin = 'api_origin.v1';
   static const _kMonitorConfig = 'monitor_config.v1';
   static const _kOcrApi = 'ocr_api.v1';
@@ -207,6 +208,12 @@ class Storage {
 
   int seedColor() => _prefs.getInt(_kSeedColor) ?? 0xFF3B6FE0;
   Future<void> setSeedColor(int v) async => _prefs.setInt(_kSeedColor, v);
+
+  /// Follow the platform accent colour (Android 12+ / macOS) instead of the
+  /// chosen seed. Off by default so the theme colour picker actually works.
+  bool useDynamicColor() => _prefs.getBool(_kUseDynamicColor) ?? false;
+  Future<void> setUseDynamicColor(bool v) async =>
+      _prefs.setBool(_kUseDynamicColor, v);
 
   /// A build/run-time override for temporary backends. This deliberately wins
   /// over persisted settings so `flutter run --dart-define=BKSXK_API_ORIGIN=…`

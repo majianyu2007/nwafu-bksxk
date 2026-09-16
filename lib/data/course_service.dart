@@ -155,6 +155,32 @@ class CourseService {
         .toList();
   }
 
+  /// Volunteer grades this course still accepts for the student (预选 rounds,
+  /// course/volunteer.do). Empty means 志愿已满 on the official page.
+  Future<List<VolunteerGrade>> fetchCourseVolunteerGrades({
+    required TeachingClass tc,
+    required String studentCode,
+    required String batchCode,
+    required CourseKind kind,
+  }) async {
+    final res = await _client.getJson(
+      Api.courseVolunteer,
+      query: buildCourseVolunteerParam(
+        studentCode: studentCode,
+        electiveBatchCode: batchCode,
+        courseNumber: tc.courseNumber,
+        teachingClassType: kind.code,
+        teachingClassId: tc.teachingClassId,
+      ),
+    );
+    if (!res.ok) return const [];
+    return res.dataList
+        .whereType<Map>()
+        .map((e) => VolunteerGrade.fromJson(e.cast<String, dynamic>()))
+        .where((g) => g.grade.isNotEmpty)
+        .toList();
+  }
+
   /// Runs the pre-selection eligibility check (canchoose.do).
   Future<ApiResult> canChoose({
     required TeachingClass tc,
