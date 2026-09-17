@@ -219,7 +219,7 @@ class DiagnosticsPage extends ConsumerWidget {
                 value: session.activeBatch?.name ?? '—',
                 icon: Icons.event_outlined),
             const _Tile(
-                title: '客户端版本', value: '1.0.0', icon: Icons.info_outline),
+                title: '客户端版本', value: '1.1.0', icon: Icons.info_outline),
             const SizedBox(height: 20),
             FilledButton.tonalIcon(
               onPressed: () =>
@@ -250,7 +250,7 @@ class DiagnosticsPage extends ConsumerWidget {
         : '****';
     final report = StringBuffer()
       ..writeln('# 西农本科选课 诊断报告')
-      ..writeln('client: 1.0.0')
+      ..writeln('client: 1.1.0')
       ..writeln('origin: $origin')
       ..writeln('reachable: ${reach?.reachable ?? 'unknown'}')
       ..writeln('detail: ${reach?.detail ?? '—'}')
