@@ -1,8 +1,10 @@
 name: Release
 
-# On every main push or manual run: build every supported native platform,
-# upload downloadable artifacts, and deploy the web app to the `web` branch.
-# On a version tag (v*): additionally publish those artifacts as a GitHub Release.
+# Every main push deploys the web app to the `web` branch (cheap). Native
+# platform builds run only on a version tag (v*) or a manual dispatch, because
+# four platform builds per push exhausted the monthly Actions minutes; on a tag
+# their artifacts are published as a GitHub Release. Assets uploaded by hand to
+# the same tag beforehand (local builds) are overwritten by name, not duplicated.
 #
 # Trigger a full release: git tag v1.0.0 && git push origin v1.0.0
 #
@@ -26,6 +28,7 @@ env:
 jobs:
   # ---- Native platform builds --------------------------------------------------
   build-android:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +45,7 @@ jobs:
         with: { name: android, path: dist/* }
 
   build-macos:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +65,7 @@ jobs:
         with: { name: macos, path: dist/* }
 
   build-windows:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,6 +83,7 @@ jobs:
         with: { name: windows, path: dist/* }
 
   build-linux:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
