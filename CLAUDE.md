@@ -20,7 +20,7 @@ Flutter is at `/opt/homebrew/bin/flutter` (3.44.6 / Dart 3.12.2). No codegen (no
 ```bash
 flutter pub get
 flutter analyze                                   # must be clean (lints in analysis_options.yaml)
-flutter test                                      # 63 tests, no network needed
+flutter test                                      # ~90 tests, no network needed
 flutter test test/monitor_engine_test.dart        # one file
 flutter test --plain-name "double-fired"          # one test by name substring
 flutter run -d macos                              # or android / ios / windows / linux / chrome
@@ -117,3 +117,5 @@ These contradict reasonable assumptions and are locked by `test/live_payloads_te
 - **`teachingTime.do`** returns one row per (class, weekday, week pattern): `dayOfWeek`, `beginSection`/`endSection`, `week` bit string (index i = week i+1, variable length), `weekName`, room-only `teachingPlace`.
 - **The school gateway rate-limits captcha fetches.** Dozens of `vcode.do` calls in a few minutes get the client an HTML "Not allowed to visit this website" page while other endpoints keep working. Keep OCR retry budgets small.
 - **Unsigned macOS rebuilds re-prompt the Keychain** ("flutter_secure_storage_service") on first secure-storage access; deny or allow, the app copes either way.
+- **Two kinds of round.** `typeCode "02"` = 正选/抢课 (grablessons page, seat race); `typeCode "01"` = 预选 (curriculavariable page): every add carries `chooseVolunteer` ("1" = 第一志愿) in the key order chooseVolunteer → testTeachingClassID → needBook, capacity is judged by `numberOfFirstVolunteer` vs `classCapacity`, and `course/volunteer.do` (GET, `queryParam` with `teachingClassType` + `wid`) lists grades still open for a course (empty on this deployment, so the app falls back to `publicinfo/volunteer.do`). Rows of the 通识 round are flat (no `tcList`) and mostly `isConflict "1"`.
+- **`该课程已存在预选课程结果中`** = you already hold another class of the same course; classified as `duplicateSelection` (hard stop). The tile warns before submitting.
