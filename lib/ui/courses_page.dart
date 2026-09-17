@@ -730,7 +730,7 @@ class _CourseDetailPaneState extends ConsumerState<_CourseDetailPane>
                     bordered: false,
                     browseOnly: widget.kind == CourseKind.qxkc,
                     volunteerRound: _volunteerRound,
-                    courseAlreadyHeld: row.selected && !tc.isChoose,
+                    courseAlreadyHeld: row.selected && !tc.isHeld,
                     onGrab: () => _grab(tc),
                     onMonitor: () => _monitor(tc),
                     onRefresh: () =>
@@ -827,7 +827,7 @@ class _CourseCardState extends ConsumerState<_CourseCard>
                 kind: widget.kind,
                 browseOnly: widget.kind == CourseKind.qxkc,
                 volunteerRound: _volunteerRound,
-                courseAlreadyHeld: row.selected && !tc.isChoose,
+                courseAlreadyHeld: row.selected && !tc.isHeld,
                 onGrab: () => _grab(tc),
                 onMonitor: () => _monitor(tc),
                 onRefresh: () => ref.read(coursesProvider.notifier).refresh(tc),

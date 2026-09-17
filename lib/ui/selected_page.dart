@@ -21,7 +21,10 @@ final selectedCoursesProvider =
   if (student == null || batch == null) return [];
   final course = ref.read(courseServiceProvider);
   return course.fetchSelected(
-      studentCode: student.studentCode, batchCode: batch.code);
+    studentCode: student.studentCode,
+    batchCode: batch.code,
+    volunteerRound: batch.isVolunteerRound,
+  );
 });
 
 /// Loads the full schedule (arranged + unarranged) for the active session.
@@ -88,6 +91,7 @@ class SelectedPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedAsync = ref.watch(selectedCoursesProvider);
+    final batch = ref.watch(sessionProvider.select((s) => s.activeBatch));
     final scheduleAsync = ref.watch(scheduleProvider);
     final unsuccessfulAsync = ref.watch(unsuccessfulProvider);
     final returnAsync = ref.watch(returnResultsProvider);
@@ -109,7 +113,7 @@ class SelectedPage extends ConsumerWidget {
       // ── Section 1: 已选课程 ──
       _SectionHeader(
         icon: Icons.checklist,
-        title: '已选课程',
+        title: batch?.isVolunteerRound == true ? '已填报志愿' : '已选课程',
         onRefresh: () => ref.invalidate(selectedCoursesProvider),
       ),
     ];
@@ -121,10 +125,12 @@ class SelectedPage extends ConsumerWidget {
           EmptyState(icon: Icons.cloud_off, title: '加载失败', subtitle: '$e')),
       data: (list) {
         if (list.isEmpty) {
-          items.add(const EmptyState(
+          items.add(EmptyState(
             icon: Icons.checklist,
-            title: '还没有已选课程',
-            subtitle: '在「选课」页选课后会显示在这里。',
+            title: batch?.isVolunteerRound == true ? '还没有填报志愿' : '还没有已选课程',
+            subtitle: batch?.isVolunteerRound == true
+                ? '在「选课」页填报志愿后会显示在这里，可在此退选或查看志愿状态。'
+                : '在「选课」页选课后会显示在这里。',
           ));
         } else {
           items.add(AdaptiveGrid(
@@ -342,11 +348,24 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
               Text(tc.teachingPlace,
                   style:
                       TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+            if (batch?.isVolunteerRound == true && tc.hasCapacityInfo) ...[
+              const SizedBox(height: 10),
+              CapacityBar(
+                selected: tc.firstVolunteers,
+                capacity: tc.classCapacity,
+                label: '第一志愿',
+              ),
+            ],
             const SizedBox(height: 12),
             Row(
               children: [
-                const StatusPill(
-                    label: '已选', color: Colors.green, icon: Icons.check),
+                StatusPill(
+                    label: tc.heldVolunteerGrade.isNotEmpty &&
+                            batch?.isVolunteerRound == true
+                        ? '第${tc.heldVolunteerGrade}志愿'
+                        : '已选',
+                    color: Colors.green,
+                    icon: Icons.check),
                 const Spacer(),
                 Tooltip(
                   message: dropHint ?? '',

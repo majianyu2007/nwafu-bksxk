@@ -288,6 +288,44 @@ void main() {
     });
   });
 
+  group('selected volunteers in 预选 rounds', () {
+    ApiResult envelope(List<Map<String, dynamic>> rows) =>
+        ApiResult(code: '1', msg: '', data: null, dataList: rows, totalCount: rows.length);
+
+    test('come from volunteerResult + publicCourseResult, not courseResult', () async {
+      final client = _CannedClient({
+        Api.courseResult: envelope(const []),
+        Api.publicCourseResult: envelope([
+          {'courseName': '音乐鉴赏', 'courseIndex': '01', 'teachingClassID': 'P1', 'chooseVolunteer': '1', 'numberOfFirstVolunteer': '319', 'classCapacity': '50', 'canDelete': '1', 'selectStatus': '01'},
+          {'courseName': '《共产党宣言》导读', 'courseIndex': '01', 'teachingClassID': 'P2', 'chooseVolunteer': '2', 'numberOfFirstVolunteer': '47', 'classCapacity': '50', 'canDelete': '1'},
+        ]),
+        Api.volunteerResult: envelope([
+          {
+            'courseName': '大学物理', 'courseNumber': 'K9', 'credit': '3',
+            'tcList': [
+              {'teachingClassID': 'V1', 'courseIndex': '02', 'chooseVolunteer': '1', 'isTest': '0'},
+              {'teachingClassID': 'V1-lab', 'courseIndex': '02', 'isTest': '1'},
+            ],
+          },
+        ]),
+      });
+      final service = CourseService(client);
+
+      final normal = await service.fetchSelected(studentCode: 'S', batchCode: 'B');
+      expect(normal, isEmpty);
+      expect(client.calls.map((c) => c.$1), [Api.courseResult]);
+
+      client.calls.clear();
+      final volunteers = await service.fetchSelected(studentCode: 'S', batchCode: 'B', volunteerRound: true);
+      expect(client.calls.map((c) => c.$1).toSet(), {Api.volunteerResult, Api.publicCourseResult});
+      expect(volunteers.map((t) => t.teachingClassId), ['V1', 'P1', 'P2'], reason: 'experiment classes are hidden');
+      expect(volunteers[0].courseName, '大学物理', reason: 'course-level fields flow down to tcList rows');
+      expect(volunteers[1].heldVolunteerGrade, '1');
+      expect(volunteers[1].firstVolunteers, 319);
+      expect(volunteers[1].canDelete, isTrue);
+    });
+  });
+
   group('field normalisation', () {
     test('teacher names drop ids and per-slot duplicates, keep titles', () {
       expect(teacherDisplayName('王强(副教授)|2020110185|,王强(副教授)|2020110185|'),

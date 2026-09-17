@@ -85,7 +85,7 @@ class CourseService {
         courseNatureName: (row['courseNatureName'] ?? '').toString(),
         departmentName: (row['departmentName'] ?? '').toString(),
         number: 1,
-        selected: tc.isChoose,
+        selected: tc.isHeld,
         teachingClasses: [tc],
         raw: row,
       );
@@ -133,20 +133,63 @@ class CourseService {
   }
 
   /// The student's currently-selected courses (with drop metadata).
+  ///
+  /// 正选 rounds answer on courseResult.do. 预选 rounds return nothing there;
+  /// the filed volunteers live on volunteerResult.do (course rows with a
+  /// tcList, experiment classes flagged isTest) and publicCourseResult.do
+  /// (flat 通识 rows), which the official selectedvolunteer page reads both of.
   Future<List<TeachingClass>> fetchSelected({
     required String studentCode,
     required String batchCode,
+    bool volunteerRound = false,
   }) async {
-    final res = await _client.getJson(
-      Api.courseResult,
-      query: buildSelectedCourseParam(
-          studentCode: studentCode, electiveBatchCode: batchCode),
-    );
-    if (!res.ok) return [];
-    return res.dataList
-        .whereType<Map>()
-        .map((e) => TeachingClass.fromJson(e.cast<String, dynamic>()))
-        .toList();
+    final query = buildSelectedCourseParam(
+        studentCode: studentCode, electiveBatchCode: batchCode);
+    if (!volunteerRound) {
+      final res = await _client.getJson(Api.courseResult, query: query);
+      if (!res.ok) return [];
+      return _classesOf(res.dataList);
+    }
+    final results = await Future.wait([
+      _client.getJson(Api.volunteerResult, query: query),
+      _client.getJson(Api.publicCourseResult, query: query),
+    ]);
+    final out = <TeachingClass>[];
+    final seen = <String>{};
+    for (final res in results) {
+      if (!res.ok) continue;
+      for (final tc in _classesOf(res.dataList)) {
+        if (tc.isTestClass) continue;
+        if (seen.add(tc.teachingClassId)) out.add(tc);
+      }
+    }
+    return out;
+  }
+
+  /// Flattens rows that are either teaching classes or courses with tcList.
+  static List<TeachingClass> _classesOf(List<dynamic> rows) {
+    final out = <TeachingClass>[];
+    for (final row in rows.whereType<Map>()) {
+      final m = row.cast<String, dynamic>();
+      final tcs = m['tcList'];
+      if (tcs is List) {
+        for (final t in tcs.whereType<Map>()) {
+          // Carry course-level names down so a class row reads like the others.
+          final tm = t.cast<String, dynamic>();
+          out.add(TeachingClass.fromJson({
+            'courseName': m['courseName'],
+            'courseNumber': m['courseNumber'],
+            'courseNatureName': m['courseNatureName'],
+            'departmentName': m['departmentName'],
+            'credit': m['credit'],
+            ...tm,
+          }));
+        }
+      } else {
+        out.add(TeachingClass.fromJson(m));
+      }
+    }
+    return out;
   }
 
   /// Refreshes live capacity for one teaching class. Returns the updated class,

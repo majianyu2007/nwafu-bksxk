@@ -361,6 +361,15 @@ class TeachingClass {
   /// 第一志愿), '' when not selected in a 预选 round.
   String get heldVolunteerGrade => chooseVolunteer;
 
+  /// The student holds this class: selected (isChoose) in 正选 rounds, or a
+  /// filed volunteer (chooseVolunteer) in 预选 rounds, where the list rows
+  /// carry the grade but not isChoose.
+  bool get isHeld => isChoose || chooseVolunteer.isNotEmpty;
+
+  /// Experiment (实验) class attached to a lecture class; the official
+  /// selected-volunteer page hides these from the list.
+  bool get isTestClass => _flag(raw['isTest']);
+
   /// Whether the server gave us any capacity figures at all. Whole-school
   /// (QXKC) rows carry null capacity/selected, so "0/0" there means unknown,
   /// not full.

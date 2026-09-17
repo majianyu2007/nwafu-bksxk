@@ -43,6 +43,13 @@ class Api {
 
   // ---- Selected / records ----
   static const courseResult = '/sys/xsxkapp/elective/courseResult.do';
+
+  /// 预选 rounds keep filed volunteers here instead of courseResult.do:
+  /// volunteerResult.do = course rows with tcList (方案内 etc.),
+  /// publicCourseResult.do = flat rows for 通识/公选 classes.
+  static const volunteerResult = '/sys/xsxkapp/elective/volunteerResult.do';
+  static const publicCourseResult =
+      '/sys/xsxkapp/elective/publicCourseResult.do';
   static const returnResults = '/sys/xsxkapp/elective/returnResults.do';
   static const unsuccessful = '/sys/xsxkapp/elective/unsuccessful.do';
   static const studentQueue = '/sys/xsxkapp/elective/queryStudentQueue.do';

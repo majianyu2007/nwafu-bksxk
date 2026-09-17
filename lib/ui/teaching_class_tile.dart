@@ -84,7 +84,7 @@ class TeachingClassTile extends StatelessWidget {
                   ],
                 ),
               ),
-              if (tc.isChoose)
+              if (tc.isHeld)
                 StatusPill(
                     label: volunteerRound && tc.heldVolunteerGrade.isNotEmpty
                         ? '第${tc.heldVolunteerGrade}志愿'
@@ -163,7 +163,7 @@ class TeachingClassTile extends StatelessWidget {
                 ),
               ],
             )
-          else if (tc.isChoose)
+          else if (tc.isHeld)
             SizedBox(
               width: double.infinity,
               child: FilledButton.tonalIcon(
