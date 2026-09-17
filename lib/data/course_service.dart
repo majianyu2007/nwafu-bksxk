@@ -181,23 +181,6 @@ class CourseService {
         .toList();
   }
 
-  /// Runs the pre-selection eligibility check (canchoose.do).
-  Future<ApiResult> canChoose({
-    required TeachingClass tc,
-    required String studentCode,
-    required String batchCode,
-  }) {
-    return _client.getJson(
-      Api.canChoose,
-      query: buildCanChooseQuery(
-        studentCode: studentCode,
-        teachingClassId: tc.teachingClassId,
-        electiveBatchCode: batchCode,
-        timestamp: ApiClient.nowStamp(),
-      ),
-    );
-  }
-
   // ---- Schedule (teachingTime / noArranged) ----
 
   /// Fetches the student's arranged schedule (teachingTime.do) for [batchCode].

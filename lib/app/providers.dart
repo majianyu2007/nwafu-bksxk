@@ -449,24 +449,6 @@ class SessionController extends StateNotifier<SessionState> {
     }
   }
 
-  /// Logs in a saved account using its stored password (still needs a captcha).
-  Future<void> loginSavedAccount({
-    required Account account,
-    required String verifyCode,
-    required String vtoken,
-  }) async {
-    final pw = await _storage.passwordFor(account.id);
-    if (pw == null) {
-      throw LoginException('0', '未找到该账号的已保存密码，请重新登录');
-    }
-    await login(
-      loginName: account.loginName,
-      password: pw,
-      verifyCode: verifyCode,
-      vtoken: vtoken,
-    );
-  }
-
   Future<void> setActiveBatch(ElectiveBatch batch) async {
     final changed = state.activeBatch?.code != batch.code;
     _mgr.activeBatch = batch;

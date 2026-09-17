@@ -8,6 +8,7 @@ import '../app/providers.dart';
 import '../data/models.dart';
 import '../data/notifications.dart';
 import 'layout.dart';
+import 'weekly_timetable.dart';
 import 'widgets.dart';
 
 /// Loads selected courses for the active session.
@@ -155,16 +156,7 @@ class SelectedPage extends ConsumerWidget {
           items.add(
               const EmptyState(icon: Icons.calendar_month, title: '还没有课表数据'));
         } else {
-          items.add(AdaptiveGrid(
-            minColumnWidth: 360,
-            maxColumns: 3,
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final group in _groupSchedule(list))
-                _ScheduleCard(group: group),
-            ],
-          ));
+          items.add(WeeklyTimetable(entries: list));
           items.add(const SizedBox(height: 8));
         }
       },
@@ -427,150 +419,6 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
 // ---------------------------------------------------------------------------
 // Schedule entry card
 // ---------------------------------------------------------------------------
-
-/// teachingTime.do returns one row per (class, weekday, week pattern), so a
-/// two-slot course arrives as several near-identical rows. Group them by
-/// teaching class and show each slot on its own line, like a timetable.
-class _ScheduleGroup {
-  _ScheduleGroup(this.first);
-  final ScheduleEntry first;
-  final List<ScheduleEntry> slots = [];
-}
-
-List<_ScheduleGroup> _groupSchedule(List<ScheduleEntry> entries) {
-  final groups = <String, _ScheduleGroup>{};
-  for (final e in entries) {
-    final key = e.teachingClassId.isNotEmpty
-        ? e.teachingClassId
-        : '${e.courseNumber}:${e.courseIndex}';
-    final g = groups.putIfAbsent(key, () => _ScheduleGroup(e));
-    if (e.hasSlot) g.slots.add(e);
-  }
-  for (final g in groups.values) {
-    g.slots.sort((a, b) {
-      final d = a.dayOfWeek.compareTo(b.dayOfWeek);
-      if (d != 0) return d;
-      final sec = a.beginSection.compareTo(b.beginSection);
-      if (sec != 0) return sec;
-      return a.weeks.isEmpty || b.weeks.isEmpty
-          ? 0
-          : a.weeks.first.compareTo(b.weeks.first);
-    });
-  }
-  return groups.values.toList();
-}
-
-class _ScheduleCard extends StatelessWidget {
-  const _ScheduleCard({required this.group});
-  final _ScheduleGroup group;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final e = group.first;
-    final meta = [
-      if (e.courseIndex.isNotEmpty) '[${e.courseIndex}]',
-      if (e.teacherName.isNotEmpty) e.teacherName,
-    ].join(' ');
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(e.courseName,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-            if (meta.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(meta,
-                  style:
-                      TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
-            ],
-            const SizedBox(height: 8),
-            if (group.slots.isEmpty)
-              Row(
-                children: [
-                  Icon(Icons.schedule, size: 15, color: scheme.error),
-                  const SizedBox(width: 6),
-                  Text(e.isUnarranged ? '未排课' : '时间待定',
-                      style: TextStyle(fontSize: 12, color: scheme.error)),
-                ],
-              )
-            else
-              for (final slot in group.slots)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.schedule,
-                          size: 15, color: scheme.onSurfaceVariant),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          [
-                            slot.slotLabel,
-                            if (slot.weekName.isNotEmpty) slot.weekName,
-                            if (slot.teachingPlace.isNotEmpty)
-                              slot.teachingPlace,
-                          ].join(' · '),
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            if (e.credit.isNotEmpty || e.hours.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Row(
-                  children: [
-                    if (e.credit.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: scheme.primaryContainer,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text('${e.credit}学分',
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: scheme.onPrimaryContainer)),
-                      ),
-                    if (e.credit.isNotEmpty && e.hours.isNotEmpty)
-                      const SizedBox(width: 6),
-                    if (e.hours.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: scheme.secondaryContainer,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text('${e.hours}学时',
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: scheme.onSecondaryContainer)),
-                      ),
-                  ],
-                ),
-              ),
-            if (e.examTime.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text('考试: ${e.examTime}',
-                    style: TextStyle(
-                        fontSize: 11, color: scheme.onSurfaceVariant)),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Unsuccessful card
