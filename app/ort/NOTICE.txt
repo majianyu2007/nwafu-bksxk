@@ -1,0 +1,10 @@
+onnxruntime-web (ort.min.js, ort-wasm-simd.wasm)
+================================================
+ONNX Runtime Web, © Microsoft, MIT License
+https://github.com/microsoft/onnxruntime  (https://opensource.org/licenses/MIT)
+
+Bundled locally (single-threaded SIMD build) so the web app runs the captcha OCR
+fully offline and only connects to bksxk.nwafu.edu.cn. Loaded by web/index.html,
+which sets ort.env.wasm.numThreads=1 and wasmPaths='ort/'. These files originate
+from the ONNX Runtime Web distribution as packaged in the AutoVerify extension
+(used with the author's permission).
