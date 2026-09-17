@@ -88,6 +88,8 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
               onRefresh: state.loading ? null : ctrl.load,
               wide: wide,
             ),
+            if (state.rows.isNotEmpty)
+              _FilterBar(state: state, onChanged: ctrl.setFilters),
             if (state.loading && state.rows.isNotEmpty)
               const LinearProgressIndicator(minHeight: 2),
             if (state.error != null && state.rows.isNotEmpty)
@@ -136,6 +138,13 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
         subtitle: '换一个课程类型或关键字试试。当前轮次可能未开放该类别。',
       );
     }
+    if (state.visibleRows.isEmpty) {
+      return const EmptyState(
+        icon: Icons.filter_alt_off_outlined,
+        title: '筛选条件下没有课程',
+        subtitle: '放宽上方的筛选条件。',
+      );
+    }
     return null;
   }
 
@@ -147,10 +156,10 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
       onRefresh: ctrl.load,
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 88),
-        itemCount: state.rows.length,
+        itemCount: state.visibleRows.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (context, i) =>
-            _CourseCard(row: state.rows[i], kind: state.kind),
+            _CourseCard(row: state.visibleRows[i], kind: state.kind),
       ),
     );
   }
@@ -160,7 +169,7 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
     final placeholder = _placeholder(state, ctrl);
     if (placeholder != null) return placeholder;
 
-    final rows = state.rows;
+    final rows = state.visibleRows;
     // Keep the selection if it still exists; otherwise fall back to the first
     // course so the detail pane is never blank while there is data.
     CourseRow? selected;
@@ -646,7 +655,10 @@ class _CourseListTile extends StatelessWidget {
   static String _meta(CourseRow row) => [
         row.courseNumber,
         if (row.credit.isNotEmpty) '${row.credit}学分',
-        if (row.courseNatureName.isNotEmpty) row.courseNatureName,
+        if (row.publicCourseType.isNotEmpty)
+          row.publicCourseType
+        else if (row.courseNatureName.isNotEmpty)
+          row.courseNatureName,
         if (row.departmentName.isNotEmpty) row.departmentName,
       ].join(' · ');
 }
@@ -822,6 +834,121 @@ class _CourseCardState extends ConsumerState<_CourseCard>
                 busy: _busyClassId == tc.teachingClassId,
               ),
         ],
+      ),
+    );
+  }
+}
+
+/// Chips that narrow the loaded list: 通识类别 and 开课单位 (course facets),
+/// plus 无冲突 / 有余量 / 网课 switches. Mirrors the official page's selects,
+/// applied locally over the rows already fetched.
+class _FilterBar extends StatelessWidget {
+  const _FilterBar({required this.state, required this.onChanged});
+  final CoursesState state;
+  final ValueChanged<CourseFilters> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final f = state.filters;
+    final scheme = Theme.of(context).colorScheme;
+    final types = state.publicTypes;
+    final departments = state.departments;
+    final chips = <Widget>[
+      if (types.length > 1)
+        _FacetMenu(
+          label: '类别',
+          value: f.publicType,
+          options: types,
+          onChanged: (v) => onChanged(f.copyWith(publicType: v)),
+        ),
+      if (departments.length > 1)
+        _FacetMenu(
+          label: '开课单位',
+          value: f.department,
+          options: departments,
+          onChanged: (v) => onChanged(f.copyWith(department: v)),
+        ),
+      FilterChip(
+        label: const Text('无冲突'),
+        selected: f.hideConflict,
+        onSelected: (v) => onChanged(f.copyWith(hideConflict: v)),
+      ),
+      FilterChip(
+        label: const Text('有余量'),
+        selected: f.onlyAvailable,
+        onSelected: (v) => onChanged(f.copyWith(onlyAvailable: v)),
+      ),
+      if (state.hasOnline)
+        FilterChip(
+          label: const Text('网课'),
+          selected: f.onlyOnline,
+          onSelected: (v) => onChanged(f.copyWith(onlyOnline: v)),
+        ),
+      if (f.isActive)
+        ActionChip(
+          avatar: const Icon(Icons.clear, size: 16),
+          label: const Text('清除'),
+          onPressed: () => onChanged(const CourseFilters()),
+        ),
+    ];
+    return Container(
+      color: scheme.surface,
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: SizedBox(
+              height: 36,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: chips.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (_, i) => chips[i],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            '${state.visibleRows.length} 门课 · '
+            '${state.visibleRows.fold<int>(0, (n, r) => n + r.teachingClasses.length)} 个班',
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A dropdown-style chip for a single-choice facet.
+class _FacetMenu extends StatelessWidget {
+  const _FacetMenu({
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+  final String label;
+  final String? value;
+  final List<String> options;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String?>(
+      tooltip: label,
+      onSelected: (v) => onChanged(v == '' ? null : v),
+      itemBuilder: (context) => [
+        PopupMenuItem<String?>(value: '', child: Text('全部$label')),
+        const PopupMenuDivider(),
+        for (final o in options)
+          PopupMenuItem<String?>(value: o, child: Text(o)),
+      ],
+      child: Chip(
+        avatar: Icon(value == null ? Icons.filter_list : Icons.check, size: 16),
+        label: Text(value ?? label),
+        backgroundColor: value == null
+            ? null
+            : Theme.of(context).colorScheme.secondaryContainer,
       ),
     );
   }

@@ -67,12 +67,16 @@ class CourseService {
       pageNumber++;
       pageSize = firstPageSize;
     }
-    return rows;
+    return groupFlatRows(rows);
   }
 
-  /// QXKC rows are teaching classes; wrap each as a one-class course row.
+  /// Some endpoints return course rows with a `tcList`; others (publicCourse
+  /// for XGXK, queryCourse for QXKC) return one flat row per teaching class.
+  /// Flat rows are wrapped as single-class courses here and merged per course
+  /// number by [groupFlatRows] afterwards.
   CourseRow _asCourseRow(CourseKind kind, Map<String, dynamic> row) {
-    if (kind == CourseKind.qxkc) {
+    final flat = !row.containsKey('tcList') && row['teachingClassID'] != null;
+    if (flat) {
       final tc = TeachingClass.fromJson(row);
       return CourseRow(
         courseNumber: tc.courseNumber,
@@ -87,6 +91,45 @@ class CourseService {
       );
     }
     return CourseRow.fromJson(row);
+  }
+
+  /// Merges consecutive single-class rows that share a course number into one
+  /// course with all its classes (the official page shows flat lists, but a
+  /// course-per-card view needs them grouped). Rows that already carry a
+  /// tcList pass through untouched; order of first appearance is kept.
+  static List<CourseRow> groupFlatRows(List<CourseRow> rows) {
+    final out = <CourseRow>[];
+    final index = <String, int>{};
+    for (final row in rows) {
+      final isFlat = row.number == 1 &&
+          row.teachingClasses.length == 1 &&
+          !row.raw.containsKey('tcList');
+      final key = row.courseNumber;
+      if (!isFlat || key.isEmpty) {
+        out.add(row);
+        continue;
+      }
+      final at = index[key];
+      if (at == null) {
+        index[key] = out.length;
+        out.add(row);
+        continue;
+      }
+      final prev = out[at];
+      final classes = [...prev.teachingClasses, ...row.teachingClasses];
+      out[at] = CourseRow(
+        courseNumber: prev.courseNumber,
+        courseName: prev.courseName,
+        credit: prev.credit,
+        courseNatureName: prev.courseNatureName,
+        departmentName: prev.departmentName,
+        number: classes.length,
+        selected: prev.selected || row.selected,
+        teachingClasses: classes,
+        raw: prev.raw,
+      );
+    }
+    return out;
   }
 
   /// The student's currently-selected courses (with drop metadata).

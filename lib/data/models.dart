@@ -240,6 +240,18 @@ class CourseRow {
   final List<TeachingClass> teachingClasses;
   final Map<String, dynamic> raw;
 
+  /// 通识类别 (publicCourseTypeName), e.g. 学科前沿与科技创新-2025版; '' when
+  /// the category has none. Read from the row or its first class.
+  String get publicCourseType {
+    final own = _s(raw['publicCourseTypeName']);
+    if (own.isNotEmpty) return own;
+    for (final tc in teachingClasses) {
+      final v = _s(tc.raw['publicCourseTypeName']);
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
   factory CourseRow.fromJson(Map<String, dynamic> j) {
     final tc = (j['tcList'] as List?) ?? const [];
     return CourseRow(
@@ -422,6 +434,16 @@ class TeachingClass {
 
   /// Teaching method label.
   String get teachingMethod => _s(raw['teachingMethod']);
+
+  /// True when the class is taught (partly) online: the server labels these
+  /// 面授讲课+SPOC/MOOC or similar.
+  bool get isOnline {
+    final m = teachingMethod.toUpperCase();
+    return m.contains('MOOC') ||
+        m.contains('SPOC') ||
+        m.contains('网络') ||
+        m.contains('线上');
+  }
 
   /// Term label.
   String get schoolTerm => _s(raw['schoolTerm']);

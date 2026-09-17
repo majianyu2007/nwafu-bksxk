@@ -232,6 +232,62 @@ void main() {
     });
   });
 
+  group('flat course rows (publicCourse / queryCourse)', () {
+    Map<String, dynamic> flat(String course, String index, {String type = '学科前沿与科技创新-2025版'}) => {
+          'teachingClassID': '2026$course$index',
+          'courseNumber': course,
+          'courseName': '课程$course',
+          'courseIndex': index,
+          'credit': '1',
+          'courseNatureName': '任选',
+          'departmentName': '农学院',
+          'publicCourseTypeName': type,
+          'classCapacity': '40',
+          'numberOfSelected': '0',
+          'numberOfFirstVolunteer': '18',
+          'isFull': '0',
+          'isConflict': '1',
+          'teachingMethod': index == '02' ? '面授讲课+SPOC/MOOC' : '面授讲课',
+        };
+
+    test('one flat row per class is grouped into one course per course number', () async {
+      final client = _CannedClient({});
+      final service = CourseService(client);
+      final rows = [
+        for (final r in [flat('1010004', '01'), flat('1010004', '02'), flat('1010010', '01'), flat('1010004', '03')])
+          CourseRow.fromJson(r),
+      ];
+      // CourseRow.fromJson yields no classes for flat rows; the service wraps
+      // them first, which is what _asCourseRow does for rows without tcList.
+      expect(rows.first.teachingClasses, isEmpty, reason: 'the bug the grouping fixes');
+
+      final wrapped = [
+        for (final r in [flat('1010004', '01'), flat('1010004', '02'), flat('1010010', '01'), flat('1010004', '03')])
+          CourseRow(
+            courseNumber: r['courseNumber'] as String,
+            courseName: r['courseName'] as String,
+            credit: '1',
+            courseNatureName: '任选',
+            departmentName: '农学院',
+            number: 1,
+            selected: false,
+            teachingClasses: [TeachingClass.fromJson(r)],
+            raw: r,
+          ),
+      ];
+      final grouped = CourseService.groupFlatRows(wrapped);
+      expect(grouped.map((r) => r.courseNumber), ['1010004', '1010010']);
+      expect(grouped.first.teachingClasses.length, 3);
+      expect(grouped.first.number, 3);
+      expect(grouped.first.publicCourseType, '学科前沿与科技创新-2025版');
+      expect(grouped.first.teachingClasses[1].isOnline, isTrue);
+      expect(grouped.first.teachingClasses[0].isOnline, isFalse);
+      expect(grouped.first.teachingClasses.first.firstVolunteers, 18);
+      // service is only constructed to prove the method is reachable there
+      expect(service, isNotNull);
+    });
+  });
+
   group('field normalisation', () {
     test('teacher names drop ids and per-slot duplicates, keep titles', () {
       expect(teacherDisplayName('王强(副教授)|2020110185|,王强(副教授)|2020110185|'),
