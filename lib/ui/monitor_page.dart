@@ -1,8 +1,6 @@
-/// Monitor page: the auto-grab watch list with live status, per-watch controls,
-/// a master start/stop, and a rolling activity log.
-///
-/// On wide windows the watch cards form a grid and the activity log becomes a
-/// full-height side panel instead of a cramped strip under the list.
+/// Monitor page: the shown account's watch list with live status, per-watch
+/// controls, a start/stop button, and a rolling activity log. On wide windows
+/// the log becomes a side panel.
 library;
 
 import 'package:flutter/material.dart';
@@ -10,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/monitor_providers.dart';
 import '../app/providers.dart';
+import '../core/constants.dart';
+import '../data/models.dart';
 import '../data/monitor_engine.dart';
 import '../data/param_builders.dart';
 import 'courses_page.dart';
@@ -27,11 +27,13 @@ class MonitorPage extends ConsumerWidget {
     final watches = ref.watch(watchesProvider);
     final running = ref.watch(monitorRunningProvider);
     final engine = ref.read(monitorEngineProvider);
+    final labelOf =
+        (ref.watch(sysParamsProvider).asData?.value ?? SysParams.empty).tabName;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final sideLog = constraints.maxWidth >= _kSideLogBreakpoint;
-        final list = _WatchList(watches: watches);
+        final list = _WatchList(watches: watches, labelOf: labelOf);
 
         return Column(
           children: [
@@ -44,13 +46,11 @@ class MonitorPage extends ConsumerWidget {
                   FilledButton.icon(
                     onPressed: running ? engine.stop : engine.start,
                     icon: Icon(running ? Icons.stop : Icons.play_arrow),
-                    label: Text(running ? '停止监控' : '启动监控'),
+                    label: Text(running ? '停止' : '开始监控'),
                   ),
               ],
             ),
-            const _RunningBanner(),
-            const _HaltReasonBanner(),
-            const _PlanBanner(),
+            const _StatusStrip(),
             Expanded(
               child: sideLog
                   ? Row(
@@ -78,16 +78,17 @@ class MonitorPage extends ConsumerWidget {
 }
 
 class _WatchList extends StatelessWidget {
-  const _WatchList({required this.watches});
+  const _WatchList({required this.watches, required this.labelOf});
   final List<Watch> watches;
+  final String Function(CourseKind) labelOf;
 
   @override
   Widget build(BuildContext context) {
     if (watches.isEmpty) {
       return const EmptyState(
         icon: Icons.radar,
-        title: '还没有监控课程',
-        subtitle: '在「选课」页找到心仪的教学班，点击「监控抢课」加入。有人退课时会自动抢占。',
+        title: '还没有监控的课程',
+        subtitle: '在「选课」页给教学班点「加入监控」，有人退课时自动补上。',
       );
     }
     return ListView(
@@ -98,44 +99,45 @@ class _WatchList extends StatelessWidget {
           maxColumns: 3,
           spacing: 10,
           runSpacing: 10,
-          children: [for (final w in watches) _WatchCard(watch: w)],
+          children: [
+            for (final w in watches)
+              _WatchCard(watch: w, categoryLabel: labelOf(w.kind)),
+          ],
         ),
       ],
     );
   }
 }
 
-class _RunningBanner extends ConsumerWidget {
-  const _RunningBanner();
+/// One strip that says what the engine is doing: running, waiting for the
+/// round to open, or why it stopped on its own.
+class _StatusStrip extends ConsumerWidget {
+  const _StatusStrip();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final running = ref.watch(monitorRunningProvider);
-    final plan = ref.watch(planControllerProvider);
-    final scheme = Theme.of(context).colorScheme;
-    if (!running) return const SizedBox.shrink();
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.green.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          const _PulsingDot(),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              plan.armed && !plan.batchOpen
-                  ? '正在监控容量，等待轮次开放后自动提交'
-                  : '正在监控课程容量，发现空位将立即提交',
-              style: TextStyle(color: scheme.onSurface, fontSize: 13),
-            ),
-          ),
-        ],
-      ),
-    );
+    final plan = ref.watch(planStateProvider);
+    final engine = ref.read(monitorEngineProvider);
+    if (running) {
+      final waiting = plan.armed && !plan.batchOpen;
+      return NoticeStrip(
+        icon: Icons.radar,
+        text: waiting
+            ? '监控中，等轮次开放后再提交${plan.lastCheckedAt != null ? '（上次检查 ${formatClock(plan.lastCheckedAt!)}）' : ''}'
+            : '监控中，发现空位立即提交',
+      );
+    }
+    final reason = engine.stopReason;
+    if (reason != null) {
+      return NoticeStrip(
+          icon: Icons.pause_circle_outline, error: true, text: '已自动停止：$reason');
+    }
+    if (plan.armed) {
+      return const NoticeStrip(
+          icon: Icons.schedule, text: '计划模式：开始监控后，等轮次开放再提交');
+    }
+    return const SizedBox.shrink();
   }
 }
 
@@ -144,152 +146,43 @@ class _ModeSelector extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final plan = ref.watch(planControllerProvider);
-    final controller = ref.read(planControllerProvider.notifier);
+    final plan = ref.watch(planStateProvider);
+    final id = ref.watch(activeAccountIdProvider);
+    if (id == null) return const SizedBox.shrink();
+    final controller = ref.read(planControllerOfProvider(id).notifier);
     return PopupMenuButton<String>(
-      tooltip: '选择监控模式',
-      onSelected: (value) {
-        if (value == 'wait') {
-          controller.arm();
-        } else {
-          controller.disarm();
-        }
-      },
+      tooltip: '提交时机',
+      onSelected: (value) =>
+          value == 'wait' ? controller.arm() : controller.disarm(),
       itemBuilder: (context) => const [
         PopupMenuItem(
           value: 'now',
           child: ListTile(
             leading: Icon(Icons.bolt_outlined),
-            title: Text('立即抢课'),
-            subtitle: Text('发现空位立即提交'),
+            title: Text('有空位立即提交'),
           ),
         ),
         PopupMenuItem(
           value: 'wait',
           child: ListTile(
             leading: Icon(Icons.schedule),
-            title: Text('等待轮次开放'),
-            subtitle: Text('开放后再自动提交'),
+            title: Text('等轮次开放再提交'),
           ),
         ),
       ],
       child: Chip(
         avatar:
             Icon(plan.armed ? Icons.schedule : Icons.bolt_outlined, size: 18),
-        label: Text(plan.armed ? '等待开放' : '立即抢课'),
+        label: Text(plan.armed ? '等待开放' : '立即提交'),
       ),
-    );
-  }
-}
-
-class _PlanBanner extends ConsumerWidget {
-  const _PlanBanner();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final plan = ref.watch(planControllerProvider);
-    final scheme = Theme.of(context).colorScheme;
-    if (!plan.armed) return const SizedBox.shrink();
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: scheme.tertiaryContainer,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(plan.checking ? Icons.sync : Icons.schedule,
-              color: scheme.onTertiaryContainer, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('计划模式已就绪',
-                    style: TextStyle(
-                        color: scheme.onTertiaryContainer,
-                        fontWeight: FontWeight.w700)),
-                Text(
-                  plan.batchOpen
-                      ? '选课已开放，正在提交计划'
-                      : '正在等待选课开放，一旦开放立即提交${plan.lastCheckedAt != null ? '（上次检查 ${_fmtHms(plan.lastCheckedAt!)}）' : ''}',
-                  style: TextStyle(
-                      color: scheme.onTertiaryContainer, fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static String _fmtHms(DateTime t) =>
-      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';
-}
-
-class _HaltReasonBanner extends ConsumerWidget {
-  const _HaltReasonBanner();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    ref.watch(monitorChangesProvider);
-    final engine = ref.read(monitorEngineProvider);
-    final reason = engine.stopReason;
-    final scheme = Theme.of(context).colorScheme;
-    if (reason == null || engine.isRunning) return const SizedBox.shrink();
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: scheme.errorContainer,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.pause_circle, color: scheme.onErrorContainer, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text('监控已自动停止：$reason。请稍后手动重新启动。',
-                style: TextStyle(color: scheme.onErrorContainer, fontSize: 13)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PulsingDot extends StatefulWidget {
-  const _PulsingDot();
-  @override
-  State<_PulsingDot> createState() => _PulsingDotState();
-}
-
-class _PulsingDotState extends State<_PulsingDot>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 900))
-    ..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: Tween(begin: 0.4, end: 1.0).animate(_c),
-      child: const Icon(Icons.circle, size: 12, color: Colors.green),
     );
   }
 }
 
 class _WatchCard extends ConsumerWidget {
-  const _WatchCard({required this.watch});
+  const _WatchCard({required this.watch, required this.categoryLabel});
   final Watch watch;
+  final String categoryLabel;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -297,9 +190,9 @@ class _WatchCard extends ConsumerWidget {
     final engine = ref.read(monitorEngineProvider);
     final tc = watch.teachingClass;
     final (color, label, icon) = _statusVisual(watch.status, scheme);
+    final platform = tc.onlinePlatform;
 
     return Card(
-      margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -308,7 +201,7 @@ class _WatchCard extends ConsumerWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(watch.teachingClass.courseName,
+                  child: Text(tc.courseName,
                       style: const TextStyle(
                           fontWeight: FontWeight.w700, fontSize: 15)),
                 ),
@@ -318,30 +211,34 @@ class _WatchCard extends ConsumerWidget {
             const SizedBox(height: 2),
             Text(tc.displayTitle,
                 style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
-            if (tc.teachingPlace.isNotEmpty)
-              Text(tc.teachingPlace,
-                  style:
-                      TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
-            if (watch.volunteerGrade != null || tc.isConflict) ...[
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  if (watch.volunteerGrade != null)
-                    StatusPill(
-                        label: '第${watch.volunteerGrade}志愿',
-                        color: scheme.primary,
-                        icon: Icons.how_to_vote_outlined),
-                  if (tc.isConflict)
-                    StatusPill(
-                        label: watch.allowConflict ? '冲突·仍会提交' : '冲突·只监控不提交',
-                        color:
-                            watch.allowConflict ? Colors.orange : scheme.error,
-                        icon: Icons.warning_amber),
-                ],
-              ),
-            ],
+            Text(
+              tc.teachingPlace.isNotEmpty
+                  ? tc.teachingPlace
+                  : platform.isNotEmpty
+                      ? '$platform 网课'
+                      : '',
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                StatusPill(label: categoryLabel, color: scheme.secondary),
+                if (tc.publicCourseType.isNotEmpty)
+                  StatusPill(label: tc.publicCourseType, color: scheme.tertiary),
+                if (watch.volunteerGrade != null)
+                  StatusPill(
+                      label: '第${watch.volunteerGrade}志愿',
+                      color: scheme.primary,
+                      icon: Icons.how_to_vote_outlined),
+                if (tc.isConflict)
+                  StatusPill(
+                      label: watch.allowConflict ? '冲突，仍会提交' : '冲突，只监控',
+                      color: watch.allowConflict ? Colors.orange : scheme.error,
+                      icon: Icons.warning_amber),
+              ],
+            ),
             const SizedBox(height: 10),
             CapacityBar(
                 selected: tc.numberOfSelected, capacity: tc.classCapacity),
@@ -352,14 +249,14 @@ class _WatchCard extends ConsumerWidget {
             if (watch.lastCheckedAt != null) ...[
               const SizedBox(height: 4),
               Text(
-                  '上次检查：${_fmtTime(watch.lastCheckedAt!)} · 已尝试 ${watch.attempts} 次',
+                  '上次检查 ${formatClock(watch.lastCheckedAt!)}  已提交 ${watch.attempts} 次',
                   style:
                       TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
             ],
             if (watch.lastResultAt != null && watch.lastRawResult != null) ...[
               const SizedBox(height: 2),
               Text(
-                  '服务器回执：${watch.lastRawResult} (${_fmtTime(watch.lastResultAt!)})',
+                  '服务器回复 ${formatClock(watch.lastResultAt!)}：${watch.lastRawResult}',
                   style:
                       TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
             ],
@@ -371,13 +268,13 @@ class _WatchCard extends ConsumerWidget {
                     child: FilledButton.tonalIcon(
                       onPressed: () => _completeSetup(context, ref, watch),
                       icon: const Icon(Icons.build_outlined, size: 18),
-                      label: const Text('去完成选择'),
+                      label: const Text('完成选择'),
                     ),
                   )
                 else if (watch.status == WatchStatus.grabbed)
                   const Expanded(
                       child: Center(
-                          child: Text('🎉 已抢到',
+                          child: Text('已抢到',
                               style: TextStyle(fontWeight: FontWeight.w700))))
                 else ...[
                   if (watch.status == WatchStatus.paused)
@@ -417,7 +314,7 @@ class _WatchCard extends ConsumerWidget {
       case WatchStatus.watching:
         return (scheme.primary, '监控中', Icons.radar);
       case WatchStatus.grabbing:
-        return (Colors.orange, '抢课中', Icons.bolt);
+        return (Colors.orange, '提交中', Icons.bolt);
       case WatchStatus.grabbed:
         return (Colors.green, '已抢到', Icons.check_circle);
       case WatchStatus.paused:
@@ -425,7 +322,7 @@ class _WatchCard extends ConsumerWidget {
       case WatchStatus.needsSetup:
         return (Colors.amber.shade800, '待完善', Icons.error_outline);
       case WatchStatus.failed:
-        return (scheme.error, '失败', Icons.cancel);
+        return (scheme.error, '已停止', Icons.cancel);
     }
   }
 
@@ -446,7 +343,7 @@ class _WatchCard extends ConsumerWidget {
         );
         if (!context.mounted) return;
         if (rows.isEmpty) {
-          showToast(context, '未获取到可选实验教学班', success: false);
+          showToast(context, '没有可选的实验教学班', success: false);
           return;
         }
         testId = await showAdaptiveSheet<String>(
@@ -470,7 +367,7 @@ class _WatchCard extends ConsumerWidget {
         ];
         if (!context.mounted) return;
         if (options.isEmpty) {
-          showToast(context, '未获取到教材清单，暂时无法完成设置', success: false);
+          showToast(context, '没有教材清单，暂时无法完成', success: false);
           return;
         }
         final selection = await showAdaptiveSheet<TextbookSelection>(
@@ -490,18 +387,15 @@ class _WatchCard extends ConsumerWidget {
       final complete = watch.status != WatchStatus.needsSetup;
       showToast(
         context,
-        complete ? '选择已保存，课程已恢复监控' : watch.note,
+        complete ? '已保存，继续监控' : watch.note,
         success: complete,
       );
     } catch (error) {
       if (context.mounted) {
-        showToast(context, '加载选项失败：$error', success: false);
+        showToast(context, '加载失败：$error', success: false);
       }
     }
   }
-
-  static String _fmtTime(DateTime t) =>
-      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';
 }
 
 /// The rolling activity log. As a [panel] it fills its column and always shows
@@ -514,6 +408,7 @@ class _ActivityLog extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final events = ref.watch(monitorLogProvider);
+    final id = ref.watch(activeAccountIdProvider);
     if (!panel && events.isEmpty) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
 
@@ -535,19 +430,19 @@ class _ActivityLog extends ConsumerWidget {
               Icon(Icons.receipt_long,
                   size: 16, color: scheme.onSurfaceVariant),
               const SizedBox(width: 6),
-              Text('活动日志',
+              Text('日志',
                   style: TextStyle(
                       fontSize: 12,
                       color: scheme.onSurfaceVariant,
                       fontWeight: FontWeight.w700)),
               const Spacer(),
-              if (events.isNotEmpty)
+              if (events.isNotEmpty && id != null)
                 IconButton(
                   visualDensity: VisualDensity.compact,
                   iconSize: 16,
-                  tooltip: '清空日志',
+                  tooltip: '清空',
                   onPressed: () =>
-                      ref.read(monitorLogProvider.notifier).clear(),
+                      ref.read(monitorLogOfProvider(id).notifier).clear(),
                   icon: const Icon(Icons.clear_all),
                 ),
             ],
@@ -556,7 +451,7 @@ class _ActivityLog extends ConsumerWidget {
           Expanded(
             child: events.isEmpty
                 ? Center(
-                    child: Text('监控启动后，抢课过程会记录在这里',
+                    child: Text('开始监控后，过程会记录在这里',
                         style: TextStyle(
                             fontSize: 12, color: scheme.onSurfaceVariant)),
                   )
@@ -571,8 +466,7 @@ class _ActivityLog extends ConsumerWidget {
                               : scheme.error;
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Text(
-                            '${_WatchCard._fmtTime(e.at)}  ${e.message}',
+                        child: Text('${formatClock(e.at)}  ${e.message}',
                             style: TextStyle(fontSize: 12, color: c)),
                       );
                     },

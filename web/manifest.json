@@ -1,35 +1,17 @@
 {
-    "name": "nwafu_bksxk",
-    "short_name": "nwafu_bksxk",
+    "name": "西农本科选课",
+    "short_name": "西农选课",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#f6f7fb",
+    "theme_color": "#3B6FE0",
+    "description": "西北农林科技大学本科选课客户端",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
-        {
-            "src": "icons/Icon-192.png",
-            "sizes": "192x192",
-            "type": "image/png"
-        },
-        {
-            "src": "icons/Icon-512.png",
-            "sizes": "512x512",
-            "type": "image/png"
-        },
-        {
-            "src": "icons/Icon-maskable-192.png",
-            "sizes": "192x192",
-            "type": "image/png",
-            "purpose": "maskable"
-        },
-        {
-            "src": "icons/Icon-maskable-512.png",
-            "sizes": "512x512",
-            "type": "image/png",
-            "purpose": "maskable"
-        }
+        {"src": "icons/Icon-192.png", "sizes": "192x192", "type": "image/png"},
+        {"src": "icons/Icon-512.png", "sizes": "512x512", "type": "image/png"},
+        {"src": "icons/Icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+        {"src": "icons/Icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
     ]
 }

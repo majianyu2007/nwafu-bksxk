@@ -66,9 +66,9 @@ void main() {
       () async {
     final (mgr, auth, client) = build(['3', '3', '3', '3', '3']);
     var failed = 0;
-    String? succeededWith;
+    var succeeded = 0;
     mgr.onSilentReloginFailed = () => failed++;
-    mgr.onSilentReloginSucceeded = (t) => succeededWith = t;
+    mgr.onSilentReloginSucceeded = () => succeeded++;
 
     final token = await client.onSessionExpired!();
 
@@ -76,7 +76,7 @@ void main() {
     expect(auth.loginCalls, 3);
     expect(auth.captchaFetches, 3);
     expect(failed, 1);
-    expect(succeededWith, isNull);
+    expect(succeeded, 0);
   });
 
   test('a budget of 0 asks the user immediately without touching the server',
@@ -94,16 +94,16 @@ void main() {
   test('a misread captcha is retried within the budget and success is reported',
       () async {
     final (mgr, auth, client) = build(['3', 'fresh-token']);
-    String? succeededWith;
+    var succeeded = 0;
     var failed = 0;
-    mgr.onSilentReloginSucceeded = (t) => succeededWith = t;
+    mgr.onSilentReloginSucceeded = () => succeeded++;
     mgr.onSilentReloginFailed = () => failed++;
 
     final token = await client.onSessionExpired!();
 
     expect(token, 'fresh-token');
     expect(auth.loginCalls, 2);
-    expect(succeededWith, 'fresh-token');
+    expect(succeeded, 1);
     expect(failed, 0);
   });
 
@@ -123,5 +123,67 @@ void main() {
     expect(storage.silentReloginAttempts(), 3);
     await storage.setSilentReloginAttempts(0);
     expect(storage.silentReloginAttempts(), 0);
+  });
+
+  settingsTests();
+
+  test('with the guard on, a session kicked again right after a silent re-login is left alone',
+      () async {
+    // Verified live 2026-09-18: one session per account, so re-logging in
+    // would kick whoever is using the account elsewhere, every heartbeat.
+    final (mgr, auth, client) = build(['tok-1', 'tok-2'], attempts: 3);
+    mgr.contestedGuardEnabled = true;
+    var failed = 0;
+    mgr.onSilentReloginFailed = () => failed++;
+
+    expect(await client.onSessionExpired!(), 'tok-1');
+    expect(mgr.contested, isFalse);
+
+    expect(await client.onSessionExpired!(), isNull);
+    expect(auth.loginCalls, 1, reason: 'no second login within the window');
+    expect(mgr.contested, isTrue);
+    expect(failed, 1);
+
+    // A deliberate login by the user resets the guard.
+    mgr.rememberCredentials('user', 'pw');
+    expect(mgr.contested, isFalse);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Settings the user asked for: a master switch, a failure reason for the
+// dialog, and a contested-session guard that is off unless enabled.
+// ---------------------------------------------------------------------------
+void settingsTests() {
+  test('the master switch off asks the user at once with a reason', () async {
+    final (mgr, auth, client) = build(['tok']);
+    mgr.silentReloginEnabled = false;
+    var failed = 0;
+    mgr.onSilentReloginFailed = () => failed++;
+    expect(await client.onSessionExpired!(), isNull);
+    expect(auth.loginCalls, 0);
+    expect(failed, 1);
+    expect(mgr.lastFailure, '自动重新登录已关闭');
+  });
+
+  test('exhausting the captcha budget reports how many misreads', () async {
+    final (mgr, _, client) = build(['3', '3', '3'], attempts: 3);
+    expect(await client.onSessionExpired!(), isNull);
+    expect(mgr.lastFailure, contains('3 次'));
+    expect(mgr.lastFailure, contains('识别错 3 次'));
+  });
+
+  test('a wrong password is reported verbatim', () async {
+    final (mgr, _, client) = build(['2']);
+    expect(await client.onSessionExpired!(), isNull);
+    expect(mgr.lastFailure, '登录名或密码不正确');
+  });
+
+  test('the contested guard is off by default: every kick re-logs in', () async {
+    final (mgr, auth, client) = build(['tok-1', 'tok-2']);
+    expect(await client.onSessionExpired!(), 'tok-1');
+    expect(await client.onSessionExpired!(), 'tok-2');
+    expect(auth.loginCalls, 2);
+    expect(mgr.contested, isFalse);
   });
 }

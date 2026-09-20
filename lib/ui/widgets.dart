@@ -15,7 +15,7 @@ class StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(999),
@@ -30,7 +30,7 @@ class StatusPill extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-                color: color, fontSize: 12, fontWeight: FontWeight.w700),
+                color: color, fontSize: 12, fontWeight: FontWeight.w600),
           ),
         ],
       ),
@@ -63,27 +63,9 @@ class CapacityBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     if (!known) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: 0,
-              minHeight: height,
-              backgroundColor: scheme.surfaceContainerHighest,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '余量未知',
-            style: TextStyle(
-              fontSize: 12,
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
+      return Text(
+        '余量以所属类别页面为准',
+        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
       );
     }
     final ratio = capacity <= 0 ? 1.0 : (selected / capacity).clamp(0.0, 1.0);
@@ -110,7 +92,7 @@ class CapacityBar extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           '${label == null ? '' : '$label '}'
-          '${full ? '已满 $selected/$capacity' : '余 $remaining · $selected/$capacity'}',
+          '${full ? '已满 $selected/$capacity' : '余 $remaining  $selected/$capacity'}',
           style: TextStyle(
             fontSize: 12,
             color: full ? scheme.error : scheme.onSurfaceVariant,
@@ -140,9 +122,9 @@ class EmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon,
-                size: 56,
+                size: 48,
                 color: scheme.onSurfaceVariant.withValues(alpha: 0.5)),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Text(title,
                 style: Theme.of(context).textTheme.titleMedium,
                 textAlign: TextAlign.center),
@@ -156,6 +138,78 @@ class EmptyState extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A one-line notice strip (warning / info) used above lists.
+class NoticeStrip extends StatelessWidget {
+  const NoticeStrip({
+    super.key,
+    required this.text,
+    required this.icon,
+    this.error = false,
+    this.action,
+    this.margin = const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+  });
+  final String text;
+  final IconData icon;
+  final bool error;
+  final Widget? action;
+  final EdgeInsetsGeometry margin;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final bg = error ? scheme.errorContainer : scheme.surfaceContainerHigh;
+    final fg = error ? scheme.onErrorContainer : scheme.onSurface;
+    return Container(
+      margin: margin,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: fg),
+          const SizedBox(width: 10),
+          Expanded(child: Text(text, style: TextStyle(color: fg, fontSize: 13))),
+          if (action != null) ...[const SizedBox(width: 8), action!],
+        ],
+      ),
+    );
+  }
+}
+
+/// A key/value row for detail sheets.
+class DetailRow extends StatelessWidget {
+  const DetailRow(this.label, this.value, {super.key, this.icon});
+  final String label;
+  final String value;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    if (value.isEmpty) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 12),
+          ],
+          SizedBox(
+            width: 80,
+            child: Text(label,
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+          ),
+          Expanded(child: SelectableText(value, style: const TextStyle(fontSize: 14))),
+        ],
       ),
     );
   }
@@ -180,3 +234,7 @@ void showToast(BuildContext context, String message, {bool? success}) {
       duration: const Duration(seconds: 3),
     ));
 }
+
+/// "HH:mm:ss".
+String formatClock(DateTime t) =>
+    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';

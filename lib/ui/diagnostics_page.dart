@@ -1,8 +1,5 @@
-/// Diagnostics: connectivity probe, session state, app version, and a scrubbed
-/// activity/error log the user can copy for troubleshooting.
-///
-/// This is the "no bare 请求失败" backstop — it tells the user exactly what the
-/// client can and cannot reach, and why.
+/// Diagnostics: connectivity probe, online users, session state, version,
+/// and a scrubbed report the user can copy.
 library;
 
 import 'package:flutter/material.dart';
@@ -10,34 +7,23 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../core/constants.dart';
 import '../data/api_client.dart';
+import '../data/models.dart';
 import 'layout.dart';
 import 'widgets.dart';
-import '../data/models.dart';
 
 /// Runs a reachability probe against the configured origin.
 final reachabilityProvider =
     FutureProvider.autoDispose<ReachabilityResult>((ref) async {
-  final client = ref.watch(apiClientProvider);
-  return client.probe();
+  final origin = ref.watch(storageProvider).origin();
+  return ApiClient(origin: origin).probe();
 });
 
-/// Fetches the current online user count from the server.
-final onlineUsersProvider = FutureProvider.autoDispose<OnlineUserStats>((ref) {
-  return ref.read(infoServiceProvider).fetchOnlineUsers();
-});
-
-/// Fetches the student's course queue positions.
-final queueProvider = FutureProvider.autoDispose<List<QueueEntry>>((ref) async {
-  final s = ref.watch(sessionProvider);
-  final st = s.student;
-  final b = s.activeBatch;
-  if (st == null || b == null) return const [];
-  return ref.read(courseServiceProvider).fetchStudentQueue(
-        studentCode: st.studentCode,
-        batchCode: b.code,
-      );
-});
+/// The current online user count, from the same public endpoint the official
+/// login page shows it from.
+final onlineUsersProvider = FutureProvider.autoDispose<OnlineUserStats>(
+    (ref) => ref.watch(publicInfoServiceProvider).fetchOnlineUsers());
 
 class DiagnosticsPage extends ConsumerWidget {
   const DiagnosticsPage({super.key});
@@ -55,7 +41,10 @@ class DiagnosticsPage extends ConsumerWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(reachabilityProvider),
+            onPressed: () {
+              ref.invalidate(reachabilityProvider);
+              ref.invalidate(onlineUsersProvider);
+            },
             tooltip: '重新检测',
           ),
         ],
@@ -66,11 +55,7 @@ class DiagnosticsPage extends ConsumerWidget {
         return ListView(
           padding: EdgeInsets.fromLTRB(side, 16, side, 16),
           children: [
-            _Tile(
-              title: '选课服务器',
-              value: origin,
-              icon: Icons.dns_outlined,
-            ),
+            _Tile(title: '选课服务器', value: origin, icon: Icons.dns_outlined),
             const SizedBox(height: 12),
             probe.when(
               loading: () => const Card(
@@ -79,122 +64,38 @@ class DiagnosticsPage extends ConsumerWidget {
                       height: 20,
                       width: 20,
                       child: CircularProgressIndicator(strokeWidth: 2)),
-                  title: Text('正在检测连接…'),
+                  title: Text('正在检测'),
                 ),
               ),
               error: (e, _) => _ResultCard(
-                ok: false,
-                title: '检测失败',
-                detail: '$e',
-                hint: null,
-              ),
+                  ok: false, title: '检测失败', detail: '$e', hint: null),
               data: (r) => _ResultCard(
                 ok: r.reachable,
                 title: r.reachable ? '连接正常' : '无法连接',
                 detail: r.latency != null
-                    ? '${r.detail} · 延迟 ${r.latency!.inMilliseconds}ms'
+                    ? '${r.detail}，延迟 ${r.latency!.inMilliseconds} ms'
                     : r.detail,
                 hint: r.error?.hint,
               ),
             ),
-            const SizedBox(height: 20),
-            Text('校园网提示',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: scheme.primary, fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
             const Card(
               child: Padding(
                 padding: EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _Bullet('本系统仅在校园网环境内可用。'),
-                    _Bullet('校外请先连接学校 VPN 接入校园网，再打开本应用。'),
-                    _Bullet('若在校园网内仍无法连接，可能是当前不在选课时段或服务器维护。'),
-                  ],
-                ),
+                child: Text('选课系统只在校园网内可用，校外请先连接学校 VPN。'),
               ),
             ),
             const SizedBox(height: 20),
-            // ----- 在线人数 -----
-            Text('在线人数',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: scheme.primary, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
             ref.watch(onlineUsersProvider).when(
                   loading: () => const _Tile(
-                    title: '当前在线人数',
-                    value: '正在查询…',
-                    icon: Icons.people_outline,
-                  ),
+                      title: '在线人数', value: '查询中', icon: Icons.people_outline),
                   error: (e, _) => _Tile(
-                    title: '当前在线人数',
-                    value: '$e',
+                      title: '在线人数', value: '$e', icon: Icons.people_outline),
+                  data: (stats) => _Tile(
+                    title: '在线人数',
+                    value: stats.count > 0 ? '${stats.count} 人' : '无数据',
                     icon: Icons.people_outline,
                   ),
-                  data: (stats) {
-                    final count = stats.count;
-                    final label = count > 0 ? '$count 人' : '无可用数据';
-                    return _Tile(
-                      title: '当前在线人数',
-                      value: label,
-                      icon: Icons.people_outline,
-                      trailing: Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          // Thresholds: <5k green, 5k–15k orange, >15k red.
-                          color: count == 0
-                              ? Colors.grey.shade400
-                              : count < 5000
-                                  ? Colors.green
-                                  : count < 15000
-                                      ? Colors.orange
-                                      : Colors.red,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-            const SizedBox(height: 20),
-            // ----- 排队队列 -----
-            Text('排队队列',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: scheme.primary, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            ref.watch(queueProvider).when(
-                  loading: () => const Padding(
-                    padding: EdgeInsets.only(left: 12, top: 4, bottom: 4),
-                    child: Text('正在查询…', style: TextStyle(color: Colors.grey)),
-                  ),
-                  error: (e, _) => Padding(
-                    padding: const EdgeInsets.only(left: 12, top: 4, bottom: 4),
-                    child: Text('$e', style: TextStyle(color: scheme.error)),
-                  ),
-                  data: (entries) {
-                    if (entries.isEmpty) {
-                      return const Padding(
-                        padding: EdgeInsets.only(left: 12, top: 4, bottom: 4),
-                        child: Text(
-                          '当前没有排队中的课程（系统可能未开放排队或本轮无候补）',
-                          style: TextStyle(color: Colors.grey, fontSize: 13),
-                        ),
-                      );
-                    }
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: entries
-                          .map((e) => Card(
-                                child: ListTile(
-                                  title: Text(e.courseName),
-                                  subtitle:
-                                      Text('队列轮候：${e.queueIndex}/${e.inQueue}'),
-                                ),
-                              ))
-                          .toList(),
-                    );
-                  },
                 ),
             const SizedBox(height: 20),
             Text('会话',
@@ -211,21 +112,20 @@ class DiagnosticsPage extends ConsumerWidget {
                 },
                 icon: Icons.verified_user_outlined),
             _Tile(
-                title: '当前学号',
+                title: '学号',
                 value: session.student?.studentCode ?? '—',
                 icon: Icons.badge_outlined),
             _Tile(
-                title: '当前轮次',
+                title: '轮次',
                 value: session.activeBatch?.name ?? '—',
                 icon: Icons.event_outlined),
             const _Tile(
-                title: '客户端版本', value: '1.1.0', icon: Icons.info_outline),
+                title: '客户端版本', value: kAppVersion, icon: Icons.info_outline),
             const SizedBox(height: 20),
             FilledButton.tonalIcon(
-              onPressed: () =>
-                  _copyReport(context, ref, origin, session, probe),
+              onPressed: () => _copyReport(context, ref, origin, session, probe),
               icon: const Icon(Icons.copy_all),
-              label: const Text('复制诊断信息（已脱敏）'),
+              label: const Text('复制诊断信息'),
             ),
           ],
         );
@@ -242,7 +142,6 @@ class DiagnosticsPage extends ConsumerWidget {
   ) {
     final reach = probe.asData?.value;
     final stats = ref.read(onlineUsersProvider).asData?.value;
-    final queue = ref.read(queueProvider).asData?.value ?? <QueueEntry>[];
     // Scrub: no password, no token, no cookies; student code masked.
     final code = session.student?.studentCode ?? '';
     final maskedCode = code.length > 4
@@ -250,7 +149,7 @@ class DiagnosticsPage extends ConsumerWidget {
         : '****';
     final report = StringBuffer()
       ..writeln('# 西农本科选课 诊断报告')
-      ..writeln('client: 1.1.0')
+      ..writeln('client: $kAppVersion')
       ..writeln('origin: $origin')
       ..writeln('reachable: ${reach?.reachable ?? 'unknown'}')
       ..writeln('detail: ${reach?.detail ?? '—'}')
@@ -259,10 +158,9 @@ class DiagnosticsPage extends ConsumerWidget {
       ..writeln('phase: ${session.phase.name}')
       ..writeln('studentCode(masked): $maskedCode')
       ..writeln('online_users: ${stats?.count ?? '—'}')
-      ..writeln('queue_count: ${queue.length}')
       ..writeln('batch: ${session.activeBatch?.name ?? '—'}');
     Clipboard.setData(ClipboardData(text: report.toString()));
-    showToast(context, '诊断信息已复制到剪贴板', success: true);
+    showToast(context, '已复制', success: true);
   }
 }
 
@@ -315,15 +213,10 @@ class _ResultCard extends StatelessWidget {
 }
 
 class _Tile extends StatelessWidget {
-  const _Tile(
-      {required this.title,
-      required this.value,
-      required this.icon,
-      this.trailing});
+  const _Tile({required this.title, required this.value, required this.icon});
   final String title;
   final String value;
   final IconData icon;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -332,26 +225,6 @@ class _Tile extends StatelessWidget {
         leading: Icon(icon),
         title: Text(title),
         subtitle: Text(value),
-        trailing: trailing,
-      ),
-    );
-  }
-}
-
-class _Bullet extends StatelessWidget {
-  const _Bullet(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('·  '),
-          Expanded(child: Text(text)),
-        ],
       ),
     );
   }

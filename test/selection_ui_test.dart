@@ -36,9 +36,9 @@ void main() {
       ),
     ));
 
-    expect(find.text('满员，监控空位'), findsNothing);
+    expect(find.text('已满，监控空位'), findsNothing);
     expect(find.text('有冲突，仍要选'), findsOneWidget);
-    expect(find.text('监控余量'), findsOneWidget);
+    expect(find.text('加入监控'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.text('有冲突，仍要选'));
@@ -73,13 +73,72 @@ void main() {
       ),
     ));
 
-    expect(find.text('满员，监控空位'), findsOneWidget);
-    expect(find.text('仍要尝试'), findsOneWidget);
+    expect(find.text('已满，监控空位'), findsOneWidget);
+    expect(find.text('仍要提交'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
-    await tester.tap(find.text('满员，监控空位'));
+    await tester.tap(find.text('已满，监控空位'));
     expect(monitored, isTrue);
     expect(attempted, isFalse);
+  });
+
+  testWidgets('a watched class offers 取消监控 and shows the badge', (tester) async {
+    var toggled = false;
+    final tc = TeachingClass.fromJson({
+      'teachingClassID': 'TC-W',
+      'courseName': '课程',
+      'teacherName': '教师',
+      'classCapacity': '1',
+      'numberOfSelected': '1',
+      'isFull': '1',
+    });
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 390,
+          child: TeachingClassTile(
+            teachingClass: tc,
+            kind: CourseKind.fankc,
+            watched: true,
+            onGrab: () {},
+            onMonitor: () => toggled = true,
+            onRefresh: () async {},
+          ),
+        ),
+      ),
+    ));
+    expect(find.text('取消监控'), findsOneWidget);
+    expect(find.text('监控中'), findsOneWidget);
+    expect(find.text('已满，监控空位'), findsNothing);
+    await tester.tap(find.text('取消监控'));
+    expect(toggled, isTrue);
+  });
+
+  testWidgets('an online class shows its platform instead of a room', (tester) async {
+    final tc = TeachingClass.fromJson({
+      'teachingClassID': 'TC-ZH',
+      'courseNumber': 'ZH037',
+      'courseName': '食品标准与法规',
+      'teacherName': '网络教师',
+      'classCapacity': '50',
+      'numberOfSelected': '10',
+    });
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 390,
+          child: TeachingClassTile(
+            teachingClass: tc,
+            kind: CourseKind.xgxk,
+            onGrab: () {},
+            onMonitor: () {},
+            onRefresh: () async {},
+          ),
+        ),
+      ),
+    ));
+    expect(find.text('智慧树'), findsOneWidget);
+    expect(find.textContaining('网课'), findsOneWidget);
   });
 
   testWidgets('experiment picker accepts a valid alias after an empty canonical ID', (tester) async {

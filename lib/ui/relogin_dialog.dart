@@ -1,23 +1,20 @@
-/// Shown by the shell when the server dropped the session and the silent
-/// re-login (captcha OCR, a few attempts) did not recover it.
-///
-/// The account is fixed to the signed-in one; the saved password is filled in
-/// when available, so usually only the captcha stands between the user and
-/// their restored session (and OCR fills that too). Success closes the dialog
-/// and the session controller restarts the monitor if it had been running.
+/// Shown by the shell when an account's session was dropped by the server and
+/// the silent re-login could not recover it. The saved password is filled in,
+/// so usually only the captcha stands between the user and their session, and
+/// the recogniser fills that in too.
 library;
 
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../core/errors.dart';
 import '../data/auth_service.dart';
+import 'login_page.dart';
 
 class ReloginDialog extends ConsumerStatefulWidget {
-  const ReloginDialog({super.key});
+  const ReloginDialog({super.key, required this.accountId});
+  final String accountId;
 
   @override
   ConsumerState<ReloginDialog> createState() => _ReloginDialogState();
@@ -31,11 +28,13 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
   CaptchaChallenge? _challenge;
   bool _loadingCaptcha = false;
   bool _submitting = false;
-  bool _ocrBusy = false;
-  bool _passwordSaved = false;
+  OcrStatus _ocr = OcrStatus.idle;
   int _ocrRetries = 0;
   String? _error;
   static const _maxOcrRetries = 3;
+
+  SessionController get _controller =>
+      ref.read(sessionControllerProvider(widget.accountId).notifier);
 
   @override
   void initState() {
@@ -52,15 +51,9 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
   }
 
   Future<void> _prepare() async {
-    final account = ref.read(sessionProvider).account;
-    if (account != null) {
-      final pw = await ref.read(storageProvider).passwordFor(account.id);
-      if (!mounted) return;
-      if (pw != null && pw.isNotEmpty) {
-        _pwCtrl.text = pw;
-        _passwordSaved = true;
-      }
-    }
+    final pw = await ref.read(storageProvider).passwordFor(widget.accountId);
+    if (!mounted) return;
+    if (pw != null && pw.isNotEmpty) _pwCtrl.text = pw;
     await _refreshCaptcha();
   }
 
@@ -69,24 +62,26 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
       _loadingCaptcha = true;
       _challenge = null;
       _captchaCtrl.clear();
+      _ocr = OcrStatus.idle;
     });
     try {
-      final challenge = await ref.read(sessionProvider.notifier).fetchCaptcha();
+      final challenge = await _controller.fetchCaptcha();
       if (!mounted) return;
       setState(() => _challenge = challenge);
-      final storage = ref.read(storageProvider);
-      if (storage.autoOcr()) {
-        setState(() => _ocrBusy = true);
+      if (ref.read(storageProvider).autoOcr()) {
+        setState(() => _ocr = OcrStatus.recognizing);
         final guess =
             await ref.read(captchaSolverProvider).solve(challenge.imageBytes);
         if (!mounted) return;
-        setState(() => _ocrBusy = false);
         if (guess != null && guess.isNotEmpty) {
           _captchaCtrl.text = guess;
+          setState(() => _ocr = OcrStatus.recognized);
           if (_pwCtrl.text.isNotEmpty) {
             await _submit(fromOcr: true);
             return;
           }
+        } else {
+          setState(() => _ocr = OcrStatus.failed);
         }
       }
       _captchaFocus.requestFocus();
@@ -96,7 +91,7 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
           () => _error = e.hint != null ? '${e.message}：${e.hint}' : e.message);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '验证码加载失败，请点击刷新');
+      setState(() => _error = '验证码加载失败，点击图片重试');
     } finally {
       if (mounted) setState(() => _loadingCaptcha = false);
     }
@@ -125,17 +120,15 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
       _error = null;
     });
     try {
-      await ref.read(sessionProvider.notifier).relogin(
-            password: password,
-            verifyCode: code,
-            vtoken: challenge.vtoken,
-          );
+      await _controller.relogin(
+        password: password,
+        verifyCode: code,
+        vtoken: challenge.vtoken,
+      );
       if (mounted) Navigator.of(context).pop();
     } on LoginException catch (e) {
       if (!mounted) return;
       if (e.code == '3' && fromOcr && _ocrRetries < _maxOcrRetries) {
-        // OCR misread: one more captcha, still hands-free, bounded so a
-        // persistently unreadable captcha lands with the user.
         _ocrRetries++;
         await _refreshCaptcha();
         return;
@@ -154,27 +147,18 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
   }
 
   Future<void> _logout() async {
-    await ref.read(sessionProvider.notifier).logout();
+    await leaveAccount(ref, widget.accountId);
     if (mounted) Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final session = ref.watch(sessionProvider);
-    final attempts = ref.watch(silentReloginAttemptsProvider);
-    final who = session.account?.displayName ?? session.student?.name ?? '';
-    final code =
-        session.account?.loginName ?? session.student?.studentCode ?? '';
+    final session = ref.watch(sessionControllerProvider(widget.accountId));
+    final who = session.displayName;
 
     return AlertDialog(
-      title: Row(
-        children: [
-          Icon(Icons.lock_reset, color: scheme.error),
-          const SizedBox(width: 10),
-          const Expanded(child: Text('登录已失效，请重新登录')),
-        ],
-      ),
+      title: const Text('登录已失效'),
       content: SizedBox(
         width: 420,
         child: Column(
@@ -182,100 +166,42 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              attempts == 0
-                  ? '学校服务器已结束当前会话（例如在别处登录了同一账号）。'
-                  : attempts < 0
-                      ? '学校服务器已结束当前会话（例如在别处登录了同一账号），后台自动重登被账号错误终止。'
-                      : '学校服务器已结束当前会话（例如在别处登录了同一账号），后台自动重登 $attempts 次仍未成功。',
+              '$who 的会话被服务器结束了，通常是同一账号在别处登录，或长时间无操作。',
               style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
             ),
+            if (session.error != null && session.error!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: scheme.errorContainer,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(session.error!,
+                    style: TextStyle(
+                        color: scheme.onErrorContainer, fontSize: 13)),
+              ),
+            ],
             const SizedBox(height: 14),
-            Row(
-              children: [
-                const Icon(Icons.person_outline, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                    child: Text(
-                        [who, code].where((s) => s.isNotEmpty).join(' · '))),
-              ],
-            ),
-            const SizedBox(height: 10),
             TextField(
               controller: _pwCtrl,
               obscureText: true,
               textInputAction: TextInputAction.next,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 labelText: '密码',
-                helperText: _passwordSaved ? '已填入保存的密码' : null,
-                prefixIcon: const Icon(Icons.lock_outline),
+                prefixIcon: Icon(Icons.lock_outline),
               ),
             ),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _captchaCtrl,
-                    focusNode: _captchaFocus,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    inputFormatters: [
-                      LengthLimitingTextInputFormatter(6),
-                      FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
-                    ],
-                    decoration: InputDecoration(
-                      labelText: '验证码',
-                      prefixIcon: const Icon(Icons.pin_outlined),
-                      suffixIcon: _ocrBusy
-                          ? const Padding(
-                              padding: EdgeInsets.all(12),
-                              child: SizedBox(
-                                  height: 16,
-                                  width: 16,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2)),
-                            )
-                          : null,
-                    ),
-                    onSubmitted: (_) => _submit(),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Tooltip(
-                  message: '点击刷新验证码',
-                  child: InkWell(
-                    onTap: _loadingCaptcha ? null : _refreshCaptcha,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      height: 52,
-                      width: 120,
-                      decoration: BoxDecoration(
-                        color: scheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: scheme.outlineVariant),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: _loadingCaptcha
-                          ? const Center(
-                              child: SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2)))
-                          : (_challenge != null &&
-                                  _challenge!.imageBytes.isNotEmpty)
-                              ? Image.memory(
-                                  Uint8List.fromList(_challenge!.imageBytes),
-                                  fit: BoxFit.cover,
-                                  gaplessPlayback: true,
-                                )
-                              : Center(
-                                  child: Icon(Icons.refresh,
-                                      color: scheme.onSurfaceVariant)),
-                    ),
-                  ),
-                ),
-              ],
+            CaptchaRow(
+              challenge: _challenge,
+              loading: _loadingCaptcha,
+              controller: _captchaCtrl,
+              focusNode: _captchaFocus,
+              ocrStatus: _ocr,
+              onRefresh: _refreshCaptcha,
+              onChanged: (_) {},
+              onSubmit: (_) => _submit(),
             ),
             if (_error != null) ...[
               const SizedBox(height: 10),
@@ -296,17 +222,16 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
       actions: [
         TextButton(
           onPressed: _submitting ? null : _logout,
-          child: const Text('退出登录'),
+          child: const Text('退出该账号'),
         ),
-        FilledButton.icon(
+        FilledButton(
           onPressed: _submitting ? null : _submit,
-          icon: _submitting
+          child: _submitting
               ? const SizedBox(
                   height: 16,
                   width: 16,
                   child: CircularProgressIndicator(strokeWidth: 2))
-              : const Icon(Icons.login, size: 18),
-          label: const Text('重新登录'),
+              : const Text('重新登录'),
         ),
       ],
     );

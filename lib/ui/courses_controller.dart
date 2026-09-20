@@ -1,13 +1,18 @@
-/// Course browsing + selection controller.
+/// Course browsing + selection controller for one account.
 ///
-/// Holds the loaded course rows per kind, drives queries through CourseService,
-/// and exposes actions to grab immediately or add a class to the monitor.
+/// Holds the loaded course rows per kind, drives queries through the
+/// account's CourseService, and exposes actions to grab immediately or add a
+/// class to the monitor. The whole-school catalogue (全校课程) is paged
+/// server-side; every other kind is loaded whole and filtered locally.
 library;
+
+import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../core/constants.dart';
+import '../data/course_cache.dart';
 import '../data/course_service.dart';
 import '../data/enroll_service.dart';
 import '../data/models.dart';
@@ -16,6 +21,7 @@ import '../data/monitor_engine.dart';
 /// Client-side filters over the loaded rows. The official page filters
 /// server-side (XGXKLBDM / KKDWDM / 是否冲突), but the whole list is already in
 /// memory here, so filtering locally is instant and needs no extra requests.
+/// For the paged catalogue the two facets are sent to the server instead.
 class CourseFilters {
   const CourseFilters({
     this.publicType,
@@ -35,7 +41,7 @@ class CourseFilters {
   /// Hide classes with no remaining seats (正选) / first-choice seats (预选).
   final bool onlyAvailable;
 
-  /// Only classes taught with SPOC/MOOC (网课).
+  /// Only MOOC classes (智慧树 / 学习通 / 知到).
   final bool onlyOnline;
 
   bool get isActive =>
@@ -74,6 +80,9 @@ class CoursesState {
     this.error,
     this.loadedOnce = false,
     this.filters = const CourseFilters(),
+    this.page = 0,
+    this.totalCount = 0,
+    this.cachedAt,
   });
 
   final CourseKind kind;
@@ -84,13 +93,25 @@ class CoursesState {
   final bool loadedOnce;
   final CourseFilters filters;
 
+  /// Catalogue paging (全校课程 only): current server page and total rows.
+  final int page;
+  final int totalCount;
+
+  /// When [rows] came from the on-device cache and a refresh is still
+  /// running; null once the list is fresh from the server.
+  final DateTime? cachedAt;
+
+  bool get paged => kind.isBrowseOnly;
+  int get pageCount =>
+      totalCount == 0 ? 0 : (totalCount / CoursesController.catalogPageSize).ceil();
+
   /// Distinct 通识类别 values in [rows], in first-seen order.
   List<String> get publicTypes => _facet((r) => r.publicCourseType);
 
   /// Distinct 开课单位 values in [rows], in first-seen order.
   List<String> get departments => _facet((r) => r.departmentName);
 
-  /// Whether any class is taught online, so the 网课 chip is worth showing.
+  /// Whether any class is a MOOC, so the 网课 chip is worth showing.
   bool get hasOnline =>
       rows.any((r) => r.teachingClasses.any((tc) => tc.isOnline));
 
@@ -111,8 +132,10 @@ class CoursesState {
     if (!f.isActive) return rows;
     final out = <CourseRow>[];
     for (final r in rows) {
-      if (f.publicType != null && r.publicCourseType != f.publicType) continue;
-      if (f.department != null && r.departmentName != f.department) continue;
+      if (!paged) {
+        if (f.publicType != null && r.publicCourseType != f.publicType) continue;
+        if (f.department != null && r.departmentName != f.department) continue;
+      }
       var classes = r.teachingClasses;
       if (f.hideConflict) {
         classes = classes.where((tc) => !tc.isConflict).toList();
@@ -121,23 +144,13 @@ class CoursesState {
       if (f.onlyAvailable) {
         classes = classes
             .where(
-                (tc) => tc.isChoose || !tc.hasCapacityInfo || tc.remaining > 0)
+                (tc) => tc.isHeld || !tc.hasCapacityInfo || tc.remaining > 0)
             .toList();
       }
       if (classes.isEmpty) continue;
       out.add(classes.length == r.teachingClasses.length
           ? r
-          : CourseRow(
-              courseNumber: r.courseNumber,
-              courseName: r.courseName,
-              credit: r.credit,
-              courseNatureName: r.courseNatureName,
-              departmentName: r.departmentName,
-              number: classes.length,
-              selected: r.selected,
-              teachingClasses: classes,
-              raw: r.raw,
-            ));
+          : r.withClasses(classes));
     }
     return out;
   }
@@ -151,6 +164,9 @@ class CoursesState {
     bool clearError = false,
     bool? loadedOnce,
     CourseFilters? filters,
+    int? page,
+    int? totalCount,
+    Object? cachedAt = _keep,
   }) =>
       CoursesState(
         kind: kind ?? this.kind,
@@ -160,37 +176,91 @@ class CoursesState {
         error: clearError ? null : (error ?? this.error),
         loadedOnce: loadedOnce ?? this.loadedOnce,
         filters: filters ?? this.filters,
+        page: page ?? this.page,
+        totalCount: totalCount ?? this.totalCount,
+        cachedAt: cachedAt == _keep ? this.cachedAt : cachedAt as DateTime?,
       );
+
+  static const _keep = Object();
 }
 
 class CoursesController extends StateNotifier<CoursesState> {
-  CoursesController(this._ref) : super(CoursesState());
+  CoursesController(this._ref, this.accountId) : super(CoursesState());
+
+  static const int catalogPageSize = 100;
 
   final Ref _ref;
-  CourseService get _course => _ref.read(courseServiceProvider);
-  EnrollService get _enroll => _ref.read(enrollServiceProvider);
+  final String accountId;
+  CourseService get _course => _ref.read(sessionScopeProvider(accountId)).course;
+  CourseCache get _cache => _ref.read(courseCacheProvider);
+  EnrollService get _enroll => _ref.read(sessionScopeProvider(accountId)).enroll;
+  SessionState get _session => _ref.read(sessionControllerProvider(accountId));
   int _loadGeneration = 0;
+
+  /// Catalogue facet codes (dictionary codes) sent as queryContent tokens.
+  String? _catalogTypeCode;
+  String? _catalogDepartmentCode;
 
   void setKind(CourseKind kind) {
     if (kind == state.kind) return;
-    // Facet values are category-specific; the switches carry over.
+    // Filters are category-specific (the catalogue has no capacity or
+    // conflict data, and a 网课 switch carried over would hide every row).
     state = state.copyWith(
       kind: kind,
       rows: const [],
       loadedOnce: false,
       clearError: true,
-      filters: state.filters.copyWith(publicType: null, department: null),
+      page: 0,
+      totalCount: 0,
+      filters: const CourseFilters(),
     );
+    _catalogTypeCode = null;
+    _catalogDepartmentCode = null;
     load();
   }
 
-  void setQuery(String q) => state = state.copyWith(query: q);
+  void setQuery(String q) => state = state.copyWith(query: q, page: 0);
 
   void setFilters(CourseFilters f) => state = state.copyWith(filters: f);
 
+  /// Catalogue facets: names for display, codes for the server.
+  void setCatalogFacets({
+    String? typeName,
+    String? typeCode,
+    String? departmentName,
+    String? departmentCode,
+    bool clearType = false,
+    bool clearDepartment = false,
+  }) {
+    if (clearType) {
+      _catalogTypeCode = null;
+      state = state.copyWith(filters: state.filters.copyWith(publicType: null));
+    } else if (typeCode != null) {
+      _catalogTypeCode = typeCode;
+      state =
+          state.copyWith(filters: state.filters.copyWith(publicType: typeName));
+    }
+    if (clearDepartment) {
+      _catalogDepartmentCode = null;
+      state = state.copyWith(filters: state.filters.copyWith(department: null));
+    } else if (departmentCode != null) {
+      _catalogDepartmentCode = departmentCode;
+      state = state.copyWith(
+          filters: state.filters.copyWith(department: departmentName));
+    }
+    state = state.copyWith(page: 0);
+    load();
+  }
+
+  Future<void> goToPage(int page) async {
+    if (!state.paged || page < 0 || page == state.page) return;
+    state = state.copyWith(page: page);
+    await load();
+  }
+
   Future<void> load() async {
     final generation = ++_loadGeneration;
-    final session = _ref.read(sessionProvider);
+    final session = _session;
     final student = session.student;
     final batch = session.activeBatch;
     if (student == null || batch == null) {
@@ -207,27 +277,106 @@ class CoursesController extends StateNotifier<CoursesState> {
     if (!batch.showsKind(kind)) {
       kind = CourseKind.values.firstWhere(batch.showsKind, orElse: () => kind);
     }
-    final query = state.query;
-    state = state.copyWith(kind: kind, loading: true, clearError: true);
+    final cacheKey = CourseCache.key(
+      accountId: accountId,
+      batchCode: batch.code,
+      kind: kind.code,
+      query: kind.isBrowseOnly ? _catalogQueryContent() : state.query,
+      page: kind.isBrowseOnly ? state.page : 0,
+    );
+    // Show the last known rows at once; the fresh list replaces them.
+    final cached = state.rows.isEmpty ? _cache.read(cacheKey) : null;
+    state = state.copyWith(
+      kind: kind,
+      loading: true,
+      clearError: true,
+      rows: cached == null ? null : _rowsFromJson(kind, cached.rows),
+      totalCount: cached?.totalCount,
+      loadedOnce: cached != null ? true : null,
+      cachedAt: cached?.savedAt,
+    );
     try {
-      final rows = await _course.fetchCourses(
-        kind: kind,
-        studentCode: student.studentCode,
-        campus: student.campus,
-        batchCode: batch.code,
-        queryContent: query,
-      );
+      final List<CourseRow> rows;
+      var total = 0;
+      if (kind.isBrowseOnly) {
+        final result = await _course.fetchCatalogPage(
+          studentCode: student.studentCode,
+          campus: student.campus,
+          batchCode: batch.code,
+          queryContent: _catalogQueryContent(),
+          pageSize: catalogPageSize,
+          pageNumber: state.page,
+        );
+        rows = result.rows;
+        total = result.totalCount;
+      } else {
+        rows = await _course.fetchCourses(
+          kind: kind,
+          studentCode: student.studentCode,
+          campus: student.campus,
+          batchCode: batch.code,
+          queryContent: state.query,
+        );
+      }
       if (generation != _loadGeneration) return;
-      state = state.copyWith(rows: rows, loading: false, loadedOnce: true);
+      state = state.copyWith(
+        rows: rows,
+        totalCount: total,
+        loading: false,
+        loadedOnce: true,
+        cachedAt: null,
+      );
+      unawaited(_cache.write(cacheKey, [for (final r in rows) r.raw], totalCount: total));
     } catch (e) {
       if (generation != _loadGeneration) return;
+      // Keep the cached rows on screen; the banner explains the failed refresh.
       state = state.copyWith(error: '$e', loading: false, loadedOnce: true);
     }
   }
 
+  /// Rebuilds rows from cached raw JSON the way the service does for a fresh
+  /// response, so cached and fresh lists look identical.
+  static List<CourseRow> _rowsFromJson(
+      CourseKind kind, List<Map<String, dynamic>> raws) {
+    final rows = <CourseRow>[];
+    for (final raw in raws) {
+      final flat = !raw.containsKey('tcList') && raw['teachingClassID'] != null;
+      if (flat) {
+        final tc = TeachingClass.fromJson(raw);
+        rows.add(CourseRow(
+          courseNumber: tc.courseNumber,
+          courseName: tc.courseName,
+          credit: (raw['credit'] ?? '').toString(),
+          courseNatureName: (raw['courseNatureName'] ?? '').toString(),
+          departmentName: (raw['departmentName'] ?? '').toString(),
+          number: 1,
+          selected: tc.isHeld,
+          teachingClasses: [tc],
+          raw: raw,
+        ));
+      } else {
+        rows.add(CourseRow.fromJson(raw));
+      }
+    }
+    return CourseService.groupFlatRows(rows);
+  }
+
+  /// The official whole-school query prepends its facet tokens to the search
+  /// text: "XGXKLBDM:<code>,KKDWDM:<code>,<text>".
+  String _catalogQueryContent() {
+    var content = state.query;
+    if (_catalogDepartmentCode != null) {
+      content = 'KKDWDM:$_catalogDepartmentCode,$content';
+    }
+    if (_catalogTypeCode != null) {
+      content = 'XGXKLBDM:$_catalogTypeCode,$content';
+    }
+    return content;
+  }
+
   /// Refreshes live capacity for a single teaching class in-place.
   Future<TeachingClass> refresh(TeachingClass tc) async {
-    final student = _ref.read(sessionProvider).student;
+    final student = _session.student;
     if (student == null) return tc;
     final fresh = await _course.refreshCapacity(tc, student.studentCode);
     _replaceTc(fresh);
@@ -235,24 +384,13 @@ class CoursesController extends StateNotifier<CoursesState> {
   }
 
   void _replaceTc(TeachingClass fresh) {
-    final rows = [
+    state = state.copyWith(rows: [
       for (final row in state.rows)
-        CourseRow(
-          courseNumber: row.courseNumber,
-          courseName: row.courseName,
-          credit: row.credit,
-          courseNatureName: row.courseNatureName,
-          departmentName: row.departmentName,
-          number: row.number,
-          selected: row.selected,
-          teachingClasses: [
-            for (final tc in row.teachingClasses)
-              tc.teachingClassId == fresh.teachingClassId ? fresh : tc,
-          ],
-          raw: row.raw,
-        ),
-    ];
-    state = state.copyWith(rows: rows);
+        row.withClasses([
+          for (final tc in row.teachingClasses)
+            tc.teachingClassId == fresh.teachingClassId ? fresh : tc,
+        ]),
+    ]);
   }
 
   /// Immediate manual grab (used when a seat is already open).
@@ -262,7 +400,7 @@ class CoursesController extends StateNotifier<CoursesState> {
     String? bookSelection,
     String? volunteerGrade,
   }) async {
-    final session = _ref.read(sessionProvider);
+    final session = _session;
     final student = session.student!;
     final batch = session.activeBatch!;
     final outcome = await _enroll.addCourse(
@@ -276,11 +414,13 @@ class CoursesController extends StateNotifier<CoursesState> {
       textbookOrderingOpen: batch.canSelectBook,
       volunteerGrade: volunteerGrade,
     );
-    if (outcome.success) {
-      _ref.read(selectionDataRevisionProvider.notifier).state++;
-    }
+    if (outcome.success) bumpSelectionRevision(_ref, accountId);
     return outcome;
   }
+
+  /// The watch id a class would get, so the tile can show its watched state.
+  String watchIdFor(TeachingClass tc) =>
+      '${_session.activeBatch?.code}:${tc.teachingClassId}';
 
   /// Adds a teaching class to the monitor for auto-grab.
   Watch addToMonitor(
@@ -289,13 +429,12 @@ class CoursesController extends StateNotifier<CoursesState> {
     String? bookSelection,
     String? volunteerGrade,
     bool allowConflict = false,
-    int priority = 0,
   }) {
-    final session = _ref.read(sessionProvider);
+    final session = _session;
     final student = session.student!;
     final batch = session.activeBatch!;
     final watch = Watch(
-      id: '${batch.code}:${tc.teachingClassId}',
+      id: watchIdFor(tc),
       teachingClass: tc,
       kind: state.kind,
       batchCode: batch.code,
@@ -306,48 +445,43 @@ class CoursesController extends StateNotifier<CoursesState> {
       textbookOrderingOpen: batch.canSelectBook,
       volunteerGrade: volunteerGrade,
       allowConflict: allowConflict,
-      priority: priority,
     );
-    final engine = _ref.read(monitorEngineProvider);
-    engine.addWatch(watch);
+    _ref.read(sessionScopeProvider(accountId)).engine.addWatch(watch);
     return watch;
   }
 
+  void removeFromMonitor(TeachingClass tc) =>
+      _ref.read(sessionScopeProvider(accountId)).engine.removeWatch(watchIdFor(tc));
+
   /// Volunteer grades the course still accepts (预选 rounds only).
   Future<List<VolunteerGrade>> fetchVolunteerGrades(TeachingClass tc) {
-    final session = _ref.read(sessionProvider);
-    final student = session.student!;
-    final batch = session.activeBatch!;
+    final session = _session;
     return _course.fetchCourseVolunteerGrades(
       tc: tc,
-      studentCode: student.studentCode,
-      batchCode: batch.code,
+      studentCode: session.student!.studentCode,
+      batchCode: session.activeBatch!.code,
       kind: state.kind,
     );
   }
 
   /// Loads experiment classes for a class that has hasTest==1.
   Future<List<Map<String, dynamic>>> fetchTestCourses(TeachingClass tc) {
-    final session = _ref.read(sessionProvider);
-    final student = session.student!;
-    final batch = session.activeBatch!;
+    final session = _session;
     return _course.fetchTestCourses(
       tc: tc,
-      studentCode: student.studentCode,
-      batchCode: batch.code,
-      campus: student.campus,
+      studentCode: session.student!.studentCode,
+      batchCode: session.activeBatch!.code,
+      campus: session.student!.campus,
       kind: state.kind,
     );
   }
-
-  void reloadForSelectionChange() => load();
 }
 
-final coursesProvider =
-    StateNotifierProvider<CoursesController, CoursesState>((ref) {
-  final controller = CoursesController(ref);
-  ref.listen<int>(selectionDataRevisionProvider, (_, __) {
-    controller.reloadForSelectionChange();
-  });
+/// One controller per account, so switching accounts never mixes lists.
+final coursesOfProvider =
+    StateNotifierProvider.family<CoursesController, CoursesState, String>(
+        (ref, id) {
+  final controller = CoursesController(ref, id);
+  ref.listen<int>(selectionDataRevisionProvider(id), (_, __) => controller.load());
   return controller;
 });

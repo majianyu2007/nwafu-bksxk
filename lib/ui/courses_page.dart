@@ -1,14 +1,12 @@
-/// Courses page: kind tabs, search, and expandable course cards with per-class
-/// grab / monitor actions.
-///
-/// On wide windows the page becomes master-detail: a course list on the left
-/// and the selected course's teaching classes on the right, so a desktop user
-/// never scrolls a stretched single column of expandable cards.
+/// Courses page: category tabs, search, filters, and course cards with
+/// per-class grab / monitor actions. On wide windows it is master-detail: the
+/// course list on the left and the selected course's classes on the right.
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app/monitor_providers.dart';
 import '../app/providers.dart';
 import '../core/constants.dart';
 import '../core/errors.dart';
@@ -16,12 +14,26 @@ import '../data/models.dart';
 import '../data/monitor_engine.dart';
 import '../data/param_builders.dart';
 import 'courses_controller.dart';
+import 'home_page.dart' show creditInfoProvider;
 import 'layout.dart';
 import 'teaching_class_tile.dart';
 import 'widgets.dart';
 
 /// Available width at which the course browser splits into list + detail.
 const double _kMasterDetailBreakpoint = 1000;
+
+/// The shown account's courses controller.
+final coursesProvider = Provider<CoursesController>((ref) {
+  final id = ref.watch(activeAccountIdProvider);
+  if (id == null) throw StateError('no account is signed in');
+  return ref.watch(coursesOfProvider(id).notifier);
+});
+
+final coursesStateProvider = Provider<CoursesState>((ref) {
+  final id = ref.watch(activeAccountIdProvider);
+  if (id == null) return CoursesState();
+  return ref.watch(coursesOfProvider(id));
+});
 
 class CoursesPage extends ConsumerStatefulWidget {
   const CoursesPage({super.key});
@@ -40,7 +52,10 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ref.read(coursesProvider.notifier).load();
+      if (!mounted) return;
+      final state = ref.read(coursesStateProvider);
+      _searchCtrl.text = state.query;
+      if (!state.loadedOnce && !state.loading) ref.read(coursesProvider).load();
     });
   }
 
@@ -50,20 +65,14 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
     super.dispose();
   }
 
-  static String _keyOf(CourseRow row) {
-    // QXKC wraps every teaching class as its own row, so the course number
-    // alone is not unique there.
-    final first = row.teachingClasses.isEmpty
-        ? ''
-        : row.teachingClasses.first.teachingClassId;
-    return '${row.courseNumber}:$first';
-  }
+  static String _keyOf(CourseRow row) => row.courseNumber;
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(coursesProvider);
-    final ctrl = ref.read(coursesProvider.notifier);
+    final state = ref.watch(coursesStateProvider);
+    final ctrl = ref.read(coursesProvider);
     final batch = ref.watch(sessionProvider.select((s) => s.activeBatch));
+    final sysParams = ref.watch(sysParamsProvider).asData?.value ?? SysParams.empty;
     // Each round says which categories it exposes (display* flags); offer
     // only those, as the official tab bar does.
     final kinds = [
@@ -79,6 +88,7 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
             _Header(
               kind: state.kind,
               kinds: kinds,
+              labelOf: sysParams.tabName,
               onKind: ctrl.setKind,
               searchCtrl: _searchCtrl,
               onSearch: (q) {
@@ -88,26 +98,44 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
               onRefresh: state.loading ? null : ctrl.load,
               wide: wide,
             ),
-            if (state.rows.isNotEmpty)
-              _FilterBar(state: state, onChanged: ctrl.setFilters),
+            if (state.kind == CourseKind.xgxk) const _CreditRequirementStrip(),
+            if (state.rows.isNotEmpty || state.paged)
+              _FilterBar(state: state, ctrl: ctrl),
             if (state.loading && state.rows.isNotEmpty)
               const LinearProgressIndicator(minHeight: 2),
+            if (state.cachedAt != null)
+              NoticeStrip(
+                icon: Icons.history,
+                text: state.loading
+                    ? '显示的是 ${_ago(state.cachedAt!)}的缓存，正在刷新'
+                    : '显示的是 ${_ago(state.cachedAt!)}的缓存，刷新失败',
+              ),
             if (state.error != null && state.rows.isNotEmpty)
-              MaterialBanner(
-                content: Text('刷新失败：${state.error}'),
-                actions: [
-                  TextButton(onPressed: ctrl.load, child: const Text('重试')),
-                ],
+              NoticeStrip(
+                icon: Icons.cloud_off_outlined,
+                error: true,
+                text: '刷新失败：${state.error}',
+                action: TextButton(onPressed: ctrl.load, child: const Text('重试')),
               ),
             Expanded(
               child: wide
                   ? _wideBody(context, state, ctrl, constraints.maxWidth)
                   : _compactBody(context, state, ctrl),
             ),
+            if (state.paged && state.pageCount > 1)
+              _Pager(state: state, onPage: ctrl.goToPage),
           ],
         );
       },
     );
+  }
+
+  static String _ago(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return '刚才';
+    if (d.inHours < 1) return '${d.inMinutes} 分钟前';
+    if (d.inDays < 1) return '${d.inHours} 小时前';
+    return '${d.inDays} 天前';
   }
 
   /// Full-page placeholder for loading / error / empty states, or null when
@@ -120,30 +148,14 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
       return _ErrorState(message: state.error!, onRetry: ctrl.load);
     }
     if (!state.loadedOnce) {
-      return const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 12),
-            Text('正在加载课程…'),
-          ],
-        ),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
     if (state.rows.isEmpty) {
-      return const EmptyState(
-        icon: Icons.search_off,
-        title: '没有找到课程',
-        subtitle: '换一个课程类型或关键字试试。当前轮次可能未开放该类别。',
-      );
+      return const EmptyState(icon: Icons.search_off, title: '没有课程');
     }
     if (state.visibleRows.isEmpty) {
       return const EmptyState(
-        icon: Icons.filter_alt_off_outlined,
-        title: '筛选条件下没有课程',
-        subtitle: '放宽上方的筛选条件。',
-      );
+          icon: Icons.filter_alt_off_outlined, title: '筛选后没有课程');
     }
     return null;
   }
@@ -170,8 +182,6 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
     if (placeholder != null) return placeholder;
 
     final rows = state.visibleRows;
-    // Keep the selection if it still exists; otherwise fall back to the first
-    // course so the detail pane is never blank while there is data.
     CourseRow? selected;
     for (final row in rows) {
       if (_keyOf(row) == _selectedKey) {
@@ -220,6 +230,7 @@ class _Header extends StatelessWidget {
   const _Header({
     required this.kind,
     required this.kinds,
+    required this.labelOf,
     required this.onKind,
     required this.searchCtrl,
     required this.onSearch,
@@ -229,6 +240,7 @@ class _Header extends StatelessWidget {
 
   final CourseKind kind;
   final List<CourseKind> kinds;
+  final String Function(CourseKind) labelOf;
   final ValueChanged<CourseKind> onKind;
   final TextEditingController searchCtrl;
   final ValueChanged<String> onSearch;
@@ -241,7 +253,7 @@ class _Header extends StatelessWidget {
       controller: searchCtrl,
       textInputAction: TextInputAction.search,
       decoration: InputDecoration(
-        hintText: '搜索课程名 / 课程号',
+        hintText: '课程名或课程号',
         prefixIcon: const Icon(Icons.search),
         suffixIcon: IconButton(
           icon: const Icon(Icons.arrow_forward),
@@ -261,7 +273,7 @@ class _Header extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: ChoiceChip(
-                label: Text(k.label),
+                label: Text(labelOf(k)),
                 selected: k == kind,
                 onSelected: (_) => onKind(k),
               ),
@@ -278,15 +290,13 @@ class _Header extends StatelessWidget {
             title: '选课',
             actions: [
               IconButton(
-                tooltip: '刷新课程列表',
+                tooltip: '刷新',
                 icon: const Icon(Icons.refresh),
                 onPressed: onRefresh,
               ),
             ],
           ),
           if (wide)
-            // Search and category chips share one row; the search box stays a
-            // sensible width instead of stretching across the whole window.
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
@@ -321,6 +331,8 @@ class _Header extends StatelessWidget {
 mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   String? _busyClassId;
 
+  CoursesController get _ctrl => ref.read(coursesProvider);
+
   /// The active round is a 预选 (volunteer) round.
   bool get _volunteerRound =>
       ref.read(sessionProvider).activeBatch?.isVolunteerRound ?? false;
@@ -330,10 +342,9 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   /// (it is, for every course on this deployment) falls back to the global
   /// grade dictionary. Returns null when the user cancels.
   Future<String?> _pickVolunteerGrade(TeachingClass tc) async {
-    final ctrl = ref.read(coursesProvider.notifier);
     var grades = <VolunteerGrade>[];
     try {
-      grades = await ctrl.fetchVolunteerGrades(tc);
+      grades = await _ctrl.fetchVolunteerGrades(tc);
     } catch (_) {
       // Fall through to the global list.
     }
@@ -355,32 +366,35 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     );
   }
 
+  Future<bool> _confirmConflict(TeachingClass tc, {required bool monitor}) async {
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('时间冲突'),
+        content: Text(
+          '${tc.conflictDesc.isNotEmpty ? '${tc.conflictDesc}\n\n' : ''}'
+          '学校系统一般会拒绝有冲突的选课，除非先退掉冲突的课程。'
+          '${monitor ? '\n\n有空位时是否仍然提交？' : ''}',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(monitor ? '只监控不提交' : '取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(monitor ? '有空位就提交' : '仍要提交')),
+        ],
+      ),
+    );
+    return proceed ?? false;
+  }
+
   Future<void> _grab(TeachingClass tc) async {
     if (_busyClassId != null) return;
-    final ctrl = ref.read(coursesProvider.notifier);
-    final volunteer = _volunteerRound;
-    if (tc.isConflict) {
-      final proceed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('课程时间冲突'),
-          content: Text(tc.conflictDesc.isNotEmpty
-              ? '该教学班与已选课程冲突：\n${tc.conflictDesc}\n\n学校系统通常会拒绝冲突的选课；仍要提交吗？'
-              : '该教学班与已选课程存在时间冲突。学校系统通常会拒绝冲突的选课；仍要提交吗？'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('取消')),
-            FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('仍要提交')),
-          ],
-        ),
-      );
-      if (proceed != true) return;
-    }
+    if (tc.isConflict && !await _confirmConflict(tc, monitor: false)) return;
+    if (!mounted) return;
     String? grade;
-    if (volunteer) {
+    if (_volunteerRound) {
       grade = await _pickVolunteerGrade(tc);
       if (grade == null || !mounted) return;
     }
@@ -389,7 +403,7 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       final selections = await _resolveSelectionsIfNeeded(tc);
       if (selections == null) return;
       final (testId, book) = selections;
-      final outcome = await ctrl.grabNow(tc,
+      final outcome = await _ctrl.grabNow(tc,
           testTeachingClassId: testId,
           bookSelection: book,
           volunteerGrade: grade);
@@ -397,8 +411,6 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       if (outcome.success) {
         showToast(context, outcome.message, success: true);
       } else {
-        // Classify so a rule (already holds the course, conflict, capacity)
-        // reads as a rule and not as a generic failure.
         final err = AppError.fromBusiness(outcome.code, outcome.message);
         showToast(
           context,
@@ -415,33 +427,19 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     }
   }
 
-  Future<void> _monitor(TeachingClass tc) async {
+  Future<void> _toggleMonitor(TeachingClass tc, {required bool watched}) async {
     if (_busyClassId != null) return;
-    final ctrl = ref.read(coursesProvider.notifier);
+    if (watched) {
+      _ctrl.removeFromMonitor(tc);
+      showToast(context, '已取消监控：${tc.courseName}');
+      return;
+    }
     var allowConflict = false;
     if (tc.isConflict) {
       // A conflicting class is polled but never submitted unless the user
-      // explicitly opts in; say so up front instead of watching forever.
-      final proceed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('该教学班与已选课程冲突'),
-          content: Text(
-            '${tc.conflictDesc.isNotEmpty ? '${tc.conflictDesc}\n\n' : ''}'
-            '空位出现时是否仍然自动提交？学校系统通常会拒绝冲突的选课，除非你先退掉冲突的课程。',
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('只监控，不提交')),
-            FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('有空位就提交')),
-          ],
-        ),
-      );
-      if (proceed == null || !mounted) return;
-      allowConflict = proceed;
+      // opts in; ask up front instead of watching forever.
+      allowConflict = await _confirmConflict(tc, monitor: true);
+      if (!mounted) return;
     }
     String? grade;
     if (_volunteerRound) {
@@ -453,7 +451,7 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       final selections = await _resolveSelectionsIfNeeded(tc);
       if (selections == null) return;
       final (testId, book) = selections;
-      final watch = ctrl.addToMonitor(tc,
+      final watch = _ctrl.addToMonitor(tc,
           testTeachingClassId: testId,
           bookSelection: book,
           volunteerGrade: grade,
@@ -462,7 +460,7 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       final needsSetup = watch.status == WatchStatus.needsSetup;
       showToast(
         context,
-        needsSetup ? '已加入监控，但仍需完成实验课/教材选择' : '已加入监控：${tc.courseName}',
+        needsSetup ? '已加入监控，还需完成实验课或教材选择' : '已加入监控：${tc.courseName}',
         success: !needsSetup,
       );
     } catch (e) {
@@ -498,21 +496,16 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   }
 
   Future<String?> _pickTestClass(TeachingClass tc) async {
-    final ctrl = ref.read(coursesProvider.notifier);
-    final list = await ctrl.fetchTestCourses(tc);
+    final list = await _ctrl.fetchTestCourses(tc);
     if (!mounted) return null;
     if (list.isEmpty) {
-      showToast(context, '未获取到可选实验教学班', success: false);
+      showToast(context, '没有可选的实验教学班', success: false);
       return null;
     }
-    final selected = await showAdaptiveSheet<String>(
+    return showAdaptiveSheet<String>(
       context,
       builder: (context) => TestClassPicker(list: list),
     );
-    if (selected != null && selected.isNotEmpty && mounted) {
-      showToast(context, '实验教学班已选择');
-    }
-    return selected;
   }
 
   Future<TextbookSelection?> _promptTextbookSelection(TeachingClass tc) async {
@@ -520,20 +513,6 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     final student = session.student;
     final batch = session.activeBatch;
     if (student == null || batch == null) return null;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: CircularProgressIndicator(),
-          ),
-        ),
-      ),
-    );
-
     try {
       final course = ref.read(courseServiceProvider);
       final info = ref.read(infoServiceProvider);
@@ -543,7 +522,6 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
           batchCode: batch.code,
           teachingClassId: tc.teachingClassId,
         ),
-        // Decline reasons live in the dictionary, not on the rows.
         info.fetchTextbookReasons(),
       ]);
       final reasons = results[1] as List<TextbookReason>;
@@ -552,28 +530,94 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
           o.copyWith(reasonCodes: reasons),
       ];
       if (!mounted) return null;
-      Navigator.of(context).pop();
       if (options.isEmpty) {
-        showToast(context, '未获取到教材清单，按默认提交');
         return TextbookSelection(tc.needBook.isNotEmpty ? tc.needBook : '', []);
       }
-      final selection = await showAdaptiveSheet<TextbookSelection>(
+      return showAdaptiveSheet<TextbookSelection>(
         context,
         scrollControlled: true,
         builder: (context) => TextbookPicker(options: options),
       );
-      if (selection == null && mounted) {
-        showToast(context, '已取消教材选择', success: false);
-      }
-      return selection;
     } catch (_) {
-      if (!mounted) return null;
-      Navigator.of(context).pop();
-      showToast(context, '获取教材信息失败', success: false);
+      if (mounted) showToast(context, '获取教材信息失败', success: false);
       return null;
     }
   }
+
+  Future<void> _checkCanChoose(TeachingClass tc) async {
+    final session = ref.read(sessionProvider);
+    final student = session.student;
+    final batch = session.activeBatch;
+    if (student == null || batch == null) return;
+    List<String> reasons;
+    try {
+      reasons = await ref.read(courseServiceProvider).fetchCanChooseReasons(
+            studentCode: student.studentCode,
+            teachingClassId: tc.teachingClassId,
+            batchCode: batch.code,
+          );
+    } catch (e) {
+      if (mounted) showToast(context, '$e', success: false);
+      return;
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${tc.courseName} ${tc.displayTitle}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final r in reasons)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(r),
+              ),
+            if (reasons.isEmpty) const Text('服务器没有给出原因'),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context), child: const Text('关闭')),
+        ],
+      ),
+    );
+  }
+
+  Widget _tile(TeachingClass tc, CourseRow row, CourseKind kind,
+      {bool bordered = true}) {
+    final watched = ref
+        .watch(watchesProvider)
+        .any((w) => w.id == _ctrl.watchIdFor(tc) &&
+            w.status != WatchStatus.grabbed);
+    return TeachingClassTile(
+      teachingClass: tc,
+      kind: kind,
+      bordered: bordered,
+      browseOnly: kind.isBrowseOnly,
+      volunteerRound: _volunteerRound,
+      courseAlreadyHeld: row.isHeld && !tc.isHeld,
+      watched: watched,
+      onGrab: () => _grab(tc),
+      onMonitor: () => _toggleMonitor(tc, watched: watched),
+      onRefresh: () => _ctrl.refresh(tc),
+      onCheck: kind.isBrowseOnly ? () => _checkCanChoose(tc) : null,
+      busy: _busyClassId == tc.teachingClassId,
+    );
+  }
 }
+
+/// Course-level summary line: number, credit, category, department.
+String courseMeta(CourseRow row) => [
+      row.courseNumber,
+      if (row.credit.isNotEmpty) '${row.credit} 学分',
+      if (row.publicCourseType.isNotEmpty)
+        row.publicCourseType
+      else if (row.courseNatureName.isNotEmpty)
+        row.courseNatureName,
+      if (row.departmentName.isNotEmpty) row.departmentName,
+    ].join('  ');
 
 /// One course in the wide layout's list pane.
 class _CourseListTile extends StatelessWidget {
@@ -591,12 +635,13 @@ class _CourseListTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final classes = row.teachingClasses;
+    final open = classes.where((c) => !c.hasCapacityInfo || c.remaining > 0).length;
     return Material(
       color: selected ? scheme.secondaryContainer : Colors.transparent,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
@@ -616,18 +661,20 @@ class _CourseListTile extends StatelessWidget {
                                 fontWeight: FontWeight.w700, fontSize: 15),
                           ),
                         ),
-                        if (row.selected) ...[
-                          const SizedBox(width: 8),
+                        if (row.onlinePlatform.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          StatusPill(label: row.onlinePlatform, color: Colors.teal),
+                        ],
+                        if (row.isHeld) ...[
+                          const SizedBox(width: 6),
                           const StatusPill(
-                              label: '已选',
-                              color: Colors.green,
-                              icon: Icons.check),
+                              label: '已选', color: Colors.green, icon: Icons.check),
                         ],
                       ],
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      _meta(row),
+                      courseMeta(row),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -638,8 +685,14 @@ class _CourseListTile extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Text(
-                '${classes.length}个班',
-                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+                classes.first.hasCapacityInfo
+                    ? '$open/${classes.length} 班可选'
+                    : '${classes.length} 班',
+                style: TextStyle(
+                    color: open == 0 && classes.first.hasCapacityInfo
+                        ? scheme.error
+                        : scheme.onSurfaceVariant,
+                    fontSize: 12),
               ),
               Icon(Icons.chevron_right,
                   size: 18,
@@ -651,20 +704,9 @@ class _CourseListTile extends StatelessWidget {
       ),
     );
   }
-
-  static String _meta(CourseRow row) => [
-        row.courseNumber,
-        if (row.credit.isNotEmpty) '${row.credit}学分',
-        if (row.publicCourseType.isNotEmpty)
-          row.publicCourseType
-        else if (row.courseNatureName.isNotEmpty)
-          row.courseNatureName,
-        if (row.departmentName.isNotEmpty) row.departmentName,
-      ].join(' · ');
 }
 
-/// The wide layout's right pane: the selected course's teaching classes, laid
-/// out in one or two columns depending on the pane width.
+/// The wide layout's right pane: the selected course's teaching classes.
 class _CourseDetailPane extends ConsumerStatefulWidget {
   const _CourseDetailPane({super.key, required this.row, required this.kind});
   final CourseRow row;
@@ -696,7 +738,7 @@ class _CourseDetailPaneState extends ConsumerState<_CourseDetailPane>
                     ?.copyWith(fontWeight: FontWeight.w800),
               ),
             ),
-            if (row.selected)
+            if (row.isHeld)
               const Padding(
                 padding: EdgeInsets.only(left: 8, top: 4),
                 child: StatusPill(
@@ -706,38 +748,19 @@ class _CourseDetailPaneState extends ConsumerState<_CourseDetailPane>
         ),
         const SizedBox(height: 4),
         Text(
-          [
-            _CourseListTile._meta(row),
-            '${classes.length}个教学班',
-          ].join(' · '),
+          '${courseMeta(row)}  ${classes.length} 个教学班',
           style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
         ),
         const SizedBox(height: 16),
         if (classes.isEmpty)
-          const EmptyState(icon: Icons.class_outlined, title: '该课程暂无教学班')
+          const EmptyState(icon: Icons.class_outlined, title: '没有教学班')
         else
           AdaptiveGrid(
             minColumnWidth: 440,
             maxColumns: 2,
             children: [
               for (final tc in classes)
-                Card(
-                  margin: EdgeInsets.zero,
-                  clipBehavior: Clip.antiAlias,
-                  child: TeachingClassTile(
-                    teachingClass: tc,
-                    kind: widget.kind,
-                    bordered: false,
-                    browseOnly: widget.kind == CourseKind.qxkc,
-                    volunteerRound: _volunteerRound,
-                    courseAlreadyHeld: row.selected && !tc.isHeld,
-                    onGrab: () => _grab(tc),
-                    onMonitor: () => _monitor(tc),
-                    onRefresh: () =>
-                        ref.read(coursesProvider.notifier).refresh(tc),
-                    busy: _busyClassId == tc.teachingClassId,
-                  ),
-                ),
+                Card(child: _tile(tc, row, widget.kind, bordered: false)),
             ],
           ),
       ],
@@ -763,6 +786,7 @@ class _CourseCardState extends ConsumerState<_CourseCard>
     final scheme = Theme.of(context).colorScheme;
     final row = widget.row;
     final classes = row.teachingClasses;
+    final open = classes.where((c) => !c.hasCapacityInfo || c.remaining > 0).length;
 
     return Card(
       child: Column(
@@ -788,8 +812,12 @@ class _CourseCardState extends ConsumerState<_CourseCard>
                                     fontWeight: FontWeight.w700, fontSize: 16),
                               ),
                             ),
-                            if (row.selected) ...[
-                              const SizedBox(width: 8),
+                            if (row.onlinePlatform.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              StatusPill(label: row.onlinePlatform, color: Colors.teal),
+                            ],
+                            if (row.isHeld) ...[
+                              const SizedBox(width: 6),
                               const StatusPill(
                                   label: '已选',
                                   color: Colors.green,
@@ -799,7 +827,7 @@ class _CourseCardState extends ConsumerState<_CourseCard>
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          _CourseListTile._meta(row),
+                          courseMeta(row),
                           style: TextStyle(
                               color: scheme.onSurfaceVariant, fontSize: 12),
                         ),
@@ -809,9 +837,15 @@ class _CourseCardState extends ConsumerState<_CourseCard>
                   if (classes.isNotEmpty)
                     Row(
                       children: [
-                        Text('${classes.length}个班',
+                        Text(
+                            classes.first.hasCapacityInfo
+                                ? '$open/${classes.length} 班可选'
+                                : '${classes.length} 班',
                             style: TextStyle(
-                                color: scheme.onSurfaceVariant, fontSize: 12)),
+                                color: open == 0 && classes.first.hasCapacityInfo
+                                    ? scheme.error
+                                    : scheme.onSurfaceVariant,
+                                fontSize: 12)),
                         Icon(_expanded ? Icons.expand_less : Icons.expand_more,
                             color: scheme.onSurfaceVariant),
                       ],
@@ -821,76 +855,140 @@ class _CourseCardState extends ConsumerState<_CourseCard>
             ),
           ),
           if (_expanded)
-            for (final tc in classes)
-              TeachingClassTile(
-                teachingClass: tc,
-                kind: widget.kind,
-                browseOnly: widget.kind == CourseKind.qxkc,
-                volunteerRound: _volunteerRound,
-                courseAlreadyHeld: row.selected && !tc.isHeld,
-                onGrab: () => _grab(tc),
-                onMonitor: () => _monitor(tc),
-                onRefresh: () => ref.read(coursesProvider.notifier).refresh(tc),
-                busy: _busyClassId == tc.teachingClassId,
-              ),
+            for (final tc in classes) _tile(tc, row, widget.kind),
         ],
       ),
     );
   }
 }
 
-/// Chips that narrow the loaded list: 通识类别 and 开课单位 (course facets),
-/// plus 无冲突 / 有余量 / 网课 switches. Mirrors the official page's selects,
-/// applied locally over the rows already fetched.
-class _FilterBar extends StatelessWidget {
-  const _FilterBar({required this.state, required this.onChanged});
-  final CoursesState state;
-  final ValueChanged<CourseFilters> onChanged;
+/// The 通识 tab's credit requirements per category, the text the official
+/// page shows above the 通识 list (studentInfo.spCourseDescription).
+class _CreditRequirementStrip extends ConsumerWidget {
+  const _CreditRequirementStrip();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final credit = ref.watch(creditInfoProvider).asData?.value;
+    final reqs = credit?.requirements ?? const [];
+    if (reqs.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: 36,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+        itemCount: reqs.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final r = reqs[i];
+          return Tooltip(
+            message: '${r.category}\n要求学分 ${r.required}，已修 ${r.earned}',
+            child: Chip(
+              visualDensity: VisualDensity.compact,
+              label: Text('${r.category.replaceAll('-2025版', '')}  ${r.earned}/${r.required}',
+                  style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Chips that narrow the loaded list: 通识类别 and 开课单位 facets, plus 无冲突
+/// / 有余量 / 网课 switches. For the paged catalogue the facets are sent to
+/// the server (dictionary codes), as the official page does.
+class _FilterBar extends ConsumerWidget {
+  const _FilterBar({required this.state, required this.ctrl});
+  final CoursesState state;
+  final CoursesController ctrl;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     final f = state.filters;
     final scheme = Theme.of(context).colorScheme;
-    final types = state.publicTypes;
-    final departments = state.departments;
-    final chips = <Widget>[
-      if (types.length > 1)
-        _FacetMenu(
+    final dict = ref.watch(dictionaryProvider).asData?.value ?? const {};
+    final chips = <Widget>[];
+    if (state.paged) {
+      final types = dict['XGXKLB'] ?? const [];
+      final departments = dict['KKDW'] ?? const [];
+      if (types.isNotEmpty) {
+        chips.add(_FacetMenu(
+          label: '通识类别',
+          value: f.publicType,
+          options: [for (final d in types) d.name],
+          onChanged: (v) => v == null
+              ? ctrl.setCatalogFacets(clearType: true)
+              : ctrl.setCatalogFacets(
+                  typeName: v,
+                  typeCode: types.firstWhere((d) => d.name == v).code),
+        ));
+      }
+      if (departments.isNotEmpty) {
+        chips.add(_FacetMenu(
+          label: '开课单位',
+          value: f.department,
+          options: [for (final d in departments) d.name],
+          onChanged: (v) => v == null
+              ? ctrl.setCatalogFacets(clearDepartment: true)
+              : ctrl.setCatalogFacets(
+                  departmentName: v,
+                  departmentCode:
+                      departments.firstWhere((d) => d.name == v).code),
+        ));
+      }
+    } else {
+      final types = state.publicTypes;
+      final departments = state.departments;
+      if (types.length > 1) {
+        chips.add(_FacetMenu(
           label: '类别',
           value: f.publicType,
           options: types,
-          onChanged: (v) => onChanged(f.copyWith(publicType: v)),
-        ),
-      if (departments.length > 1)
-        _FacetMenu(
+          onChanged: (v) => ctrl.setFilters(f.copyWith(publicType: v)),
+        ));
+      }
+      if (departments.length > 1) {
+        chips.add(_FacetMenu(
           label: '开课单位',
           value: f.department,
           options: departments,
-          onChanged: (v) => onChanged(f.copyWith(department: v)),
-        ),
-      FilterChip(
-        label: const Text('无冲突'),
-        selected: f.hideConflict,
-        onSelected: (v) => onChanged(f.copyWith(hideConflict: v)),
-      ),
-      FilterChip(
-        label: const Text('有余量'),
-        selected: f.onlyAvailable,
-        onSelected: (v) => onChanged(f.copyWith(onlyAvailable: v)),
-      ),
-      if (state.hasOnline)
+          onChanged: (v) => ctrl.setFilters(f.copyWith(department: v)),
+        ));
+      }
+      chips.addAll([
         FilterChip(
-          label: const Text('网课'),
-          selected: f.onlyOnline,
-          onSelected: (v) => onChanged(f.copyWith(onlyOnline: v)),
+          label: const Text('无冲突'),
+          selected: f.hideConflict,
+          onSelected: (v) => ctrl.setFilters(f.copyWith(hideConflict: v)),
         ),
-      if (f.isActive)
-        ActionChip(
-          avatar: const Icon(Icons.clear, size: 16),
-          label: const Text('清除'),
-          onPressed: () => onChanged(const CourseFilters()),
+        FilterChip(
+          label: const Text('有余量'),
+          selected: f.onlyAvailable,
+          onSelected: (v) => ctrl.setFilters(f.copyWith(onlyAvailable: v)),
         ),
-    ];
+      ]);
+    }
+    if (state.hasOnline) {
+      chips.add(FilterChip(
+        label: const Text('网课'),
+        selected: f.onlyOnline,
+        onSelected: (v) => ctrl.setFilters(f.copyWith(onlyOnline: v)),
+      ));
+    }
+    if (f.isActive && (!state.paged || f.onlyOnline)) {
+      chips.add(ActionChip(
+        avatar: const Icon(Icons.clear, size: 16),
+        label: const Text('清除'),
+        onPressed: () => state.paged
+            ? ctrl.setFilters(f.copyWith(onlyOnline: false))
+            : ctrl.setFilters(const CourseFilters()),
+      ));
+    }
+    if (chips.isEmpty) return const SizedBox.shrink();
+    final classCount =
+        state.visibleRows.fold<int>(0, (n, r) => n + r.teachingClasses.length);
     return Container(
       color: scheme.surface,
       padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
@@ -909,9 +1007,45 @@ class _FilterBar extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Text(
-            '${state.visibleRows.length} 门课 · '
-            '${state.visibleRows.fold<int>(0, (n, r) => n + r.teachingClasses.length)} 个班',
+            state.paged
+                ? '共 ${state.totalCount} 个班'
+                : '${state.visibleRows.length} 门 $classCount 班',
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Page controls for the whole-school catalogue.
+class _Pager extends StatelessWidget {
+  const _Pager({required this.state, required this.onPage});
+  final CoursesState state;
+  final ValueChanged<int> onPage;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      color: scheme.surface,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+            onPressed: state.page > 0 && !state.loading
+                ? () => onPage(state.page - 1)
+                : null,
+            icon: const Icon(Icons.chevron_left),
+          ),
+          Text('第 ${state.page + 1} / ${state.pageCount} 页',
+              style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
+          IconButton(
+            onPressed: state.page + 1 < state.pageCount && !state.loading
+                ? () => onPage(state.page + 1)
+                : null,
+            icon: const Icon(Icons.chevron_right),
           ),
         ],
       ),
@@ -970,13 +1104,8 @@ class _VolunteerGradePicker extends StatelessWidget {
         children: [
           Text('填报志愿', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 4),
-          Text('${tc.courseName} · ${tc.displayTitle}',
+          Text('${tc.courseName} ${tc.displayTitle}',
               style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
-          const SizedBox(height: 4),
-          Text(
-            '预选按志愿顺序录取，第一志愿优先；同一课程只能填报一个教学班。',
-            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
-          ),
           const SizedBox(height: 12),
           for (final g in grades)
             ListTile(
@@ -1034,8 +1163,9 @@ class TestClassPicker extends StatelessWidget {
 }
 
 class TextbookPicker extends StatefulWidget {
-  const TextbookPicker({super.key, required this.options});
+  const TextbookPicker({super.key, required this.options, this.title = '教材'});
   final List<TextbookOption> options;
+  final String title;
 
   @override
   State<TextbookPicker> createState() => _TextbookPickerState();
@@ -1066,7 +1196,7 @@ class _TextbookPickerState extends State<TextbookPicker> {
         child: Column(
           children: [
             const SizedBox(height: 8),
-            Text('选择教材', style: Theme.of(context).textTheme.titleLarge),
+            Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),
             Expanded(
               child: ListView.builder(
@@ -1079,10 +1209,11 @@ class _TextbookPickerState extends State<TextbookPicker> {
                       CheckboxListTile(
                         title: Text(book.bookName),
                         subtitle: Text([
-                          if (book.isbn.isNotEmpty) 'ISBN:${book.isbn}',
+                          if (book.author.isNotEmpty) book.author,
+                          if (book.isbn.isNotEmpty) 'ISBN ${book.isbn}',
                           if (book.press.isNotEmpty) book.press,
-                          '¥${book.price}',
-                        ].join(' · ')),
+                          if (book.price.isNotEmpty) '¥${book.price}',
+                        ].join('  ')),
                         value: _ordered[i],
                         enabled: book.orderable,
                         onChanged: book.orderable
@@ -1107,9 +1238,6 @@ class _TextbookPickerState extends State<TextbookPicker> {
                                 : null,
                             decoration: const InputDecoration(
                               labelText: '不订购原因',
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 8),
                               isDense: true,
                             ),
                             items: book.reasonCodes
@@ -1126,7 +1254,7 @@ class _TextbookPickerState extends State<TextbookPicker> {
                         Padding(
                           padding: const EdgeInsets.only(left: 72, bottom: 8),
                           child: Text(
-                            '该教材不可订购',
+                            '不可订购',
                             style: TextStyle(
                                 color: scheme.onSurfaceVariant, fontSize: 13),
                           ),
@@ -1138,10 +1266,9 @@ class _TextbookPickerState extends State<TextbookPicker> {
             ),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
-              child: FilledButton.icon(
+              child: FilledButton(
                 onPressed: _confirm,
-                icon: const Icon(Icons.check),
-                label: const Text('确认教材选择'),
+                child: const Text('确定'),
               ),
             ),
           ],

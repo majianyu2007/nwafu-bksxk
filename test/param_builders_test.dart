@@ -337,10 +337,11 @@ void main() {
       );
     });
   });
-  group('buildNoticeListQuery', () {
-    test('threads pageSize + pageNumber + timestamp', () {
-      final q = buildNoticeListQuery(timestamp: 'T1', pageSize: 20, pageNumber: 2);
-      expect(q, {'pageSize': '20', 'pageNumber': '2', 'timestamp': 'T1'});
+  group('buildSubmitUnsuccessfulQuery', () {
+    test('joins the wids with commas as the official popup does', () {
+      final q = buildSubmitUnsuccessfulQuery(
+          studentCode: 'S', wids: ['W1', 'W2']);
+      expect(q, {'wids': 'W1,W2', 'studentCode': 'S'});
     });
   });
 }

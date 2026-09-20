@@ -3,6 +3,8 @@
 // safety rules: hard-stop on maintenance/throttle, no double-submit, and that a
 // grab is only declared successful when the server confirms it. Uses fakes so no
 // network is involved and timing is deterministic.
+import 'dart:async';
+
 import 'package:nwafu_bksxk/core/constants.dart';
 import 'package:nwafu_bksxk/core/errors.dart';
 import 'package:nwafu_bksxk/data/course_service.dart';
@@ -88,6 +90,20 @@ class FakeEnrollService implements EnrollService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class DeferredCourseService implements CourseService {
+  final started = Completer<void>();
+  final response = Completer<TeachingClass>();
+
+  @override
+  Future<TeachingClass> refreshCapacity(TeachingClass tc, String studentCode) {
+    if (!started.isCompleted) started.complete();
+    return response.future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 TeachingClass plainTc(String id) => TeachingClass.fromJson({
       'teachingClassID': id,
       'courseName': 'C-$id',
@@ -109,6 +125,52 @@ Watch watchFor(TeachingClass tc) => Watch(
     );
 
 void main() {
+  for (final cancel in ['stop', 'remove', 'pause']) {
+    test('$cancel prevents a late capacity response from submitting', () async {
+      final course = DeferredCourseService();
+      final enroll = FakeEnrollService();
+      final engine =
+          MonitorEngine(courseService: course, enrollService: enroll);
+      addTearDown(engine.dispose);
+      final watch = watchFor(plainTc('late'));
+      engine.addWatch(watch);
+      engine.start();
+      await course.started.future;
+      switch (cancel) {
+        case 'stop':
+          engine.stop();
+        case 'remove':
+          engine.removeWatch(watch.id);
+        case 'pause':
+          engine.pauseWatch(watch.id);
+      }
+      course.response.complete(watch.teachingClass
+          .withCapacity(classCapacity: 10, numberOfSelected: 0, isFull: false));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(enroll.submitted, isEmpty);
+    });
+  }
+
+  test('disposing during submission prevents late confirmation and events',
+      () async {
+    final enroll =
+        FakeEnrollService(submitDelay: const Duration(milliseconds: 40));
+    final engine = MonitorEngine(
+        courseService: FakeCourseService({
+          'dispose': [1]
+        }),
+        enrollService: enroll);
+    engine.addWatch(watchFor(plainTc('dispose')));
+    engine.start();
+    expect(
+        await _waitFor(() => enroll.submitted.isNotEmpty,
+            timeout: const Duration(seconds: 2)),
+        isTrue);
+    engine.dispose();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    expect(enroll.confirmCalls, 0);
+  });
+
   test('grabs once when a seat opens, then stops', () async {
     // Seat closed, closed, then opens.
     final course = FakeCourseService({
@@ -161,7 +223,9 @@ void main() {
       courseService: course,
       enrollService: enroll,
       config: const MonitorConfig(
-          basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+          basePollInterval: Duration(milliseconds: 5),
+          minPollInterval: Duration(milliseconds: 5),
+          jitter: Duration.zero),
     );
 
     engine.addWatch(watchFor(tc));
@@ -194,7 +258,9 @@ void main() {
       courseService: course,
       enrollService: enroll,
       config: const MonitorConfig(
-          basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+          basePollInterval: Duration(milliseconds: 5),
+          minPollInterval: Duration(milliseconds: 5),
+          jitter: Duration.zero),
     );
 
     final w = watchFor(tc);
@@ -231,7 +297,9 @@ void main() {
       courseService: course,
       enrollService: enroll,
       config: const MonitorConfig(
-          basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+          basePollInterval: Duration(milliseconds: 5),
+          minPollInterval: Duration(milliseconds: 5),
+          jitter: Duration.zero),
     );
 
     engine.addWatch(watchFor(tc));
@@ -254,7 +322,8 @@ void main() {
     engine.dispose();
   });
 
-  test('a conflicting class is only submitted when the watch opts in', () async {
+  test('a conflicting class is only submitted when the watch opts in',
+      () async {
     TeachingClass conflicting(String id) => TeachingClass.fromJson({
           'teachingClassID': id,
           'courseName': 'C',
@@ -265,12 +334,18 @@ void main() {
           'hasTest': '0',
           'hasBook': '0',
         });
-    final course = FakeCourseService({'A': [5], 'B': [5]});
+    final course = FakeCourseService({
+      'A': [5],
+      'B': [5]
+    });
     final enroll = FakeEnrollService(succeed: true);
     final engine = MonitorEngine(
       courseService: course,
       enrollService: enroll,
-      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+      config: const MonitorConfig(
+          basePollInterval: Duration(milliseconds: 5),
+          minPollInterval: Duration(milliseconds: 5),
+          jitter: Duration.zero),
     );
     engine.addWatch(watchFor(conflicting('A')));
     engine.addWatch(watchFor(conflicting('B'))..allowConflict = true);
@@ -279,18 +354,26 @@ void main() {
     engine.stop();
 
     expect(enroll.submitted.map((p) => p.teachingClassId), ['B']);
-    expect(engine.watches.firstWhere((w) => w.id == 'w-A').status, WatchStatus.watching);
-    expect(engine.watches.firstWhere((w) => w.id == 'w-B').status, WatchStatus.grabbed);
+    expect(engine.watches.firstWhere((w) => w.id == 'w-A').status,
+        WatchStatus.watching);
+    expect(engine.watches.firstWhere((w) => w.id == 'w-B').status,
+        WatchStatus.grabbed);
     engine.dispose();
   });
 
   test('the same non-capacity rejection three times stops the watch', () async {
-    final course = FakeCourseService({'R': [5, 5, 5, 5, 5, 5]});
-    final enroll = FakeEnrollService(succeed: false, outcomeCode: '0', outcomeMsg: '超过本轮次可选学分上限');
+    final course = FakeCourseService({
+      'R': [5, 5, 5, 5, 5, 5]
+    });
+    final enroll = FakeEnrollService(
+        succeed: false, outcomeCode: '0', outcomeMsg: '超过本轮次可选学分上限');
     final engine = MonitorEngine(
       courseService: course,
       enrollService: enroll,
-      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+      config: const MonitorConfig(
+          basePollInterval: Duration(milliseconds: 5),
+          minPollInterval: Duration(milliseconds: 5),
+          jitter: Duration.zero),
     );
     engine.addWatch(watchFor(plainTc('R')));
     engine.start();
@@ -303,12 +386,18 @@ void main() {
   });
 
   test('a duplicate-selection refusal is a hard stop for the watch', () async {
-    final course = FakeCourseService({'D': [5, 5, 5]});
-    final enroll = FakeEnrollService(succeed: false, outcomeCode: '0', outcomeMsg: '该课程已存在预选课程结果中');
+    final course = FakeCourseService({
+      'D': [5, 5, 5]
+    });
+    final enroll = FakeEnrollService(
+        succeed: false, outcomeCode: '0', outcomeMsg: '该课程已存在预选课程结果中');
     final engine = MonitorEngine(
       courseService: course,
       enrollService: enroll,
-      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+      config: const MonitorConfig(
+          basePollInterval: Duration(milliseconds: 5),
+          minPollInterval: Duration(milliseconds: 5),
+          jitter: Duration.zero),
     );
     engine.addWatch(watchFor(plainTc('D')));
     engine.start();
@@ -320,13 +409,19 @@ void main() {
     engine.dispose();
   });
 
-  test('a volunteer watch submits chooseVolunteer in the 预选 key order', () async {
-    final course = FakeCourseService({'V': [5]});
+  test('a volunteer watch submits chooseVolunteer in the 预选 key order',
+      () async {
+    final course = FakeCourseService({
+      'V': [5]
+    });
     final enroll = FakeEnrollService(succeed: true);
     final engine = MonitorEngine(
       courseService: course,
       enrollService: enroll,
-      config: const MonitorConfig(basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+      config: const MonitorConfig(
+          basePollInterval: Duration(milliseconds: 5),
+          minPollInterval: Duration(milliseconds: 5),
+          jitter: Duration.zero),
     );
     engine.addWatch(watchFor(plainTc('V'))..volunteerGrade = '1');
     engine.start();
@@ -334,7 +429,8 @@ void main() {
     engine.stop();
 
     expect(enroll.submitted.single.chooseVolunteer, '1');
-    expect(enroll.submitted.single.form['addParam'], contains('"teachingClassType":"FANKC","chooseVolunteer":"1"}'));
+    expect(enroll.submitted.single.form['addParam'],
+        contains('"teachingClassType":"FANKC","chooseVolunteer":"1"}'));
     engine.dispose();
   });
 
@@ -349,7 +445,9 @@ void main() {
       courseService: course,
       enrollService: enroll,
       config: const MonitorConfig(
-          basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+          basePollInterval: Duration(milliseconds: 5),
+          minPollInterval: Duration(milliseconds: 5),
+          jitter: Duration.zero),
     );
     engine.addWatch(watchFor(plainTc('TCM')));
     engine.start();
@@ -410,7 +508,9 @@ void main() {
       courseService: course,
       enrollService: enroll,
       config: const MonitorConfig(
-          basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+          basePollInterval: Duration(milliseconds: 5),
+          minPollInterval: Duration(milliseconds: 5),
+          jitter: Duration.zero),
     );
     engine.addWatch(watchFor(plainTc('TCC')));
     engine.start();
@@ -434,7 +534,9 @@ void main() {
       courseService: course,
       enrollService: enroll,
       config: const MonitorConfig(
-          basePollInterval: Duration(milliseconds: 3), jitter: Duration.zero),
+          basePollInterval: Duration(milliseconds: 3),
+          minPollInterval: Duration(milliseconds: 3),
+          jitter: Duration.zero),
     );
     engine.addWatch(watchFor(plainTc('TCD')));
     engine.start();
@@ -455,7 +557,9 @@ void main() {
       courseService: course,
       enrollService: enroll,
       config: const MonitorConfig(
-          basePollInterval: Duration(milliseconds: 5), jitter: Duration.zero),
+          basePollInterval: Duration(milliseconds: 5),
+          minPollInterval: Duration(milliseconds: 5),
+          jitter: Duration.zero),
     );
     engine.addWatch(watchFor(plainTc('TCG')));
     engine.closeGate();

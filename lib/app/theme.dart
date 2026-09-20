@@ -1,8 +1,6 @@
-/// App theme: Material 3, seed-based color, refined surfaces, and typography.
-/// Supports light + dark, plus optional platform dynamic color.
-///
-/// Typography uses the bundled NotoSansSC font (declared in pubspec) so Chinese
-/// renders identically on every platform and the app needs no font CDN.
+/// App theme: Material 3 from a seed colour, light + dark, optional platform
+/// dynamic colour. Typography uses the bundled NotoSansSC subset so Chinese
+/// renders identically everywhere and the app needs no font CDN.
 library;
 
 import 'package:flutter/material.dart';
@@ -10,11 +8,8 @@ import 'package:flutter/material.dart';
 class AppTheme {
   AppTheme._();
 
-  /// The bundled CJK font family. Declared in pubspec.yaml.
   static const String fontFamily = 'NotoSansSC';
 
-  /// Builds a theme for [brightness] from [seed], optionally using a
-  /// platform-provided [dynamicScheme] (Android 12+/macOS accent).
   static ThemeData build({
     required Brightness brightness,
     required Color seed,
@@ -22,7 +17,6 @@ class AppTheme {
   }) {
     final scheme = dynamicScheme ??
         ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
-
     final baseText = brightness == Brightness.dark
         ? Typography.material2021().white
         : Typography.material2021().black;
@@ -42,12 +36,13 @@ class AppTheme {
         elevation: 0,
         scrolledUnderElevation: 2,
         centerTitle: false,
-        titleTextStyle: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+        titleTextStyle:
+            textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
       ),
       cardTheme: CardThemeData(
         elevation: 0,
         color: scheme.surfaceContainerLow,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         clipBehavior: Clip.antiAlias,
         margin: EdgeInsets.zero,
       ),
@@ -62,36 +57,30 @@ class AppTheme {
         filled: true,
         fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: scheme.primary, width: 2),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size(64, 50),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          textStyle: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-        ),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          minimumSize: const Size(64, 50),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          minimumSize: const Size(64, 44),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          textStyle: textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size(64, 48),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          minimumSize: const Size(64, 44),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
@@ -111,18 +100,26 @@ class AppTheme {
         thickness: 1,
       ),
       listTileTheme: const ListTileThemeData(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(14))),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12))),
       ),
     );
   }
 }
 
-/// Preset seed colors offered in Settings.
-const List<Color> kSeedPresets = [
-  Color(0xFF3B6FE0), // blue
-  Color(0xFF2E7D5B), // NWAFU green
-  Color(0xFF7A4FD0), // violet
-  Color(0xFFD08A00), // amber
-  Color(0xFFC0455B), // rose
-  Color(0xFF00838F), // teal
+/// Named seed colours offered in Settings; any other colour can be picked on
+/// the hue wheel next to them.
+const List<(String, Color)> kSeedPresets = [
+  ('靛蓝', Color(0xFF3B6FE0)),
+  ('西农绿', Color(0xFF2E7D5B)),
+  ('青', Color(0xFF00838F)),
+  ('天蓝', Color(0xFF1E88E5)),
+  ('紫', Color(0xFF7A4FD0)),
+  ('玫红', Color(0xFFC0455B)),
+  ('橙', Color(0xFFE0641B)),
+  ('琥珀', Color(0xFFD08A00)),
+  ('橄榄', Color(0xFF6B8E23)),
+  ('石墨', Color(0xFF546E7A)),
+  ('棕', Color(0xFF795548)),
+  ('黑', Color(0xFF212121)),
 ];

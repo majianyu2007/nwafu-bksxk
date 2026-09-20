@@ -16,23 +16,19 @@ import '../data/models.dart';
 import 'layout.dart';
 import 'widgets.dart';
 
-Future<void> showTeachingClassDetail(BuildContext context, TeachingClass tc,
-    {DateTime? capacityAsOf}) {
+Future<void> showTeachingClassDetail(BuildContext context, TeachingClass tc) {
   final dialog = adaptiveSheetIsDialog(context);
   return showAdaptiveSheet<void>(
     context,
     scrollControlled: true,
     maxWidth: 680,
-    builder: (context) =>
-        _DetailSheet(tc: tc, capacityAsOf: capacityAsOf, inDialog: dialog),
+    builder: (context) => _DetailSheet(tc: tc, inDialog: dialog),
   );
 }
 
 class _DetailSheet extends ConsumerStatefulWidget {
-  const _DetailSheet(
-      {required this.tc, this.capacityAsOf, this.inDialog = false});
+  const _DetailSheet({required this.tc, this.inDialog = false});
   final TeachingClass tc;
-  final DateTime? capacityAsOf;
 
   /// Presented as a dialog (wide windows): render a plain list instead of a
   /// draggable sheet, which only makes sense anchored to the screen bottom.
@@ -142,13 +138,17 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
   List<Widget> _content(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return [
-      Text(_tc.courseName,
+      SelectableText(_tc.courseName,
           style: Theme.of(context)
               .textTheme
               .headlineSmall
               ?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 4),
-      Text(_tc.displayTitle,
+      Text(
+          [
+            _tc.displayTitle,
+            if (_tc.courseNumber.isNotEmpty) _tc.courseNumber,
+          ].join('  '),
           style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 15)),
       const SizedBox(height: 16),
 
@@ -186,13 +186,23 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
           ),
         ),
 
-      _CapacityBlock(tc: _tc, asOf: widget.capacityAsOf),
-      const SizedBox(height: 16),
+      if (_tc.hasCapacityInfo) ...[
+        _CapacityBlock(tc: _tc),
+        const SizedBox(height: 16),
+      ],
 
       _row(context, Icons.person_outline, '教师', _tc.teacherName),
       _teacherExtra(),
 
-      _row(context, Icons.schedule, '上课时间地点', _tc.teachingPlace),
+      _row(
+          context,
+          Icons.schedule,
+          '时间地点',
+          _tc.teachingPlace.isNotEmpty
+              ? _tc.teachingPlace
+              : _tc.onlinePlatform.isNotEmpty
+                  ? '${_tc.onlinePlatform} 网课'
+                  : ''),
 
       if (_tc.credit.isNotEmpty || _tc.hours.isNotEmpty)
         _row(
@@ -202,7 +212,7 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
           [
             if (_tc.credit.isNotEmpty) '${_tc.credit} 学分',
             if (_tc.hours.isNotEmpty) '${_tc.hours} 学时',
-          ].join(' · '),
+          ].join('  '),
         ),
 
       if (_tc.courseTypeName.isNotEmpty)
@@ -233,8 +243,8 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
       _introBlock(),
 
       if (_tc.hasTest)
-        _row(context, Icons.science_outlined, '实验课', '需要选择实验教学班'),
-      if (_tc.hasBook) _row(context, Icons.menu_book_outlined, '教材', '需要教材征订'),
+        _row(context, Icons.science_outlined, '实验课', '选课时需选择实验教学班'),
+      if (_tc.hasBook) _row(context, Icons.menu_book_outlined, '教材', '有教材可征订'),
       if (_tc.limits.isNotEmpty)
         _row(context, Icons.lock_outline, '选课限制', _tc.limits.join('；')),
       _row(context, Icons.tag, '教学班号', _tc.teachingClassId),
@@ -268,7 +278,7 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
     return Padding(
       padding: const EdgeInsets.only(left: 30, bottom: 8),
       child: Text(
-        parts.join(' · '),
+        parts.join('  '),
         style: TextStyle(
             fontSize: 13,
             color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -339,32 +349,13 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
     );
   }
 
-  Widget _row(BuildContext context, IconData icon, String label, String value) {
-    if (value.isEmpty) return const SizedBox.shrink();
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 18, color: scheme.onSurfaceVariant),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 92,
-            child: Text(label,
-                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
-          ),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 14))),
-        ],
-      ),
-    );
-  }
+  Widget _row(BuildContext context, IconData icon, String label, String value) =>
+      DetailRow(label, value, icon: icon);
 }
 
 class _CapacityBlock extends StatelessWidget {
-  const _CapacityBlock({required this.tc, this.asOf});
+  const _CapacityBlock({required this.tc});
   final TeachingClass tc;
-  final DateTime? asOf;
 
   @override
   Widget build(BuildContext context) {
@@ -375,33 +366,8 @@ class _CapacityBlock extends StatelessWidget {
         color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CapacityBar(
-              selected: tc.numberOfSelected, capacity: tc.classCapacity),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Icon(Icons.info_outline,
-                  size: 13, color: scheme.onSurfaceVariant),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  asOf != null
-                      ? '余量为 ${_fmt(asOf!)} 的快照，非实时。点击刷新获取最新。'
-                      : '余量可能有延迟，非实时。',
-                  style:
-                      TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+      child: CapacityBar(
+          selected: tc.numberOfSelected, capacity: tc.classCapacity),
     );
   }
-
-  static String _fmt(DateTime t) =>
-      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}:${t.second.toString().padLeft(2, '0')}';
 }

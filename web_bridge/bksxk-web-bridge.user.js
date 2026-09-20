@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         西农本科选课 · Web 跨域桥接 (BKSXK Web Bridge)
 // @namespace    cn.edu.nwafu.bksxk.webbridge
-// @version      1.0.1
+// @version      1.1.0
 // @description  让「西农本科选课」网页版可以直接访问校园网选课接口：把发往 bksxk.nwafu.edu.cn 的请求改走 GM_xmlhttpRequest，绕过浏览器 CORS 与被禁止的请求头限制。仅在校园网内有效。
 // @author       nwafu-bksxk
 // @match        https://mjy.js.org/nwafu-bksxk/*
@@ -45,7 +45,7 @@
   // Signal to the app that the bridge is present (used to skip the install prompt).
   try {
     win.__bksxkBridgeReady = true;
-    win.__bksxkBridgeVersion = '1.0.1';
+    win.__bksxkBridgeVersion = '1.1.0';
   } catch (e) { /* ignore */ }
 
   // Browser extension sandboxes can hide JavaScript globals from page code.
@@ -55,7 +55,7 @@
     try {
       if (win.document && win.document.documentElement) {
         win.document.documentElement.setAttribute('data-bksxk-bridge-ready', 'true');
-        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.0.1');
+        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.1.0');
       }
     } catch (e) { /* ignore */ }
   }
@@ -100,6 +100,8 @@
     this.onabort = null;
     this._responseHeaders = '';
     this._aborted = false;
+    var noop = function () {};
+    this.upload = { addEventListener: noop, removeEventListener: noop };
   }
 
   BridgedXHR.prototype.open = function (method, url, async) {
@@ -159,13 +161,34 @@
     this._emit('abort');
   };
 
+  // Dio's browser adapter sends every body as a Uint8Array. GM_xmlhttpRequest
+  // only takes a string (or Blob/FormData); handed a typed array it sends the
+  // text "[object Uint8Array]", so every POST (course queries, selection)
+  // failed while GETs (login, courseResult) worked. Form bodies are UTF-8
+  // text, so decode them; anything else goes as a Blob.
+  function normaliseBody(body, headers) {
+    if (body == null || typeof body === 'string') return body;
+    var bytes = null;
+    if (body instanceof ArrayBuffer) bytes = new Uint8Array(body);
+    else if (ArrayBuffer.isView(body)) bytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+    if (bytes === null) return body; // Blob / FormData / URLSearchParams pass through
+    var type = '';
+    for (var k in headers) if (k.toLowerCase() === 'content-type') type = String(headers[k]).toLowerCase();
+    var textual = type === '' || type.indexOf('application/x-www-form-urlencoded') >= 0 ||
+      type.indexOf('application/json') >= 0 || type.indexOf('text/') >= 0;
+    if (textual) {
+      try { return new TextDecoder('utf-8').decode(bytes); } catch (e) { /* fall through */ }
+    }
+    return new Blob([bytes], { type: type || 'application/octet-stream' });
+  }
+
   BridgedXHR.prototype.send = function (body) {
     var self = this;
     var details = {
       method: this._method,
       url: new URL(this._url, win.location.href).href,
       headers: this._headers,
-      data: body,
+      data: normaliseBody(body, this._headers),
       timeout: this.timeout || 0,
       // Carry the browser's bksxk cookies with the request.
       anonymous: false,
@@ -184,6 +207,7 @@
         }
         self.readyState = 4;
         self._emitReadyState();
+        self._emit('progress');
         self._emit('load');
         self._emit('loadend');
       },
@@ -237,6 +261,7 @@
       removeEventListener: function (t, f) { bridged.removeEventListener(t, f); native.removeEventListener(t, f); },
       overrideMimeType: function (m) { if (!useBridge) native.overrideMimeType(m); },
     };
+    Object.defineProperty(handler, 'upload', { get: function () { return active().upload; }, configurable: true });
 
     // Properties read from / write to the active implementation.
     var props = ['readyState', 'status', 'statusText', 'response', 'responseText',

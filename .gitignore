@@ -49,3 +49,7 @@ node_modules/
 
 # Xcode Swift Package Manager state (auto-generated)
 **/xcshareddata/swiftpm/
+
+# Local build artifacts and agent skill links
+dist/
+.agents/

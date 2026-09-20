@@ -23,7 +23,7 @@
 # (仓库根目录就是 Flutter 工程)
 flutter pub get
 flutter analyze      # 应为 No issues found
-flutter test         # 30 个测试全部通过
+flutter test         # 全部离线测试应通过
 ```
 
 ---
@@ -97,7 +97,7 @@ Flutter 支持的稳定版 Xcode，或升级到已适配 Xcode 27 `lipo` 行为�
 # Windows（需 Visual Studio + Desktop C++ 工作负载）
 flutter build windows
 
-# Linux（需 clang / cmake / ninja / GTK 开发库）
+# Linux（需 clang / cmake / ninja / GTK 开发库，以及托盘图标需要的 libayatana-appindicator3-dev）
 flutter build linux
 ```
 
@@ -118,6 +118,7 @@ flutter build ipa
 已配置：
 
 - **Android**：`INTERNET` 权限已放入 **主** manifest（`android/app/src/main/AndroidManifest.xml`），并加入 `POST_NOTIFICATIONS`（Android 13+ 运行时通知权限）。注意 Flutter 默认只在 debug/profile manifest 里加 `INTERNET`，release 必须在主 manifest 显式声明，否则联网失败——本项目已处理。
+- **Android release 混淆**：`android/app/proguard-rules.pro` 必须保留 `ai.onnxruntime.**` 的类名及成员，并由 release 构建加载。ONNX Runtime 的 JNI 按名称查找这些类；缺失规则会在验证码推理时触发 `JNI DETECTED ERROR: java_class == null` / `SIGABRT`，Dart 的异常捕获无法拦截。2026-09-20 在 Android 15 arm64 模拟器上复现旧 APK 闪退；仅加入 ONNX 保留规则后，release APK 连续 3 次冷启动及验证码刷新均未崩溃。修改此规则或升级运行库后，应重新安装 release APK 验证，debug 构建和 Dart 单元测试不能覆盖 R8 引起的问题。
 - **iOS**：显示名西农本科选课。
 
 ---
@@ -131,8 +132,8 @@ flutter build ipa
 ```bash
 # (仓库根目录就是 Flutter 工程)
 flutter create . --platforms web --project-name nwafu_bksxk   # 首次生成 web/ 脚手架
-flutter build web --release
-# 产物在 build/web/，是纯静态文件
+flutter build web --release --no-web-resources-cdn
+# 产物在 build/web/，是纯静态文件；--no-web-resources-cdn 让 CanvasKit 随站点一起托管，校园网访问 gstatic.com 很慢
 ```
 
 ### 2. 部署到 web 分支 / 静态托管

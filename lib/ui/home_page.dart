@@ -1,4 +1,5 @@
-/// Home: student identity, active batch selector, monitor status, quick actions.
+/// Home: who is signed in, the round to act on, credits, notices, contact,
+/// and the monitor at a glance.
 library;
 
 import 'package:flutter/material.dart';
@@ -12,11 +13,13 @@ import 'batch_pick_dialog.dart';
 import 'layout.dart';
 import 'widgets.dart';
 
-final noticesProvider = FutureProvider.autoDispose<List<Notice>>(
-    (ref) => ref.read(infoServiceProvider).fetchNotices());
+/// The home-page aggregate: notices, common problems, contact, stop notice.
+final publicInfoProvider = FutureProvider.autoDispose<PublicInfo>(
+    (ref) => ref.watch(publicInfoServiceProvider).fetchPublicInfo());
 
+/// The shown account's credit summary for its active round.
 final creditInfoProvider = FutureProvider.autoDispose<CreditInfo>((ref) async {
-  ref.watch(selectionDataRevisionProvider);
+  ref.watch(currentSelectionRevisionProvider);
   final s = ref.watch(sessionProvider);
   final b = s.activeBatch;
   final st = s.student;
@@ -34,15 +37,12 @@ class HomePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider);
-    final scheme = Theme.of(context).colorScheme;
-    final running = ref.watch(monitorRunningProvider);
-    final watchCount = ref.watch(watchCountProvider);
     final student = session.student;
 
     final refresh = IconButton(
-      tooltip: '刷新轮次',
+      tooltip: '刷新',
       icon: const Icon(Icons.refresh),
-      onPressed: () => _reloadContext(context, ref),
+      onPressed: () => _reload(context, ref),
     );
 
     return LayoutBuilder(
@@ -50,29 +50,29 @@ class HomePage extends ConsumerWidget {
         final wide = WindowClass.of(constraints.maxWidth).isWide;
         final gutter = pageGutter(constraints.maxWidth);
 
-        // Rounds are the thing to act on; the other cards are status. On wide
-        // windows they sit side by side instead of one long stretched column.
-        final batches = Column(
+        final rounds = Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const _SectionLabel('选课轮次'),
             const SizedBox(height: 8),
             _BatchClosedBanner(session: session),
             _BatchSelector(session: session),
-          ],
-        );
-        final status = Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const _SectionLabel('选课学分'),
+            const SizedBox(height: 16),
+            const _SectionLabel('学分'),
             const SizedBox(height: 8),
             const _CreditCard(),
-            const SizedBox(height: 16),
-            const _NoticesCard(),
-            const SizedBox(height: 16),
-            const _SectionLabel('抢课监控'),
-            const SizedBox(height: 8),
-            _MonitorSummary(running: running, watchCount: watchCount),
+          ],
+        );
+        const side = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _SectionLabel('监控'),
+            SizedBox(height: 8),
+            _MonitorSummary(),
+            SizedBox(height: 16),
+            _SectionLabel('公告'),
+            SizedBox(height: 8),
+            _NoticesCard(),
           ],
         );
 
@@ -94,28 +94,21 @@ class HomePage extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _ProfileCard(student: student, scheme: scheme),
+                    _ProfileCard(student: student),
                     const SizedBox(height: 16),
+                    const _StopInfoBanner(),
                     if (wide)
                       TwoColumn(
-                        primary: batches,
-                        secondary: status,
+                        primary: rounds,
+                        secondary: side,
                         primaryFlex: 3,
                         secondaryFlex: 2,
                         gap: 20,
                       )
                     else ...[
-                      batches,
+                      rounds,
                       const SizedBox(height: 16),
-                      const _NoticesCard(),
-                      const SizedBox(height: 16),
-                      const _SectionLabel('选课学分'),
-                      const SizedBox(height: 8),
-                      const _CreditCard(),
-                      const SizedBox(height: 16),
-                      const _SectionLabel('抢课监控'),
-                      const SizedBox(height: 8),
-                      _MonitorSummary(running: running, watchCount: watchCount),
+                      side,
                     ],
                   ],
                 ),
@@ -127,12 +120,11 @@ class HomePage extends ConsumerWidget {
     );
   }
 
-  Future<void> _reloadContext(BuildContext context, WidgetRef ref) async {
-    final controller = ref.read(sessionProvider.notifier);
+  Future<void> _reload(BuildContext context, WidgetRef ref) async {
     try {
-      await controller.reloadContext();
-      ref.invalidate(noticesProvider);
-      if (context.mounted) showToast(context, '选课信息已刷新', success: true);
+      await ref.read(currentSessionControllerProvider).reloadContext();
+      ref.invalidate(publicInfoProvider);
+      if (context.mounted) showToast(context, '已刷新', success: true);
     } catch (e) {
       if (context.mounted) showToast(context, '刷新失败：$e', success: false);
     }
@@ -155,29 +147,31 @@ class _SectionLabel extends StatelessWidget {
 }
 
 class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({required this.student, required this.scheme});
+  const _ProfileCard({required this.student});
   final StudentInfo? student;
-  final ColorScheme scheme;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final s = student;
+    final detail = [
+      s?.collegeName,
+      s?.majorName,
+      if (s?.grade.isNotEmpty == true) '${s!.grade}级',
+      s?.schoolClassName,
+    ].where((e) => (e ?? '').isNotEmpty).join('  ');
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [scheme.primaryContainer, scheme.tertiaryContainer],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(24),
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         children: [
           CircleAvatar(
-            radius: 28,
-            backgroundColor: scheme.onPrimaryContainer.withValues(alpha: 0.15),
-            child:
-                Icon(Icons.school, color: scheme.onPrimaryContainer, size: 30),
+            radius: 26,
+            backgroundColor: scheme.onPrimaryContainer.withValues(alpha: 0.12),
+            child: Icon(Icons.school, color: scheme.onPrimaryContainer, size: 28),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -185,40 +179,48 @@ class _ProfileCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  student?.name.isNotEmpty == true ? student!.name : '同学',
+                  s?.name.isNotEmpty == true ? s!.name : '同学',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
                         color: scheme.onPrimaryContainer,
                       ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
-                  student?.studentCode ?? '',
+                  [s?.studentCode ?? '', if (s?.campusName.isNotEmpty == true) s!.campusName]
+                      .where((e) => e.isNotEmpty)
+                      .join('  '),
                   style: TextStyle(
                       color: scheme.onPrimaryContainer.withValues(alpha: 0.85)),
                 ),
-                if (student?.majorName.isNotEmpty == true ||
-                    student?.schoolClassName.isNotEmpty == true) ...[
+                if (detail.isNotEmpty) ...[
                   const SizedBox(height: 2),
-                  Text(
-                    [
-                      student?.collegeName,
-                      student?.majorName,
-                      if (student?.grade.isNotEmpty == true)
-                        '${student!.grade}级',
-                      student?.schoolClassName,
-                    ].where((e) => (e ?? '').isNotEmpty).join(' · '),
-                    style: TextStyle(
-                      color: scheme.onPrimaryContainer.withValues(alpha: 0.75),
-                      fontSize: 12,
-                    ),
-                  ),
+                  Text(detail,
+                      style: TextStyle(
+                        color: scheme.onPrimaryContainer.withValues(alpha: 0.75),
+                        fontSize: 12,
+                      )),
                 ],
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The school's 停止说明 text, shown when selection is halted.
+class _StopInfoBanner extends ConsumerWidget {
+  const _StopInfoBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final info = ref.watch(publicInfoProvider).asData?.value;
+    if (info == null || info.stopInfo.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: NoticeStrip(icon: Icons.campaign_outlined, error: true, text: info.stopInfo, margin: EdgeInsets.zero),
     );
   }
 }
@@ -231,16 +233,10 @@ class _BatchSelector extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     if (session.batches.isEmpty) {
-      return Card(
+      return const Card(
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Icon(Icons.info_outline, color: scheme.onSurfaceVariant),
-              const SizedBox(width: 12),
-              const Expanded(child: Text('当前没有可见的选课轮次。开放后点击右上角刷新。')),
-            ],
-          ),
+          padding: EdgeInsets.all(16),
+          child: Text('现在没有可见的选课轮次，开放后点右上角刷新。'),
         ),
       );
     }
@@ -250,7 +246,7 @@ class _BatchSelector extends ConsumerWidget {
         onChanged: (code) {
           if (code == null) return;
           final batch = session.batches.firstWhere((b) => b.code == code);
-          ref.read(sessionProvider.notifier).setActiveBatch(batch);
+          ref.read(currentSessionControllerProvider).setActiveBatch(batch);
         },
         child: Column(
           children: [
@@ -261,12 +257,18 @@ class _BatchSelector extends ConsumerWidget {
                 subtitle: Text(
                   [
                     if (batch.beginTime.isNotEmpty)
-                      '${batch.beginTime}  →  ${batch.endTime}',
+                      '${batch.beginTime} 至 ${batch.endTime}',
+                    [
+                      if (batch.typeName.isNotEmpty) batch.typeName,
+                      if (batch.tacticName.isNotEmpty) batch.tacticName,
+                      if (batch.schoolTermName.isNotEmpty) batch.schoolTermName,
+                    ].join('  '),
                     if (!batch.canSelect && batch.noSelectReason.isNotEmpty)
                       batch.noSelectReason,
-                  ].join('\n'),
+                  ].where((e) => e.isNotEmpty).join('\n'),
                   style: const TextStyle(fontSize: 12),
                 ),
+                isThreeLine: true,
                 secondary: StatusPill(
                   label: batch.canSelect ? '开放' : '未开放',
                   color: batch.canSelect ? Colors.green : scheme.error,
@@ -280,60 +282,58 @@ class _BatchSelector extends ConsumerWidget {
 }
 
 class _MonitorSummary extends ConsumerWidget {
-  const _MonitorSummary({required this.running, required this.watchCount});
-  final bool running;
-  final int watchCount;
+  const _MonitorSummary();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
+    final running = ref.watch(monitorRunningProvider);
     final watches = ref.watch(watchesProvider);
+    final active = ref.watch(watchCountProvider);
     final grabbed =
         watches.where((w) => w.status == WatchStatus.grabbed).length;
 
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
+        child: Row(
           children: [
-            Row(
-              children: [
-                Container(
-                  height: 44,
-                  width: 44,
-                  decoration: BoxDecoration(
-                    color: running
-                        ? Colors.green.withValues(alpha: 0.15)
-                        : scheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    running ? Icons.radar : Icons.pause_circle_outline,
-                    color: running ? Colors.green : scheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(running ? '监控运行中' : '监控已停止',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 16)),
-                      Text('$watchCount 个课程监控中 · 已抢到 $grabbed',
-                          style: TextStyle(
-                              color: scheme.onSurfaceVariant, fontSize: 13)),
-                    ],
-                  ),
-                ),
-                Switch(
-                  value: running,
-                  onChanged: (v) {
-                    final engine = ref.read(monitorEngineProvider);
-                    v ? engine.start() : engine.stop();
-                  },
-                ),
-              ],
+            Container(
+              height: 44,
+              width: 44,
+              decoration: BoxDecoration(
+                color: running
+                    ? Colors.green.withValues(alpha: 0.15)
+                    : scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                running ? Icons.radar : Icons.pause_circle_outline,
+                color: running ? Colors.green : scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(running ? '监控运行中' : '监控未运行',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 16)),
+                  Text('$active 个监控中，已抢到 $grabbed',
+                      style: TextStyle(
+                          color: scheme.onSurfaceVariant, fontSize: 13)),
+                ],
+              ),
+            ),
+            Switch(
+              value: running,
+              onChanged: watches.isEmpty
+                  ? null
+                  : (v) {
+                      final engine = ref.read(monitorEngineProvider);
+                      v ? engine.start() : engine.stop();
+                    },
             ),
           ],
         ),
@@ -347,147 +347,134 @@ class _NoticesCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final noticesAsync = ref.watch(noticesProvider);
+    final infoAsync = ref.watch(publicInfoProvider);
     final scheme = Theme.of(context).colorScheme;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                const Text(
-                  '选课公告',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: () => ref.invalidate(noticesProvider),
-                  icon: const Icon(Icons.refresh, size: 18),
-                  tooltip: '刷新公告',
-                  visualDensity: VisualDensity.compact,
+        child: infoAsync.when(
+          loading: () => const LinearProgressIndicator(),
+          error: (error, _) => Row(
+            children: [
+              Icon(Icons.cloud_off_outlined, color: scheme.error),
+              const SizedBox(width: 8),
+              const Expanded(child: Text('公告加载失败')),
+              TextButton(
+                onPressed: () => ref.invalidate(publicInfoProvider),
+                child: const Text('重试'),
+              ),
+            ],
+          ),
+          data: (info) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (info.notices.isEmpty)
+                Text('暂无公告',
+                    style: TextStyle(color: scheme.onSurfaceVariant))
+              else
+                for (final n in info.notices.take(7))
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(n.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: n.timeDescription.isEmpty ? null : Text(n.timeDescription),
+                    trailing: const Icon(Icons.chevron_right, size: 18),
+                    onTap: () => _showNoticeDetail(context, ref, n),
+                  ),
+              if (info.problems.isNotEmpty) ...[
+                const Divider(height: 20),
+                Text('常见问题',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: scheme.onSurfaceVariant)),
+                for (final p in info.problems)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(p.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    trailing: const Icon(Icons.chevron_right, size: 18),
+                    onTap: () => _showProblem(context, p),
+                  ),
+              ],
+              if (!info.consult.isEmpty) ...[
+                const Divider(height: 20),
+                Text(
+                  [
+                    if (info.consult.unitName.isNotEmpty) info.consult.unitName,
+                    if (info.consult.phoneNumber.isNotEmpty) info.consult.phoneNumber,
+                    if (info.consult.callPhoneNumber.isNotEmpty) info.consult.callPhoneNumber,
+                    if (info.consult.email.isNotEmpty) info.consult.email,
+                    if (info.consult.qqNumber.isNotEmpty) 'QQ ${info.consult.qqNumber}',
+                  ].join('  '),
+                  style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
                 ),
               ],
-            ),
-            const SizedBox(height: 8),
-            noticesAsync.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (error, _) => Row(
-                children: [
-                  Icon(Icons.cloud_off_outlined, color: scheme.error),
-                  const SizedBox(width: 8),
-                  const Expanded(child: Text('公告加载失败')),
-                  TextButton(
-                    onPressed: () => ref.invalidate(noticesProvider),
-                    child: const Text('重试'),
-                  ),
-                ],
-              ),
-              data: (notices) {
-                if (notices.isEmpty) {
-                  return Text(
-                    '当前没有新公告',
-                    style: TextStyle(color: scheme.onSurfaceVariant),
-                  );
-                }
-                return SizedBox(
-                  height: 36,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: notices.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (_, i) {
-                      final notice = notices[i];
-                      return ActionChip(
-                        onPressed: () =>
-                            _showNoticeDetail(context, ref, notice.wid),
-                        label: Text(
-                          notice.title.length > 14
-                              ? '${notice.title.substring(0, 14)}…'
-                              : notice.title,
-                        ),
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  void _showNoticeDetail(BuildContext context, WidgetRef ref, String wid) {
+  void _showNoticeDetail(BuildContext context, WidgetRef ref, Notice notice) {
+    final info = ref.read(publicInfoServiceProvider);
     showAdaptiveSheet<void>(
       context,
-      builder: (_) => _NoticeDetailSheet(wid: wid, ref: ref),
+      builder: (_) => FutureBuilder<Notice?>(
+        future: info.fetchNoticeDetail(notice.wid),
+        builder: (context, snapshot) {
+          final n = snapshot.data ?? notice;
+          return _TextSheet(
+            title: n.title,
+            caption: n.timeDescription,
+            body: snapshot.connectionState == ConnectionState.waiting
+                ? null
+                : (n.content.isEmpty ? '暂无内容' : n.content),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showProblem(BuildContext context, ProblemEntry p) {
+    showAdaptiveSheet<void>(
+      context,
+      builder: (_) => _TextSheet(
+          title: p.title, caption: p.timeDescription, body: p.content),
     );
   }
 }
 
-class _NoticeDetailSheet extends StatelessWidget {
-  const _NoticeDetailSheet({required this.wid, required this.ref});
-  final String wid;
-  final WidgetRef ref;
+class _TextSheet extends StatelessWidget {
+  const _TextSheet({required this.title, required this.caption, this.body});
+  final String title;
+  final String caption;
+  final String? body;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Notice?>(
-      future: ref.read(infoServiceProvider).fetchNoticeDetail(wid),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SizedBox(
-            height: 200,
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
-        if (snapshot.hasError) {
-          return SizedBox(
-            height: 200,
-            child: Center(
-              child: Text(
-                '公告加载失败：${snapshot.error}',
-                textAlign: TextAlign.center,
-              ),
-            ),
-          );
-        }
-        final notice = snapshot.data;
-        if (notice == null) {
-          return const SizedBox(
-            height: 200,
-            child: Center(child: Text('暂无内容')),
-          );
-        }
-        final scheme = Theme.of(context).colorScheme;
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(notice.title,
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w700)),
-              if (notice.timeDescription.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(notice.timeDescription,
-                    style: TextStyle(
-                        color: scheme.onSurfaceVariant, fontSize: 12)),
-              ],
-              const SizedBox(height: 16),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: Text(notice.content),
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        );
-      },
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+          if (caption.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(caption,
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+          ],
+          const SizedBox(height: 16),
+          if (body == null)
+            const Center(child: CircularProgressIndicator())
+          else
+            Flexible(child: SingleChildScrollView(child: SelectableText(body!))),
+        ],
+      ),
     );
   }
 }
@@ -503,95 +490,67 @@ class _CreditCard extends ConsumerWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                const Text('选课学分',
-                    style:
-                        TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-                const Spacer(),
-                IconButton(
-                  onPressed: () => ref.invalidate(creditInfoProvider),
-                  icon: const Icon(Icons.refresh, size: 18),
-                  tooltip: '刷新学分',
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            creditAsync.when(
-              data: (info) {
-                // Same three figures, same labels, as the official 学分 chart.
-                return Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _StatTile(
-                            label: '总学分',
-                            value: info.totalCredit.toStringAsFixed(1),
-                          ),
-                        ),
-                        Expanded(
-                          child: _StatTile(
-                            label: '已获学分',
-                            value: info.getCredit.toStringAsFixed(1),
-                          ),
-                        ),
-                        Expanded(
-                          child: _StatTile(
-                            label: '本轮已选',
-                            value: info.selectedCredit.toStringAsFixed(1),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (info.noSelectReason.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              info.noSelectReason,
-                              style:
-                                  TextStyle(fontSize: 12, color: scheme.error),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          StatusPill(label: '无法选课', color: scheme.error),
-                        ],
-                      ),
-                    ],
-                  ],
-                );
-              },
-              loading: () => const SizedBox(
-                height: 40,
-                child: Center(
-                    child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2))),
-              ),
-              error: (error, _) => Row(
+        child: creditAsync.when(
+          data: (info) => Column(
+            children: [
+              Row(
                 children: [
-                  Icon(Icons.cloud_off_outlined, color: scheme.error, size: 20),
-                  const SizedBox(width: 8),
-                  const Expanded(child: Text('学分加载失败')),
-                  TextButton(
-                    onPressed: () => ref.invalidate(creditInfoProvider),
-                    child: const Text('重试'),
-                  ),
+                  Expanded(child: _StatTile(label: '总学分', value: _fmt(info.totalCredit))),
+                  Expanded(child: _StatTile(label: '已获学分', value: _fmt(info.getCredit))),
+                  Expanded(child: _StatTile(label: '已选学分', value: _fmt(info.selectedCredit))),
                 ],
               ),
-            ),
-          ],
+              if (info.requirements.isNotEmpty) ...[
+                const Divider(height: 20),
+                for (final r in info.requirements)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(r.category,
+                              style: TextStyle(
+                                  fontSize: 13, color: scheme.onSurfaceVariant)),
+                        ),
+                        Text('已修 ${r.earned}  要求 ${r.required}',
+                            style: const TextStyle(fontSize: 13)),
+                      ],
+                    ),
+                  ),
+              ],
+              if (info.noSelectReason.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(info.noSelectReason,
+                    style: TextStyle(fontSize: 12, color: scheme.error)),
+              ],
+            ],
+          ),
+          loading: () => const SizedBox(
+            height: 40,
+            child: Center(
+                child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2))),
+          ),
+          error: (error, _) => Row(
+            children: [
+              Icon(Icons.cloud_off_outlined, color: scheme.error, size: 20),
+              const SizedBox(width: 8),
+              const Expanded(child: Text('学分加载失败')),
+              TextButton(
+                onPressed: () => ref.invalidate(creditInfoProvider),
+                child: const Text('重试'),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+
+  static String _fmt(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
 }
 
 class _StatTile extends StatelessWidget {
@@ -617,8 +576,7 @@ class _StatTile extends StatelessWidget {
   }
 }
 
-/// Shows a warning when the active batch is not open, with a re-pick action
-/// that reopens the batch-pick dialog.
+/// Shows a warning when the active batch is not open, with a re-pick action.
 class _BatchClosedBanner extends ConsumerWidget {
   const _BatchClosedBanner({required this.session});
   final SessionState session;
@@ -630,36 +588,21 @@ class _BatchClosedBanner extends ConsumerWidget {
     if (batches.isEmpty) return const SizedBox.shrink();
     if (batch != null && batch.canSelect) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: scheme.errorContainer,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.warning_amber, size: 18, color: scheme.onErrorContainer),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              batch == null
-                  ? '尚未选择选课轮次，请先选择一个轮次。'
-                  : '当前轮次「${batch.name.isEmpty ? batch.code : batch.name}」未开放选课。',
-              style: TextStyle(color: scheme.onErrorContainer, fontSize: 13),
-            ),
-          ),
-          const SizedBox(width: 8),
-          TextButton(
-            onPressed: () =>
-                showBatchPickDialog(context, ref, batches: batches),
-            child: Text(
-              batch == null ? '去选择' : '重新选择',
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: NoticeStrip(
+        icon: Icons.warning_amber,
+        error: true,
+        margin: EdgeInsets.zero,
+        text: batch == null
+            ? '还没有选择轮次'
+            : '「${batch.name.isEmpty ? batch.code : batch.name}」未开放',
+        action: TextButton(
+          onPressed: () => showBatchPickDialog(context, ref, batches: batches),
+          child: Text(batch == null ? '选择' : '重选',
               style: TextStyle(
-                  color: scheme.onErrorContainer, fontWeight: FontWeight.w700),
-            ),
-          ),
-        ],
+                  color: scheme.onErrorContainer, fontWeight: FontWeight.w700)),
+        ),
       ),
     );
   }

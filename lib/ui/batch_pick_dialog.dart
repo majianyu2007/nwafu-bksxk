@@ -23,15 +23,13 @@ Future<void> showBatchPickDialog(BuildContext context, WidgetRef ref, {List<Elec
     barrierDismissible: false,
     builder: (dialogContext) => _BatchPickDialog(
       batches: list,
-      title: hasOpen ? '请选择选课轮次' : '当前没有可选的轮次',
-      subtitle: hasOpen
-          ? '选择一个轮次后即可进入选课。未开放的轮次稍后在首页刷新可重选。'
-          : '当前所有可见轮次均未开放，稍后请在首页右上角刷新查看。可以先关闭此提示，待开放后再选择。',
+      title: hasOpen ? '选择轮次' : '没有开放的轮次',
+      subtitle: hasOpen ? '' : '开放后在首页刷新即可选择。',
       canPick: hasOpen,
       onPick: (b) {
-        ref.read(sessionProvider.notifier).setActiveBatch(b);
+        ref.read(currentSessionControllerProvider).setActiveBatch(b);
         Navigator.of(dialogContext).pop();
-        showToast(context, '已选择轮次：${b.name.isEmpty ? b.code : b.name}', success: true);
+        showToast(context, '已选择 ${b.name.isEmpty ? b.code : b.name}', success: true);
       },
       onSkip: () => Navigator.of(dialogContext).pop(),
     ),
@@ -120,8 +118,10 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(widget.subtitle, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
-              const SizedBox(height: 12),
+              if (widget.subtitle.isNotEmpty) ...[
+                Text(widget.subtitle, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+                const SizedBox(height: 12),
+              ],
               _CreditSummary(credit: _credit, loading: _creditLoading),
               const SizedBox(height: 10),
               RadioGroup<String>(
@@ -153,9 +153,13 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
                           ),
                           subtitle: Text(
                             [
-                              if (b.beginTime.isNotEmpty) '${b.beginTime}  →  ${b.endTime}',
+                              if (b.beginTime.isNotEmpty) '${b.beginTime} 至 ${b.endTime}',
+                              [
+                                if (b.typeName.isNotEmpty) b.typeName,
+                                if (b.tacticName.isNotEmpty) b.tacticName,
+                              ].join('  '),
                               if (!b.canSelect && b.noSelectReason.isNotEmpty) b.noSelectReason,
-                            ].join('\n'),
+                            ].where((e) => e.isNotEmpty).join('\n'),
                             style: const TextStyle(fontSize: 11),
                           ),
                           secondary: StatusPill(
@@ -172,7 +176,7 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: widget.onSkip, child: const Text('稍后再说')),
+        TextButton(onPressed: widget.onSkip, child: const Text('稍后')),
         if (widget.canPick)
           FilledButton.icon(
             onPressed: _selectedCode == null
@@ -182,7 +186,7 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
                     widget.onPick(b);
                   },
             icon: const Icon(Icons.check, size: 18),
-            label: const Text('确认选择'),
+            label: const Text('确定'),
           ),
       ],
     );
@@ -236,7 +240,7 @@ class _CreditSummary extends StatelessWidget {
               _CreditDivider(color: scheme.outlineVariant),
               Expanded(child: _Stat('已获', _creditText(c.getCredit))),
               _CreditDivider(color: scheme.outlineVariant),
-              Expanded(child: _Stat('本轮已选', _creditText(c.selectedCredit), highlight: true)),
+              Expanded(child: _Stat('已选', _creditText(c.selectedCredit), highlight: true)),
             ],
           ),
           if (c.noSelectReason.isNotEmpty) ...[

@@ -67,7 +67,6 @@ class Watch {
     this.lastCheckedAt,
     this.attempts = 0,
     this.note = '',
-    this.priority = 0,
   });
 
   final String id;
@@ -109,9 +108,6 @@ class Watch {
   int attempts;
   String note;
 
-  /// Higher priority watches are polled slightly more aggressively.
-  int priority;
-
   /// Consecutive transient errors, used to grow the backoff delay. Reset on any
   /// successful poll.
   int consecutiveErrors = 0;
@@ -126,7 +122,7 @@ class Watch {
   String? lastRawResult;
 
   String get title =>
-      '${teachingClass.courseName} · ${teachingClass.displayTitle}';
+      '${teachingClass.courseName} ${teachingClass.displayTitle}';
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -142,7 +138,6 @@ class Watch {
         'volunteer': volunteerGrade,
         'status': status.name,
         'note': note,
-        'priority': priority,
       };
 
   Map<String, dynamic> _minimalTc() => {
@@ -175,12 +170,11 @@ class Watch {
           orElse: () => WatchStatus.watching,
         ),
         note: j['note'] as String? ?? '',
-        priority: (j['priority'] as num?)?.toInt() ?? 0,
       );
 }
 
 /// The semantic type of a monitor event, for notifications and log styling.
-enum MonitorEventKind { info, seatOpen, grabbed, failed, stopped }
+enum MonitorEventKind { info, grabbed, stopped }
 
 /// An event emitted by the engine for the UI/log.
 class MonitorEvent {
@@ -218,7 +212,8 @@ class MonitorConfig {
   /// Baseline seconds between capacity polls for a watch.
   final Duration basePollInterval;
 
-  /// Floor for high-priority watches. Kept >= ~1s so we never hammer the server.
+  /// Floor under [basePollInterval], so a mis-set cadence can never hammer
+  /// the server.
   final Duration minPollInterval;
 
   /// Random spread added to each interval to avoid synchronized bursts.
@@ -312,6 +307,8 @@ class MonitorEngine {
   final Map<String, Watch> _watches = {};
   final Map<String, Timer> _timers = {};
   bool _running = false;
+  bool _disposed = false;
+  int _pollGeneration = 0;
 
   /// Set when the engine auto-halted (e.g. server maintenance/throttle), so the
   /// UI can explain why monitoring stopped. Cleared on the next start().
@@ -358,7 +355,7 @@ class MonitorEngine {
   /// their next (immediate) tick. Optionally re-arms every watch to fire now.
   void openGate({bool grabNow = true}) {
     _gateOpen = true;
-    _emit('', '选课已开放，开始提交', kind: MonitorEventKind.info);
+    _emit('', '轮次已开放，开始提交', kind: MonitorEventKind.info);
     if (grabNow && _running) {
       for (final w in _watches.values) {
         if (w.status == WatchStatus.watching) _schedule(w, immediate: true);
@@ -452,7 +449,7 @@ class MonitorEngine {
 
   /// Starts polling all armed watches.
   void start() {
-    if (_running) return;
+    if (_disposed || _running) return;
     _running = true;
     _stopReason = null; // fresh start clears any prior auto-halt reason
     _haltedForSession = false;
@@ -470,6 +467,7 @@ class MonitorEngine {
   /// Stops all polling (watches retain their state).
   void stop() {
     _running = false;
+    _pollGeneration++;
     for (final t in _timers.values) {
       t.cancel();
     }
@@ -479,8 +477,9 @@ class MonitorEngine {
   }
 
   Duration _nextInterval(Watch w) {
-    final base =
-        w.priority > 0 ? config.minPollInterval : config.basePollInterval;
+    final base = config.basePollInterval < config.minPollInterval
+        ? config.minPollInterval
+        : config.basePollInterval;
     final jitterMs = config.jitter.inMilliseconds;
     final extra = jitterMs == 0 ? 0 : _rng.nextInt(jitterMs);
     var interval = base + Duration(milliseconds: extra);
@@ -498,16 +497,28 @@ class MonitorEngine {
 
   void _schedule(Watch w, {bool immediate = false}) {
     _timers.remove(w.id)?.cancel();
-    if (!_running || w.status != WatchStatus.watching) return;
+    if (!_running ||
+        w.status != WatchStatus.watching ||
+        !identical(_watches[w.id], w)) {
+      return;
+    }
     final d = immediate ? Duration.zero : _nextInterval(w);
     _timers[w.id] = Timer(d, () => _tick(w));
   }
 
   Future<void> _tick(Watch w) async {
     if (!_running || w.status != WatchStatus.watching) return;
+    final generation = _pollGeneration;
+    bool active() =>
+        !_disposed &&
+        _running &&
+        generation == _pollGeneration &&
+        w.status == WatchStatus.watching &&
+        identical(_watches[w.id], w);
     try {
       final fresh =
           await _course.refreshCapacity(w.teachingClass, w.studentCode);
+      if (!active()) return;
       w.teachingClass = fresh;
       w.lastRemaining = fresh.remaining;
       w.lastCheckedAt = DateTime.now();
@@ -520,13 +531,15 @@ class MonitorEngine {
         await _attemptGrab(w);
       }
     } on AppError catch (e) {
+      if (!active()) return;
       _onWatchError(w, e);
     } catch (e) {
+      if (!active()) return;
       // Unknown/transient — count it toward backoff but keep watching.
       w.consecutiveErrors++;
       w.note = '$e';
     } finally {
-      if (_running && w.status == WatchStatus.watching) _schedule(w);
+      if (active()) _schedule(w);
     }
   }
 
@@ -571,6 +584,7 @@ class MonitorEngine {
   /// Stops every watch and the engine (used on maintenance/throttle signals).
   void _haltAll(String reason) {
     _running = false;
+    _pollGeneration++;
     for (final t in _timers.values) {
       t.cancel();
     }
@@ -602,6 +616,7 @@ class MonitorEngine {
         volunteerGrade: w.volunteerGrade,
       );
       final outcome = await _enroll.submitAdd(plan);
+      if (_disposed) return;
 
       // Trust the server's final word, not just HTTP success. Confirm via
       // studentstatus.do before declaring victory.
@@ -609,6 +624,7 @@ class MonitorEngine {
         var confirmed = true;
         if (config.confirmAfterGrab) {
           final status = await _enroll.confirmStatus(w.studentCode);
+          if (_disposed) return;
           // A non-ok confirmation means the seat did not actually stick.
           confirmed = status.ok;
           if (status.msg.isNotEmpty) w.note = status.msg;
@@ -616,11 +632,11 @@ class MonitorEngine {
         if (confirmed) {
           w.status = WatchStatus.grabbed;
           w.note =
-              '已抢到 · ${plan.shapeLabel}${w.note.isNotEmpty ? ' · ${w.note}' : ''}';
+              '已抢到，${plan.shapeLabel}${w.note.isNotEmpty ? '，${w.note}' : ''}';
           w.lastResultAt = DateTime.now();
           w.lastRawResult = outcome.message;
           _timers.remove(w.id)?.cancel();
-          _emit(w.id, '🎉 抢课成功：${w.title}',
+          _emit(w.id, '抢课成功：${w.title}',
               success: true, kind: MonitorEventKind.grabbed, watch: w);
         } else {
           w.status = WatchStatus.watching;
@@ -666,12 +682,15 @@ class MonitorEngine {
         }
       }
     } on MissingSelectionError catch (e) {
+      if (_disposed) return;
       w.status = WatchStatus.needsSetup;
       w.note = e.reason;
       _emit(w.id, '需要先完成选择：${e.reason}', success: false);
     } on AppError catch (e) {
+      if (_disposed) return;
       _onWatchError(w, e);
     } catch (e) {
+      if (_disposed) return;
       w.note = '$e';
       w.consecutiveErrors++;
       if (_capReached(w)) {
@@ -682,8 +701,10 @@ class MonitorEngine {
       _emit(w.id, '抢课异常：$e', success: false);
     } finally {
       w.submitInFlight = false;
-      _changes.add(null);
-      if (_running && w.status == WatchStatus.watching) _schedule(w);
+      if (!_disposed) {
+        _changes.add(null);
+        if (_running && w.status == WatchStatus.watching) _schedule(w);
+      }
     }
   }
 
@@ -727,7 +748,9 @@ class MonitorEngine {
   }
 
   void dispose() {
+    if (_disposed) return;
     stop();
+    _disposed = true;
     _events.close();
     _changes.close();
   }

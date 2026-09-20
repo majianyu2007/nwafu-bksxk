@@ -1,4 +1,6 @@
 The bundled fonts NotoSansSC-Regular.ttf and NotoSansSC-Medium.ttf are subsets of
 Noto Sans SC by Google, licensed under the SIL Open Font License 1.1
 (https://scripts.sil.org/OFL). They have been instanced to a single weight and
-subset to the GB2312/GBK character set for offline use. No other modification.
+subset to the GB2312 character set plus every character that appears in the
+school's course catalogue (course, teacher, department and room names), Latin,
+CJK punctuation and common symbols, for offline use. No other modification.

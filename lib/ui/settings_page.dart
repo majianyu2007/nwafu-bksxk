@@ -1,5 +1,5 @@
-/// Settings: appearance (theme mode + accent), monitor cadence, server origin,
-/// accounts, and logout.
+/// Settings: appearance, monitor cadence, captcha recognition, accounts,
+/// server, notifications, diagnostics.
 library;
 
 import 'package:flutter/foundation.dart';
@@ -9,11 +9,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../app/theme.dart';
+import '../core/constants.dart';
+import '../data/background.dart';
 import '../data/http_ocr_solver.dart';
 import '../data/notifications.dart';
 import '../data/storage.dart';
 import 'diagnostics_page.dart';
 import 'layout.dart';
+import 'login_page.dart';
 import 'widgets.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -21,180 +24,346 @@ class SettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = ref.watch(themeControllerProvider);
-    final themeCtrl = ref.read(themeControllerProvider.notifier);
-    final session = ref.watch(sessionProvider);
-    final accounts = ref.watch(accountsProvider);
-
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Settings read best as one column of moderate width; centre it on
-        // wide windows instead of stretching tiles across the whole screen.
         final side = ((constraints.maxWidth - kReadableMaxWidth) / 2)
             .clamp(16.0, double.infinity);
         return ListView(
           padding: EdgeInsets.fromLTRB(side, 12, side, 32),
-          children:
-              _children(context, ref, theme, themeCtrl, session, accounts),
+          children: [
+            Text('设置',
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 16),
+            const _Group(title: '外观', children: [_Appearance()]),
+            const _Group(title: '监控', children: [_MonitorSettings()]),
+            const _Group(title: '验证码', children: [_OcrSettings()]),
+            const _Group(title: '账号', children: [_Accounts()]),
+            const _Group(title: '后台运行', children: [_BackgroundSettings()]),
+            const _Group(
+              title: '高级',
+              children: [
+                ServerOriginSetting(),
+                _BrowserNotificationSetting(),
+                _DiagnosticsEntry(),
+                ListTile(
+                  leading: Icon(Icons.info_outline),
+                  title: Text('西农本科选课 $kAppVersion'),
+                  subtitle: Text('只连接所配置的选课服务器，密码用官网相同的方式加密后发送。'),
+                ),
+              ],
+            ),
+          ],
         );
       },
     );
   }
+}
 
-  List<Widget> _children(
-    BuildContext context,
-    WidgetRef ref,
-    ThemeSettings theme,
-    ThemeController themeCtrl,
-    SessionState session,
-    List<Account> accounts,
-  ) {
-    return [
-      Text('设置',
-          style: Theme.of(context)
-              .textTheme
-              .headlineSmall
-              ?.copyWith(fontWeight: FontWeight.w800)),
-      const SizedBox(height: 16),
-      _Group(
-        title: '外观',
-        children: [
-          ListTile(
-            leading: const Icon(Icons.brightness_6_outlined),
-            title: const Text('显示模式'),
-            subtitle: Text(switch (theme.mode) {
-              ThemeMode.system => '跟随系统',
-              ThemeMode.light => '浅色',
-              ThemeMode.dark => '深色',
-            }),
-            trailing: SegmentedButton<ThemeMode>(
-              segments: const [
-                ButtonSegment(
-                    value: ThemeMode.system, icon: Icon(Icons.brightness_auto)),
-                ButtonSegment(
-                    value: ThemeMode.light, icon: Icon(Icons.light_mode)),
-                ButtonSegment(
-                    value: ThemeMode.dark, icon: Icon(Icons.dark_mode)),
-              ],
-              selected: {theme.mode},
-              showSelectedIcon: false,
-              onSelectionChanged: (s) => themeCtrl.setMode(s.first),
-            ),
+class _Appearance extends ConsumerWidget {
+  const _Appearance();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(themeControllerProvider);
+    final ctrl = ref.read(themeControllerProvider.notifier);
+    final scheme = Theme.of(context).colorScheme;
+    final custom = !theme.useDynamic &&
+        !kSeedPresets.any((p) => p.$2.toARGB32() == theme.seed.toARGB32());
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          leading: const Icon(Icons.brightness_6_outlined),
+          title: const Text('显示模式'),
+          trailing: SegmentedButton<ThemeMode>(
+            segments: const [
+              ButtonSegment(value: ThemeMode.system, label: Text('系统')),
+              ButtonSegment(value: ThemeMode.light, label: Text('浅色')),
+              ButtonSegment(value: ThemeMode.dark, label: Text('深色')),
+            ],
+            selected: {theme.mode},
+            showSelectedIcon: false,
+            onSelectionChanged: (s) => ctrl.setMode(s.first),
           ),
-          SwitchListTile(
-            secondary: const Icon(Icons.palette_outlined),
-            title: const Text('跟随系统强调色'),
-            subtitle: const Text('开启后使用系统（macOS/Android 12+）的强调色，忽略下面的主题色'),
-            value: theme.useDynamic,
-            onChanged: themeCtrl.setUseDynamic,
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+        ),
+        SwitchListTile(
+          secondary: const Icon(Icons.palette_outlined),
+          title: const Text('跟随系统强调色'),
+          value: theme.useDynamic,
+          onChanged: ctrl.setUseDynamic,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          child: Opacity(
+            opacity: theme.useDynamic ? 0.4 : 1,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('主题色',
-                    style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                    style: TextStyle(color: scheme.onSurfaceVariant)),
                 const SizedBox(height: 10),
                 Wrap(
-                  spacing: 12,
+                  spacing: 10,
+                  runSpacing: 10,
                   children: [
-                    for (final c in kSeedPresets)
-                      GestureDetector(
-                        onTap: () => themeCtrl.setSeed(c),
-                        child: Opacity(
-                          opacity: theme.useDynamic ? 0.4 : 1,
-                          child: Container(
-                            height: 36,
-                            width: 36,
-                            decoration: BoxDecoration(
-                              color: c,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: !theme.useDynamic &&
-                                        theme.seed.toARGB32() == c.toARGB32()
-                                    ? Theme.of(context).colorScheme.onSurface
-                                    : Colors.transparent,
-                                width: 3,
-                              ),
-                            ),
-                            child: !theme.useDynamic &&
-                                    theme.seed.toARGB32() == c.toARGB32()
-                                ? const Icon(Icons.check,
-                                    color: Colors.white, size: 18)
-                                : null,
-                          ),
-                        ),
+                    for (final (name, c) in kSeedPresets)
+                      _Swatch(
+                        color: c,
+                        tooltip: name,
+                        selected: !theme.useDynamic &&
+                            theme.seed.toARGB32() == c.toARGB32(),
+                        onTap: () => ctrl.setSeed(c),
                       ),
+                    _Swatch(
+                      color: custom ? theme.seed : null,
+                      tooltip: '自定义',
+                      selected: custom,
+                      onTap: () => _pickCustom(context, ref, theme.seed),
+                    ),
                   ],
                 ),
               ],
             ),
           ),
-        ],
-      ),
-      const _Group(
-        title: '抢课设置',
-        children: [
-          _MonitorSettings(),
-        ],
-      ),
-      const _Group(
-        title: '验证码识别',
-        children: [
-          _OcrSettings(),
-        ],
-      ),
-      _Group(
-        title: '账号',
-        children: [
-          ListTile(
-            leading: const Icon(Icons.badge_outlined),
-            title: Text(session.student?.name ?? '未登录'),
-            subtitle: Text(session.student?.studentCode ?? ''),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickCustom(
+      BuildContext context, WidgetRef ref, Color initial) async {
+    final picked = await showDialog<Color>(
+      context: context,
+      builder: (_) => _HuePickerDialog(initial: initial),
+    );
+    if (picked != null) {
+      await ref.read(themeControllerProvider.notifier).setSeed(picked);
+    }
+  }
+}
+
+class _Swatch extends StatelessWidget {
+  const _Swatch(
+      {required this.color,
+      required this.tooltip,
+      required this.selected,
+      required this.onTap});
+  final Color? color;
+  final String tooltip;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          height: 36,
+          width: 36,
+          decoration: BoxDecoration(
+            color: color,
+            gradient: color == null
+                ? const SweepGradient(colors: [
+                    Colors.red,
+                    Colors.yellow,
+                    Colors.green,
+                    Colors.cyan,
+                    Colors.blue,
+                    Colors.purple,
+                    Colors.red,
+                  ])
+                : null,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: selected ? scheme.onSurface : Colors.transparent,
+              width: 3,
+            ),
           ),
-          const _SilentReloginSetting(),
-          for (final a in accounts)
+          child: selected
+              ? const Icon(Icons.check, color: Colors.white, size: 18)
+              : color == null
+                  ? const Icon(Icons.add, color: Colors.white, size: 18)
+                  : null,
+        ),
+      ),
+    );
+  }
+}
+
+/// Hue / saturation / lightness sliders with a live preview.
+class _HuePickerDialog extends StatefulWidget {
+  const _HuePickerDialog({required this.initial});
+  final Color initial;
+
+  @override
+  State<_HuePickerDialog> createState() => _HuePickerDialogState();
+}
+
+class _HuePickerDialogState extends State<_HuePickerDialog> {
+  late HSLColor _hsl = HSLColor.fromColor(widget.initial);
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _hsl.toColor();
+    final scheme = ColorScheme.fromSeed(
+        seedColor: color, brightness: Theme.of(context).brightness);
+    Widget slider(String label, double value, double max,
+        ValueChanged<double> onChanged) {
+      return Row(
+        children: [
+          SizedBox(width: 40, child: Text(label)),
+          Expanded(
+            child: Slider(value: value, max: max, onChanged: onChanged),
+          ),
+        ],
+      );
+    }
+
+    return AlertDialog(
+      title: const Text('自定义主题色'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              height: 56,
+              decoration: BoxDecoration(
+                color: scheme.primary,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                '#${color.toARGB32().toRadixString(16).substring(2).toUpperCase()}',
+                style: TextStyle(
+                    color: scheme.onPrimary, fontWeight: FontWeight.w700),
+              ),
+            ),
+            const SizedBox(height: 12),
+            slider('色相', _hsl.hue, 360,
+                (v) => setState(() => _hsl = _hsl.withHue(v))),
+            slider('饱和度', _hsl.saturation, 1,
+                (v) => setState(() => _hsl = _hsl.withSaturation(v))),
+            slider('明度', _hsl.lightness, 1,
+                (v) => setState(() => _hsl = _hsl.withLightness(v))),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        FilledButton(
+            onPressed: () => Navigator.pop(context, color),
+            child: const Text('使用')),
+      ],
+    );
+  }
+}
+
+/// Signed-in accounts (switch / sign out), saved accounts (forget), add.
+class _Accounts extends ConsumerWidget {
+  const _Accounts();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final signedIn = ref.watch(signedInAccountsProvider);
+    final activeId = ref.watch(activeAccountIdProvider);
+    final saved = ref.watch(accountsProvider);
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final id in signedIn)
+          Builder(builder: (context) {
+            final s = ref.watch(sessionControllerProvider(id));
+            final expired = s.phase == AuthPhase.expired;
+            return ListTile(
+              leading: Icon(
+                id == activeId
+                    ? Icons.account_circle
+                    : Icons.account_circle_outlined,
+                color: expired ? scheme.error : null,
+              ),
+              title: Text(s.displayName),
+              subtitle: Text([
+                id,
+                if (s.activeBatch != null) s.activeBatch!.name,
+                if (expired) '登录已失效',
+              ].join('  ')),
+              trailing: TextButton(
+                onPressed: () => _signOut(context, ref, id, s.displayName),
+                child: const Text('退出'),
+              ),
+              onTap: id == activeId
+                  ? null
+                  : () => ref.read(activeAccountIdProvider.notifier).state = id,
+            );
+          }),
+        for (final a in saved)
+          if (!signedIn.contains(a.id))
             ListTile(
-              leading: const Icon(Icons.account_circle_outlined),
+              leading: const Icon(Icons.person_outline),
               title: Text(a.displayName),
-              subtitle: Text(a.loginName),
+              subtitle: Text('${a.loginName}  未登录'),
               trailing: IconButton(
+                tooltip: '删除账号和密码',
                 icon: const Icon(Icons.delete_outline),
                 onPressed: () =>
                     ref.read(accountsProvider.notifier).remove(a.id),
               ),
             ),
+        const _SilentReloginSetting(),
+        SwitchListTile(
+          secondary: const Icon(Icons.tab_outlined),
+          title: const Text('多账号'),
+          subtitle: const Text('同时登录多个账号，以标签页切换，各自监控'),
+          value: ref.watch(multiAccountProvider),
+          onChanged: (v) => ref.read(multiAccountProvider.notifier).set(v),
+        ),
+        if (ref.watch(multiAccountProvider))
           Padding(
             padding: const EdgeInsets.all(12),
             child: OutlinedButton.icon(
-              onPressed: () async {
-                await ref.read(sessionProvider.notifier).logout();
-              },
-              icon: const Icon(Icons.logout),
-              label: const Text('退出登录'),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const LoginPage(addingAccount: true),
+              )),
+              icon: const Icon(Icons.person_add_alt_1_outlined),
+              label: const Text('添加账号'),
             ),
           ),
-        ],
-      ),
-      const _Group(
-        title: '高级',
-        children: [
-          ServerOriginSetting(),
-          _BrowserNotificationSetting(),
-          _DiagnosticsEntry(),
-          ListTile(
-            leading: Icon(Icons.info_outline),
-            title: Text('关于'),
-            subtitle: Text(
-              '西农本科选课 · 选课/抢课快人一步。仅连接您配置的选课服务器，登录密码使用与官网一致的 DES 加密。',
-            ),
-            isThreeLine: true,
-          ),
-        ],
-      ),
-    ];
+      ],
+    );
+  }
+
+  Future<void> _signOut(
+      BuildContext context, WidgetRef ref, String id, String name) async {
+    final running = ref.read(sessionScopeProvider(id)).engine.isRunning;
+    if (running) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('退出 $name'),
+          content: const Text('该账号的监控正在运行，退出后会停止。'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('退出')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+    await leaveAccount(ref, id);
   }
 }
 
@@ -233,22 +402,26 @@ class _SilentReloginSettingState extends ConsumerState<_SilentReloginSetting> {
   @override
   Widget build(BuildContext context) {
     final attempts = ref.watch(silentReloginAttemptsProvider);
-    final scheme = Theme.of(context).colorScheme;
+    final enabled = ref.watch(silentReloginEnabledProvider);
+    final guard = ref.watch(contestedGuardProvider);
+    final guardMinutes = ref.watch(contestedWindowMinutesProvider);
     final unlimited = attempts < 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ListTile(
-          leading: const Icon(Icons.autorenew),
+        SwitchListTile(
+          secondary: const Icon(Icons.autorenew),
           title: const Text('掉线后自动重新登录'),
-          subtitle: Text(unlimited
-              ? '不限次数：用验证码自动识别在后台一直重登（间隔逐步拉长），直到成功'
-              : attempts == 0
-                  ? '关闭：登录一失效就弹窗让你手动登录'
-                  : '先用验证码自动识别在后台重登，最多 $attempts 次；仍失败再弹窗让你手动登录'),
+          subtitle: Text(!enabled
+              ? '关闭，掉线后直接弹窗'
+              : unlimited
+                  ? '不限次数，间隔逐步拉长'
+                  : '验证码最多识别 $attempts 次，仍失败再弹窗并说明原因'),
+          value: enabled,
+          onChanged: (v) => ref.read(silentReloginEnabledProvider.notifier).set(v),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+        if (enabled) Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           child: Row(
             children: [
               SizedBox(
@@ -259,9 +432,8 @@ class _SilentReloginSettingState extends ConsumerState<_SilentReloginSetting> {
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   decoration: const InputDecoration(
-                    labelText: '尝试次数',
+                    labelText: '次数',
                     isDense: true,
-                    suffixText: '次',
                   ),
                   onSubmitted: _apply,
                   onTapOutside: (_) => _apply(_ctrl.text),
@@ -269,7 +441,7 @@ class _SilentReloginSettingState extends ConsumerState<_SilentReloginSetting> {
               ),
               const SizedBox(width: 16),
               FilterChip(
-                label: const Text('不限次数'),
+                label: const Text('不限'),
                 selected: unlimited,
                 onSelected: (v) {
                   if (v) {
@@ -283,12 +455,84 @@ class _SilentReloginSettingState extends ConsumerState<_SilentReloginSetting> {
             ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: Text(
-            '每次尝试都会向学校服务器要一张新验证码；请求过于频繁会被学校网关暂时拦截，不限次数时会自动拉长间隔。',
-            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+        if (enabled)
+          SwitchListTile(
+            secondary: const Icon(Icons.swap_horiz),
+            title: const Text('被踢下线时让步'),
+            subtitle: Text(guard
+                ? '重新登录后 $guardMinutes 分钟内再次被踢就不再抢回会话，改为弹窗'
+                : '关闭：每次被踢都自动重新登录，把别处的会话踢掉'),
+            value: guard,
+            onChanged: (v) => ref.read(contestedGuardProvider.notifier).set(v),
           ),
+        if (enabled && guard)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Row(
+              children: [
+                const Text('让步时间窗'),
+                Expanded(
+                  child: Slider(
+                    value: guardMinutes.toDouble().clamp(1, 30),
+                    min: 1,
+                    max: 30,
+                    divisions: 29,
+                    label: '$guardMinutes 分钟',
+                    onChanged: (v) => ref
+                        .read(contestedWindowMinutesProvider.notifier)
+                        .set(v.round()),
+                  ),
+                ),
+                Text('$guardMinutes 分钟'),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Keep-alive switches; the platform decides what each one means.
+class _BackgroundSettings extends ConsumerWidget {
+  const _BackgroundSettings();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (kIsWeb) {
+      return const ListTile(
+        leading: Icon(Icons.web_outlined),
+        title: Text('网页版关闭标签页后监控会停止'),
+        subtitle: Text('需要后台监控请使用桌面或手机应用'),
+      );
+    }
+    final bg = AppBackground.instance;
+    final subtitle = bg.supportsTray
+        ? '关闭窗口后缩到托盘继续监控，从托盘图标恢复或退出'
+        : bg.supportsForegroundService
+            ? '监控运行时显示常驻通知，系统不会清理后台'
+            : '系统限制，请保持应用在前台';
+    return Column(
+      children: [
+        SwitchListTile(
+          secondary: const Icon(Icons.visibility_off_outlined),
+          title: const Text('后台运行'),
+          subtitle: Text(subtitle),
+          value: ref.watch(runInBackgroundProvider),
+          onChanged: (v) => ref.read(runInBackgroundProvider.notifier).set(v),
+        ),
+        SwitchListTile(
+          secondary: const Icon(Icons.bedtime_off_outlined),
+          title: const Text('监控时阻止休眠'),
+          value: ref.watch(keepAwakeProvider),
+          onChanged: (v) => ref.read(keepAwakeProvider.notifier).set(v),
+        ),
+        ListTile(
+          leading: const Icon(Icons.cleaning_services_outlined),
+          title: const Text('清除课程缓存'),
+          onTap: () async {
+            await ref.read(courseCacheProvider).clear();
+            if (context.mounted) showToast(context, '已清除', success: true);
+          },
         ),
       ],
     );
@@ -303,7 +547,6 @@ class _DiagnosticsEntry extends StatelessWidget {
     return ListTile(
       leading: const Icon(Icons.network_check),
       title: const Text('连接诊断'),
-      subtitle: const Text('检测能否连到选课服务器、查看会话状态、导出脱敏日志'),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(builder: (_) => const DiagnosticsPage()),
@@ -352,29 +595,17 @@ class _OcrSettings extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final api = ref.watch(ocrApiProvider);
     final usingApi = api != null && api.isValid;
-    return Column(
-      children: [
-        ListTile(
-          leading: const Icon(Icons.auto_awesome),
-          title: const Text('识别方式'),
-          subtitle: Text(usingApi
-              ? '使用自定义 OCR API：${api.url}'
-              : '使用内置离线模型（自动识别并填写验证码，识别失败自动换一张重试）'),
-          isThreeLine: true,
-        ),
-        ListTile(
-          leading: const Icon(Icons.api),
-          title: const Text('自定义 OCR API'),
-          subtitle: Text(usingApi ? '已配置' : '可选：填入你自己的打码服务地址'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => showAdaptiveSheet<void>(
-            context,
-            scrollControlled: true,
-            maxWidth: 560,
-            builder: (_) => const _OcrApiEditor(),
-          ),
-        ),
-      ],
+    return ListTile(
+      leading: const Icon(Icons.auto_awesome),
+      title: const Text('识别方式'),
+      subtitle: Text(usingApi ? '自定义 API：${api.url}' : '内置离线模型'),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => showAdaptiveSheet<void>(
+        context,
+        scrollControlled: true,
+        maxWidth: 560,
+        builder: (_) => const _OcrApiEditor(),
+      ),
     );
   }
 }
@@ -430,7 +661,7 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
           children: [
             Text('自定义 OCR API', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 4),
-            Text('留空并保存即恢复使用内置离线模型。',
+            Text('留空即使用内置模型。',
                 style: TextStyle(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                     fontSize: 13)),
@@ -457,7 +688,7 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
                         child: Text('multipart 文件上传')),
                     DropdownMenuItem(
                         value: OcrRequestFormat.rawBytes,
-                        child: Text('原始字节 body')),
+                        child: Text('原始字节')),
                   ],
                 ),
               ),
@@ -503,7 +734,7 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
                       await ref.read(ocrApiProvider.notifier).set(null);
                       if (context.mounted) Navigator.pop(context);
                     },
-                    child: const Text('恢复内置模型'),
+                    child: const Text('用内置模型'),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -526,8 +757,7 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
                             );
                       await ref.read(ocrApiProvider.notifier).set(cfg);
                       if (context.mounted) {
-                        showToast(
-                            context, cfg == null ? '已恢复内置模型' : '已保存 OCR API',
+                        showToast(context, cfg == null ? '已改用内置模型' : '已保存',
                             success: true);
                         Navigator.pop(context);
                       }
@@ -562,7 +792,7 @@ class _MonitorSettings extends ConsumerWidget {
             children: [
               const Icon(Icons.speed),
               const SizedBox(width: 12),
-              const Expanded(child: Text('检查余量间隔')),
+              const Expanded(child: Text('检查间隔')),
               Text('${baseSecs.toStringAsFixed(1)} 秒',
                   style: TextStyle(
                       color: scheme.primary, fontWeight: FontWeight.w700)),
@@ -582,7 +812,7 @@ class _MonitorSettings extends ConsumerWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Text(
-            '间隔越短抢课越快，但也更接近学校服务器的频率限制。建议 2–4 秒；抢开模式下会自动提速。',
+            '越短越快，但越容易触发学校服务器的频率限制，建议 2 到 4 秒。',
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
         ),
@@ -590,18 +820,9 @@ class _MonitorSettings extends ConsumerWidget {
         SwitchListTile(
           secondary: const Icon(Icons.rocket_launch_outlined),
           title: const Text('抢开模式'),
-          subtitle: const Text(
-              '选课开放瞬间服务器常因人多而崩溃/繁忙。开启后，遇到 5xx、超时或“系统繁忙”视为临时过载，自动退避重试直到成功，而不是停止。账号或验证码错误仍会停止。'),
-          isThreeLine: true,
+          subtitle: const Text('开放瞬间服务器繁忙或报错时退避重试而不是停止'),
           value: cfg.rushMode,
           onChanged: (v) => ctrl.update(cfg.copyWith(rushMode: v)),
-        ),
-        const ListTile(
-          leading: Icon(Icons.verified),
-          title: Text('结果确认与自动保护'),
-          subtitle:
-              Text('提交后读取服务器最终回执才算成功；正常模式下遇到验证码、账号异常、系统维护或限流会立即停止，不会重复提交同一空位。'),
-          isThreeLine: true,
         ),
       ],
     );
@@ -636,13 +857,13 @@ class _BrowserNotificationSettingState
       leading: Icon(granted
           ? Icons.notifications_active_outlined
           : Icons.notifications_outlined),
-      title: const Text('浏览器系统通知'),
+      title: const Text('浏览器通知'),
       subtitle: Text(
         granted
-            ? '已启用；监控到余量、抢课成功或异常停止时会发送通知。'
+            ? '已启用'
             : denied
-                ? '浏览器已拒绝通知。请在站点权限中允许后刷新页面。'
-                : '在网页切到后台时，仍可收到监控结果。',
+                ? '浏览器已拒绝，请在站点权限中允许后刷新'
+                : '网页在后台时也能收到抢课结果',
       ),
       trailing: granted
           ? const Icon(Icons.check_circle_outline)
@@ -711,9 +932,7 @@ class _ServerOriginSettingState extends ConsumerState<ServerOriginSetting> {
           ),
           const SizedBox(height: 6),
           Text(
-            locked
-                ? '本次调试构建已固定服务器地址；正式构建可在这里切换。'
-                : '登录、验证码和选课请求都将发送到此地址。更改服务器后需要重新登录。',
+            locked ? '调试构建已固定服务器地址。' : '更改后所有账号需要重新登录。',
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
           const SizedBox(height: 10),
@@ -723,7 +942,7 @@ class _ServerOriginSettingState extends ConsumerState<ServerOriginSetting> {
             keyboardType: TextInputType.url,
             autocorrect: false,
             decoration: InputDecoration(
-              labelText: '服务器地址',
+              labelText: '地址',
               hintText: Storage.defaultOrigin,
               errorText: _error,
               prefixIcon: const Icon(Icons.link),
@@ -740,19 +959,12 @@ class _ServerOriginSettingState extends ConsumerState<ServerOriginSetting> {
                           _ctrl.text = Storage.defaultOrigin;
                           _error = null;
                         }),
-                child: const Text('恢复默认'),
+                child: const Text('默认'),
               ),
               const SizedBox(width: 8),
-              FilledButton.tonalIcon(
+              FilledButton.tonal(
                 onPressed: locked || _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                        height: 16,
-                        width: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save_outlined, size: 18),
-                label: Text(_saving ? '保存中' : '保存并应用'),
+                child: Text(_saving ? '保存中' : '保存'),
               ),
             ],
           ),
@@ -774,13 +986,13 @@ class _ServerOriginSettingState extends ConsumerState<ServerOriginSetting> {
       return;
     }
 
-    final session = ref.read(sessionProvider);
-    if (session.phase == AuthPhase.loggedIn) {
+    final signedIn = ref.read(signedInAccountsProvider);
+    if (signedIn.isNotEmpty) {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('切换选课服务器？'),
-          content: const Text('当前登录会话将安全退出。保存新地址后需要重新登录。'),
+          title: const Text('切换服务器'),
+          content: const Text('当前登录的账号都会退出。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -800,17 +1012,15 @@ class _ServerOriginSettingState extends ConsumerState<ServerOriginSetting> {
       _saving = true;
       _error = null;
     });
-    final storage = ref.read(storageProvider);
-    final client = ref.read(apiClientProvider);
-    final sessionController = ref.read(sessionProvider.notifier);
     try {
-      await storage.setOrigin(origin);
-      if (session.phase == AuthPhase.loggedIn) {
-        await sessionController.logout();
+      await ref.read(storageProvider).setOrigin(origin);
+      for (final id in [...signedIn]) {
+        await leaveAccount(ref, id);
       }
-      client.origin = origin;
+      ref.invalidate(anonymousAuthProvider);
+      ref.invalidate(publicInfoServiceProvider);
       await widget.onSaved?.call();
-      if (mounted) showToast(context, '服务器地址已应用', success: true);
+      if (mounted) showToast(context, '已切换服务器', success: true);
     } catch (error) {
       if (mounted) setState(() => _error = '保存失败：$error');
     } finally {

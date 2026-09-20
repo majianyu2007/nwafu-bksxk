@@ -242,19 +242,28 @@ class ApiClient {
 
   dynamic _decode(String s) => jsonDecode(s);
 
+  /// Whether a response means the session is gone.
+  ///
+  /// Verified 2026-09-18 against the live server: after a login elsewhere or
+  /// a ~10 minute idle, authenticated endpoints answer HTTP 200 with
+  /// `{"code":"302","msg":"未查询到登录信息"}`, while xkxf.do answers
+  /// `code "2" 非法请求`. Public endpoints (batch.do, notice.do, sysparam.do)
+  /// keep answering normally, which is why a request can look healthy while
+  /// the session is dead. Only [auth] requests are classified here.
   bool _looksExpired(ApiResult r, Response resp) {
     if (r.keyExpired) return true;
     if (resp.statusCode == 401 || resp.statusCode == 403) return true;
-    // Some deployments return code with an expiry message rather than a flag.
+    if (r.ok) return false;
+    if (r.code == '302') return true;
     final m = r.msg;
-    if (!r.ok &&
-        (m.contains('登录') ||
-            m.contains('token') ||
-            m.contains('会话') ||
-            m.contains('超时'))) {
-      return true;
-    }
-    return false;
+    return m.contains('未查询到登录信息') ||
+        m.contains('未登录') ||
+        m.contains('登录信息') ||
+        m.contains('重新登录') ||
+        m.contains('token') ||
+        m.contains('会话') ||
+        m.contains('超时') ||
+        m == '非法请求';
   }
 
   bool _htmlLooksLikeLogin(String html) {

@@ -1,9 +1,9 @@
-/// Persistent storage: saved accounts (with secure password), session tokens,
-/// monitor watch-list, and app preferences.
+/// Persistent storage: saved accounts (with secure password), the per-account
+/// monitor watch-lists, and app preferences.
 ///
 /// Passwords live in flutter_secure_storage (Keychain / Keystore / libsecret).
-/// Everything else (non-secret account metadata, watch-list, prefs) lives in
-/// SharedPreferences as JSON. Cookies are persisted separately by the cookie jar.
+/// Everything else (non-secret account metadata, watch-lists, prefs) lives in
+/// SharedPreferences as JSON. Cookies are held by each session's cookie jar.
 library;
 
 import 'dart:convert';
@@ -21,7 +21,6 @@ class Account {
     required this.displayName,
     this.studentCode = '',
     this.lastBatchCode = '',
-    this.lastToken = '',
   });
 
   /// Stable local id (loginName is used as the id — one entry per login name).
@@ -29,16 +28,14 @@ class Account {
   final String loginName;
   final String displayName;
   final String studentCode;
-  final String lastBatchCode;
 
-  /// Last known token, used to attempt a warm start before full re-login.
-  final String lastToken;
+  /// The round the account last worked in, restored on the next sign-in.
+  final String lastBatchCode;
 
   Account copyWith({
     String? displayName,
     String? studentCode,
     String? lastBatchCode,
-    String? lastToken,
   }) =>
       Account(
         id: id,
@@ -46,7 +43,6 @@ class Account {
         displayName: displayName ?? this.displayName,
         studentCode: studentCode ?? this.studentCode,
         lastBatchCode: lastBatchCode ?? this.lastBatchCode,
-        lastToken: lastToken ?? this.lastToken,
       );
 
   Map<String, dynamic> toJson() => {
@@ -55,7 +51,6 @@ class Account {
         'displayName': displayName,
         'studentCode': studentCode,
         'lastBatchCode': lastBatchCode,
-        'lastToken': lastToken,
       };
 
   factory Account.fromJson(Map<String, dynamic> j) => Account(
@@ -64,7 +59,6 @@ class Account {
         displayName: (j['displayName'] as String?) ?? j['loginName'] as String,
         studentCode: (j['studentCode'] as String?) ?? '',
         lastBatchCode: (j['lastBatchCode'] as String?) ?? '',
-        lastToken: (j['lastToken'] as String?) ?? '',
       );
 }
 
@@ -94,7 +88,16 @@ class Storage {
   static const _kOcrApi = 'ocr_api.v1';
   static const _kAutoOcr = 'auto_ocr.v1';
   static const _kSilentRelogin = 'silent_relogin_attempts.v1';
+  static const _kAckedUnsuccessful = 'acked_unsuccessful.v1';
+  static const _kSilentReloginOn = 'silent_relogin_enabled.v1';
+  static const _kContestedGuard = 'contested_guard.v1';
+  static const _kContestedMinutes = 'contested_minutes.v1';
+  static const _kMultiAccount = 'multi_account.v1';
+  static const _kRunInBackground = 'run_in_background.v1';
+  static const _kKeepAwake = 'keep_awake.v1';
+  static const _kCache = 'cache.v1';
   static String _pwKey(String id) => 'pw::$id';
+  static String _watchesKey(String accountId) => '$_kWatches::$accountId';
 
   static Future<Storage> open() async =>
       Storage(await SharedPreferences.getInstance());
@@ -119,24 +122,19 @@ class Storage {
   /// The app keeps working; the password just isn't persisted this session.
   bool secureStorageAvailable = true;
 
-  /// The last secure-storage error message, for diagnostics.
-  String? secureStorageError;
-
   Future<void> _secureWrite(String key, String value) async {
     try {
       await _secure.write(key: key, value: value);
-    } catch (e) {
+    } catch (_) {
       secureStorageAvailable = false;
-      secureStorageError = '$e';
     }
   }
 
   Future<String?> _secureRead(String key) async {
     try {
       return await _secure.read(key: key);
-    } catch (e) {
+    } catch (_) {
       secureStorageAvailable = false;
-      secureStorageError = '$e';
       return null;
     }
   }
@@ -144,9 +142,8 @@ class Storage {
   Future<void> _secureDelete(String key) async {
     try {
       await _secure.delete(key: key);
-    } catch (e) {
+    } catch (_) {
       secureStorageAvailable = false;
-      secureStorageError = '$e';
     }
   }
 
@@ -169,6 +166,7 @@ class Storage {
     final list = accounts()..removeWhere((a) => a.id == id);
     await _saveAccounts(list);
     await _secureDelete(_pwKey(id));
+    await _prefs.remove(_watchesKey(id));
     if (activeAccountId() == id) {
       await setActiveAccount(list.isEmpty ? null : list.first.id);
     }
@@ -176,6 +174,7 @@ class Storage {
 
   Future<String?> passwordFor(String id) => _secureRead(_pwKey(id));
 
+  /// The account the login screen offers first.
   String? activeAccountId() => _prefs.getString(_kActiveAccount);
 
   Future<void> setActiveAccount(String? id) async {
@@ -189,17 +188,36 @@ class Storage {
   Account? activeAccount() {
     final id = activeAccountId();
     if (id == null) return null;
-    final list = accounts();
-    for (final a in list) {
+    for (final a in accounts()) {
       if (a.id == id) return a;
     }
     return null;
   }
 
-  // ---- Watch list (monitor targets) ----
-  String watchesJson() => _prefs.getString(_kWatches) ?? '[]';
-  Future<void> setWatchesJson(String json) async =>
-      _prefs.setString(_kWatches, json);
+  // ---- Watch lists (monitor targets), one per account ----
+  String watchesJson(String accountId) =>
+      _prefs.getString(_watchesKey(accountId)) ??
+      // Lists saved before watch-lists were per account belong to whoever
+      // signs in first; the legacy key is dropped once claimed.
+      _prefs.getString(_kWatches) ??
+      '[]';
+
+  Future<void> setWatchesJson(String accountId, String json) async {
+    await _prefs.setString(_watchesKey(accountId), json);
+    if (_prefs.containsKey(_kWatches)) await _prefs.remove(_kWatches);
+  }
+
+  // ---- 落选 acknowledgements (so the popup shows once per row) ----
+  Set<String> acknowledgedUnsuccessful(String accountId) =>
+      (_prefs.getStringList('$_kAckedUnsuccessful::$accountId') ?? const [])
+          .toSet();
+
+  Future<void> addAcknowledgedUnsuccessful(
+      String accountId, Iterable<String> wids) async {
+    final all = {...acknowledgedUnsuccessful(accountId), ...wids};
+    await _prefs.setStringList(
+        '$_kAckedUnsuccessful::$accountId', all.toList());
+  }
 
   // ---- Preferences ----
   /// 0 system, 1 light, 2 dark.
@@ -255,4 +273,44 @@ class Storage {
   /// is bundled; the user can opt out on the login screen).
   bool autoOcr() => _prefs.getBool(_kAutoOcr) ?? true;
   Future<void> setAutoOcr(bool v) async => _prefs.setBool(_kAutoOcr, v);
+
+  /// Whether a dropped session is re-logged in silently at all. Off = every
+  /// drop goes straight to the re-login dialog.
+  bool silentReloginEnabled() => _prefs.getBool(_kSilentReloginOn) ?? true;
+  Future<void> setSilentReloginEnabled(bool v) async =>
+      _prefs.setBool(_kSilentReloginOn, v);
+
+  /// Contested-session guard: stop re-logging in when the account keeps being
+  /// kicked (someone else is using it). Off by default.
+  bool contestedGuardEnabled() => _prefs.getBool(_kContestedGuard) ?? false;
+  Future<void> setContestedGuardEnabled(bool v) async =>
+      _prefs.setBool(_kContestedGuard, v);
+  int contestedWindowMinutes() => _prefs.getInt(_kContestedMinutes) ?? 3;
+  Future<void> setContestedWindowMinutes(int v) async =>
+      _prefs.setInt(_kContestedMinutes, v);
+
+  /// Several accounts signed in at once, as tabs. Off by default.
+  bool multiAccountEnabled() => _prefs.getBool(_kMultiAccount) ?? false;
+  Future<void> setMultiAccountEnabled(bool v) async =>
+      _prefs.setBool(_kMultiAccount, v);
+
+  /// Keep running after the window is closed (desktop: tray; Android:
+  /// foreground service while the monitor runs).
+  bool runInBackground() => _prefs.getBool(_kRunInBackground) ?? true;
+  Future<void> setRunInBackground(bool v) async =>
+      _prefs.setBool(_kRunInBackground, v);
+
+  /// Keep the device awake while the monitor runs.
+  bool keepAwake() => _prefs.getBool(_kKeepAwake) ?? true;
+  Future<void> setKeepAwake(bool v) async => _prefs.setBool(_kKeepAwake, v);
+
+  // ---- Course cache (gzip+base64 JSON blobs, see CourseCache) ----
+  String? cacheGet(String key) => _prefs.getString('$_kCache::$key');
+  Future<void> cacheSet(String key, String value) =>
+      _prefs.setString('$_kCache::$key', value);
+  Future<void> cacheClear() async {
+    for (final k in _prefs.getKeys().where((k) => k.startsWith('$_kCache::'))) {
+      await _prefs.remove(k);
+    }
+  }
 }

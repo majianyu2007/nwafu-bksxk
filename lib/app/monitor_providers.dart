@@ -1,5 +1,7 @@
-/// Providers that expose the monitor engine reactively to the UI, plus the
-/// watch-list persistence glue and the pre-open "plan" orchestration.
+/// Providers that expose the shown account's monitor engine reactively to the
+/// UI, persist its watch list, bridge its events to notifications, and run the
+/// pre-open "plan" orchestration. All are keyed by account id so every
+/// signed-in account keeps its own engine, log and plan.
 library;
 
 import 'dart:async';
@@ -8,53 +10,44 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/monitor_engine.dart';
 import '../data/notifications.dart';
-import '../data/storage.dart';
 import 'providers.dart';
 
-/// Emits whenever any watch changes state (capacity tick, grab, etc.).
-final monitorChangesProvider = StreamProvider<void>((ref) {
-  final engine = ref.watch(monitorEngineProvider);
-  return engine.changes;
-});
+/// Emits whenever any watch of [id]'s engine changes state.
+final monitorChangesProvider = StreamProvider.family<void, String>(
+    (ref, id) => ref.watch(sessionScopeProvider(id)).engine.changes);
 
-/// The current watch list, rebuilt on every engine change and persisted.
-final watchesProvider = Provider<List<Watch>>((ref) {
-  ref.watch(monitorChangesProvider);
-  final engine = ref.watch(monitorEngineProvider);
-  // Persist on each change so a restart restores the watch list.
-  final storage = ref.read(storageProvider);
-  _persist(storage, engine);
+/// [id]'s watch list, rebuilt on every engine change and persisted.
+final watchesOfProvider = Provider.family<List<Watch>, String>((ref, id) {
+  ref.watch(monitorChangesProvider(id));
+  final engine = ref.watch(sessionScopeProvider(id)).engine;
+  ref.read(storageProvider).setWatchesJson(id, engine.encodeWatches());
   return engine.watches;
 });
 
-void _persist(Storage storage, MonitorEngine engine) {
-  // Fire-and-forget; ordering is not critical.
-  storage.setWatchesJson(engine.encodeWatches());
-}
-
-/// Count of watches that are actively watching or grabbing (for the tab badge).
-final watchCountProvider = Provider<int>((ref) {
-  final watches = ref.watch(watchesProvider);
-  return watches
-      .where((w) => w.status == WatchStatus.watching || w.status == WatchStatus.grabbing)
-      .length;
+/// The shown account's watch list.
+final watchesProvider = Provider<List<Watch>>((ref) {
+  final id = ref.watch(activeAccountIdProvider);
+  if (id == null) return const [];
+  return ref.watch(watchesOfProvider(id));
 });
 
-/// Whether the engine is currently running.
+/// Count of the shown account's watches that are watching or grabbing.
+final watchCountProvider = Provider<int>((ref) => ref
+    .watch(watchesProvider)
+    .where((w) =>
+        w.status == WatchStatus.watching || w.status == WatchStatus.grabbing)
+    .length);
+
+/// Whether the shown account's engine is running.
 final monitorRunningProvider = Provider<bool>((ref) {
-  ref.watch(monitorChangesProvider);
-  return ref.watch(monitorEngineProvider).isRunning;
-});
-
-/// Stream of human-readable monitor events for the activity log.
-final monitorEventsProvider = StreamProvider<MonitorEvent>((ref) {
-  final engine = ref.watch(monitorEngineProvider);
-  return engine.events;
+  final id = ref.watch(activeAccountIdProvider);
+  if (id == null) return false;
+  ref.watch(monitorChangesProvider(id));
+  return ref.watch(sessionScopeProvider(id)).engine.isRunning;
 });
 
 /// Rolling activity log (newest first, capped) kept outside the widget tree
-/// so it survives layout switches and tab changes. Created by the root shell
-/// on login so events are captured even before the Monitor tab is opened.
+/// so it survives layout switches and tab changes.
 class MonitorLog extends StateNotifier<List<MonitorEvent>> {
   MonitorLog(Stream<MonitorEvent> events) : super(const []) {
     _sub = events.listen(_add);
@@ -77,38 +70,38 @@ class MonitorLog extends StateNotifier<List<MonitorEvent>> {
   }
 }
 
-final monitorLogProvider =
-    StateNotifierProvider<MonitorLog, List<MonitorEvent>>(
-        (ref) => MonitorLog(ref.watch(monitorEngineProvider).events));
+final monitorLogOfProvider =
+    StateNotifierProvider.family<MonitorLog, List<MonitorEvent>, String>(
+        (ref, id) => MonitorLog(ref.watch(sessionScopeProvider(id)).engine.events));
 
-/// Bridges monitor events to system notifications. Kept alive for the app's
-/// lifetime by a read in the root shell so notifications fire even when the
-/// Monitor tab isn't visible.
-final notificationBridgeProvider = Provider<void>((ref) {
-  final engine = ref.watch(monitorEngineProvider);
+/// The shown account's log.
+final monitorLogProvider = Provider<List<MonitorEvent>>((ref) {
+  final id = ref.watch(activeAccountIdProvider);
+  if (id == null) return const [];
+  return ref.watch(monitorLogOfProvider(id));
+});
+
+/// Bridges one account's monitor events to system notifications and the
+/// selection-data refresh. The shell reads it for every signed-in account so
+/// notifications fire for accounts that are not on screen.
+final notificationBridgeProvider = Provider.family<void, String>((ref, id) {
+  final engine = ref.watch(sessionScopeProvider(id)).engine;
+  final who = ref.read(sessionControllerProvider(id)).displayName;
   final sub = engine.events.listen((e) {
     final w = e.watch;
     switch (e.kind) {
       case MonitorEventKind.grabbed:
-        ref.read(selectionDataRevisionProvider.notifier).state++;
+        bumpSelectionRevision(ref, id);
         if (w != null) {
           NotificationService.instance.grabbed(
             courseName: w.teachingClass.courseName,
             className: w.teachingClass.displayTitle,
             place: w.teachingClass.teachingPlace,
-          );
-        }
-      case MonitorEventKind.seatOpen:
-        if (w != null) {
-          NotificationService.instance.seatOpen(
-            courseName: w.teachingClass.courseName,
-            className: w.teachingClass.displayTitle,
-            remaining: w.teachingClass.remaining,
+            who: who,
           );
         }
       case MonitorEventKind.stopped:
-        NotificationService.instance.monitorStopped(e.message);
-      case MonitorEventKind.failed:
+        NotificationService.instance.monitorStopped(e.message, who: who);
       case MonitorEventKind.info:
         break;
     }
@@ -119,39 +112,48 @@ final notificationBridgeProvider = Provider<void>((ref) {
 /// Plan-mode state: whether we're holding armed plans until the batch opens,
 /// and the latest batch-open check result.
 class PlanState {
-  const PlanState({this.armed = false, this.batchOpen = false, this.checking = false, this.lastCheckedAt, this.message = ''});
+  const PlanState({
+    this.armed = false,
+    this.batchOpen = false,
+    this.lastCheckedAt,
+    this.message = '',
+  });
   final bool armed;
   final bool batchOpen;
-  final bool checking;
   final DateTime? lastCheckedAt;
   final String message;
 
-  PlanState copyWith({bool? armed, bool? batchOpen, bool? checking, DateTime? lastCheckedAt, String? message}) =>
+  PlanState copyWith({
+    bool? armed,
+    bool? batchOpen,
+    DateTime? lastCheckedAt,
+    String? message,
+  }) =>
       PlanState(
         armed: armed ?? this.armed,
         batchOpen: batchOpen ?? this.batchOpen,
-        checking: checking ?? this.checking,
         lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
         message: message ?? this.message,
       );
 }
 
-/// Orchestrates pre-open "plan" grabbing: hold armed watches (gate closed),
-/// poll batch-open on an interval, and open the gate + fire the instant the
-/// batch opens. Lets the user assemble a plan before selection opens and grab at
-/// t=0 without re-selecting.
+/// Orchestrates pre-open "plan" grabbing for one account: hold armed watches
+/// (gate closed), poll batch-open on an interval, and open the gate + fire the
+/// instant the batch opens.
 class PlanController extends StateNotifier<PlanState> {
-  PlanController(this._ref) : super(const PlanState());
+  PlanController(this._ref, this.accountId) : super(const PlanState());
   final Ref _ref;
+  final String accountId;
   Timer? _timer;
+
+  SessionScope get _scope => _ref.read(sessionScopeProvider(accountId));
 
   /// Selects plan mode: closes the grab gate and begins polling batch-open.
   /// Starting/stopping monitoring remains the sole responsibility of the main
   /// monitor button, so choosing a mode has no hidden start side effect.
   Future<void> arm({Duration checkInterval = const Duration(seconds: 5)}) async {
-    final engine = _ref.read(monitorEngineProvider);
-    engine.closeGate();
-    state = state.copyWith(armed: true, message: '已进入计划模式，等待选课开放…');
+    _scope.engine.closeGate();
+    state = state.copyWith(armed: true, message: '等待轮次开放');
     _timer?.cancel();
     _timer = Timer.periodic(checkInterval, (_) => _check());
     await _check();
@@ -161,27 +163,24 @@ class PlanController extends StateNotifier<PlanState> {
   void disarm() {
     _timer?.cancel();
     _timer = null;
-    _ref.read(monitorEngineProvider).openGate(grabNow: false);
-    state = state.copyWith(armed: false, message: '已退出计划模式');
+    _scope.engine.openGate(grabNow: false);
+    state = state.copyWith(armed: false, message: '');
   }
 
   Future<void> _check() async {
-    final session = _ref.read(sessionProvider);
-    final batch = session.activeBatch;
+    final batch = _ref.read(sessionControllerProvider(accountId)).activeBatch;
     if (batch == null) return;
-    state = state.copyWith(checking: true);
     try {
-      final open = await _ref.read(sessionManagerProvider).auth.isBatchOpen(batch.code);
-      state = state.copyWith(checking: false, batchOpen: open, lastCheckedAt: DateTime.now());
+      final open = await _scope.auth.isBatchOpen(batch.code);
+      state = state.copyWith(batchOpen: open, lastCheckedAt: DateTime.now());
       if (open && state.armed) {
-        // Fire! Open the gate; armed watches on open seats grab immediately.
-        _ref.read(monitorEngineProvider).openGate(grabNow: true);
+        _scope.engine.openGate(grabNow: true);
         _timer?.cancel();
         _timer = null;
-        state = state.copyWith(armed: false, message: '选课已开放，开始提交计划');
+        state = state.copyWith(armed: false, message: '轮次已开放，已开始提交');
       }
     } catch (_) {
-      state = state.copyWith(checking: false, message: '检查开放状态失败，稍后重试');
+      state = state.copyWith(message: '检查开放状态失败，稍后重试');
     }
   }
 
@@ -192,5 +191,13 @@ class PlanController extends StateNotifier<PlanState> {
   }
 }
 
-final planControllerProvider =
-    StateNotifierProvider<PlanController, PlanState>((ref) => PlanController(ref));
+final planControllerOfProvider =
+    StateNotifierProvider.family<PlanController, PlanState, String>(
+        (ref, id) => PlanController(ref, id));
+
+/// The shown account's plan state.
+final planStateProvider = Provider<PlanState>((ref) {
+  final id = ref.watch(activeAccountIdProvider);
+  if (id == null) return const PlanState();
+  return ref.watch(planControllerOfProvider(id));
+});

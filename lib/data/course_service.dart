@@ -17,8 +17,8 @@ class CourseService {
   /// fallback (per docs/api.notes.md 分页与完整列表).
   ///
   /// Summary kinds (programCourse/recommendedCourse/publicCourse) return course
-  /// rows with tcList; QXKC returns flat teaching-class rows wrapped as single-
-  /// class CourseRows so the UI can treat them uniformly.
+  /// rows with tcList; publicCourse and queryCourse return flat teaching-class
+  /// rows, wrapped as single-class CourseRows and grouped per course.
   Future<List<CourseRow>> fetchCourses({
     required CourseKind kind,
     required String studentCode,
@@ -30,7 +30,6 @@ class CourseService {
   }) async {
     final rows = <CourseRow>[];
     var pageNumber = 0;
-    var pageSize = firstPageSize;
     var total = -1;
 
     while (pageNumber < maxPages) {
@@ -40,7 +39,7 @@ class CourseService {
         electiveBatchCode: batchCode,
         kind: kind,
         queryContent: queryContent,
-        pageSize: pageSize,
+        pageSize: firstPageSize,
         pageNumber: pageNumber,
       );
       final res = await _client.postForm(kind.endpoint, form);
@@ -63,11 +62,42 @@ class CourseService {
         rows.add(_asCourseRow(kind, row));
       }
       if (rows.length >= total) break;
-      // After the first big page, keep the same size and advance.
       pageNumber++;
-      pageSize = firstPageSize;
     }
     return groupFlatRows(rows);
+  }
+
+  /// One server page of the whole-school catalogue (queryCourse.do). The
+  /// catalogue is ~6400 flat rows and 18 MB when pulled whole, so the official
+  /// page pages it 10 at a time; the app pages it too, with a larger page.
+  /// Returns the grouped rows of this page and the server's total row count.
+  Future<({List<CourseRow> rows, int totalCount})> fetchCatalogPage({
+    required String studentCode,
+    required String campus,
+    required String batchCode,
+    String queryContent = '',
+    int pageSize = 100,
+    int pageNumber = 0,
+  }) async {
+    final form = buildCourseQuery(
+      studentCode: studentCode,
+      campus: campus,
+      electiveBatchCode: batchCode,
+      kind: CourseKind.qxkc,
+      queryContent: queryContent,
+      pageSize: pageSize,
+      pageNumber: pageNumber,
+    );
+    final res = await _client.postForm(CourseKind.qxkc.endpoint, form);
+    if (!res.ok) {
+      if (res.msg.isNotEmpty) throw AppError.fromBusiness(res.code, res.msg);
+      return (rows: <CourseRow>[], totalCount: 0);
+    }
+    final rows = [
+      for (final row in res.dataList.whereType<Map>())
+        _asCourseRow(CourseKind.qxkc, row.cast<String, dynamic>()),
+    ];
+    return (rows: groupFlatRows(rows), totalCount: res.totalCount);
   }
 
   /// Some endpoints return course rows with a `tcList`; others (publicCourse
@@ -333,8 +363,10 @@ class CourseService {
         .toList();
   }
 
-  /// Unsuccessful selections (unsuccessful.do): courses the student tried to
-  /// grab this round but did not get. Pass [isRead] to fetch the unread set.
+  /// Unsuccessful selections (unsuccessful.do, 落选课程). [isRead] false
+  /// returns only rows the student has not acknowledged (what the official
+  /// grab page pops up after login); true returns the whole list (the
+  /// sidebar's 落选课程 panel).
   Future<List<UnsuccessfulEntry>> fetchUnsuccessful({
     required String studentCode,
     required String batchCode,
@@ -355,24 +387,47 @@ class CourseService {
         .toList();
   }
 
-  /// Queue position info (queryStudentQueue.do): where the student sits in the
-  /// wait queue for full classes they tried to grab.
-  Future<List<QueueEntry>> fetchStudentQueue({
+  /// Acknowledges 落选 rows (submit/unsuccessful.do), exactly what the official
+  /// popup's 确认 button posts: the rows' wids joined by commas. After this
+  /// the server stops returning them for isRead=0, so the popup is shown once.
+  Future<bool> acknowledgeUnsuccessful({
     required String studentCode,
+    required List<String> wids,
+  }) async {
+    if (wids.isEmpty) return true;
+    final res = await _client.getJson(
+      Api.submitUnsuccessful,
+      addTimestamp: false,
+      query: buildSubmitUnsuccessfulQuery(studentCode: studentCode, wids: wids),
+    );
+    return res.ok;
+  }
+
+  /// The server's own answer to "can I select this class?" (util/canchoose.do):
+  /// a list of reasons such as 通识类选修课选课:可以选课 or 该轮次中没有找到
+  /// 教学班信息. The official whole-school list opens this in its 检查 popup.
+  Future<List<String>> fetchCanChooseReasons({
+    required String studentCode,
+    required String teachingClassId,
     required String batchCode,
   }) async {
     final res = await _client.getJson(
-      Api.studentQueue,
-      query: buildStudentQueueQuery(
+      Api.canChoose,
+      addTimestamp: false,
+      query: buildCanChooseQuery(
         studentCode: studentCode,
+        teachingClassId: teachingClassId,
         electiveBatchCode: batchCode,
+        timestamp: ApiClient.nowStamp(),
       ),
     );
-    if (!res.ok) return [];
-    return res.dataList
-        .whereType<Map>()
-        .map((e) => QueueEntry.fromJson(e.cast<String, dynamic>()))
-        .toList();
+    if (!res.ok) {
+      throw AppError.fromBusiness(res.code, res.msg);
+    }
+    final data = res.data;
+    final list = data is Map ? data['reasonList'] : null;
+    if (list is! List) return const [];
+    return list.map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
   }
 
   // ---- Live detail (queryjxb / querykcxx) ----
@@ -432,4 +487,44 @@ class CourseService {
         .where((t) => t.bookCode.isNotEmpty)
         .toList();
   }
+
+  // ---- Textbook (write ops, explicit user action only) ----
+
+  /// Orders the textbooks of a selected class (textbook/addbook.do), what the
+  /// official 已选课程 panel's 订购教材 does. Only offered when the round's
+  /// canSelectBook is "1" and the row's hasBook is "1".
+  Future<ApiResult> orderTextbooks({
+    required String studentCode,
+    required String batchCode,
+    required String teachingClassId,
+  }) =>
+      _client.postForm(
+        Api.textbookAdd,
+        buildTextbookOrderParam(
+          studentCode: studentCode,
+          electiveBatchCode: batchCode,
+          teachingClassId: teachingClassId,
+        ),
+      );
+
+  /// Modifies (czlx "1") or cancels (czlx "0") a class's textbook order
+  /// (textbook/modifybook.do) with a jcxx string built by
+  /// [buildBookSelection]; the official 退订教材 dialog posts the same.
+  Future<ApiResult> modifyTextbooks({
+    required String studentCode,
+    required String batchCode,
+    required String teachingClassId,
+    required String jcxx,
+    bool cancel = false,
+  }) =>
+      _client.postForm(
+        Api.textbookModify,
+        buildTextbookModifyParam(
+          studentCode: studentCode,
+          electiveBatchCode: batchCode,
+          teachingClassId: teachingClassId,
+          jcxx: jcxx,
+          cancelAll: cancel,
+        ),
+      );
 }

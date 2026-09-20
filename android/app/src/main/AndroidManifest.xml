@@ -4,6 +4,12 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Android 13+ requires an explicit runtime permission for notifications. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Keeping the grab monitor polling while the app is in the background
+         needs a foreground service (Android 14+ requires a declared type). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <application
         android:label="西农本科选课"
         android:name="${applicationName}"
@@ -30,6 +36,15 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- The monitor's keep-alive service (flutter_foreground_task). Do not
+             rename: the plugin looks the class up by this name. -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+        <meta-data
+            android:name="cn.edu.nwafu.nwafu_bksxk.NOTIFICATION_ICON"
+            android:resource="@drawable/ic_notification" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

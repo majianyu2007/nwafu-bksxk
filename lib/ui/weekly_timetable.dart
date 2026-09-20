@@ -142,7 +142,7 @@ class _WeeklyTimetableState extends State<WeeklyTimetable> {
                 Chip(
                   avatar: const Icon(Icons.schedule, size: 16),
                   label: Text(
-                    '${e.courseName}${e.teacherName.isNotEmpty ? ' · ${e.teacherName}' : ''}',
+                    '${e.courseName}${e.teacherName.isNotEmpty ? '  ${e.teacherName}' : ''}',
                   ),
                 ),
             ],
@@ -226,8 +226,10 @@ class _Grid extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return LayoutBuilder(builder: (context, constraints) {
-      final dayWidth = (constraints.maxWidth - _timeColWidth) / 7;
-      const gridHeight = _headerHeight + kSectionsPerDay * _rowHeight;
+      // The container's 1 px border on each side is inside these constraints.
+      final dayWidth = (constraints.maxWidth - 2 - _timeColWidth) / 7;
+      // +2 for the container's own top and bottom border.
+      const gridHeight = _headerHeight + kSectionsPerDay * _rowHeight + 2;
       return Container(
         height: gridHeight,
         decoration: BoxDecoration(

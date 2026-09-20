@@ -122,7 +122,6 @@ void main() {
           .mergeCapacity(capacityPayload(capacity: '165', selected: '165'));
       expect(full.isFull, isTrue);
       expect(full.remaining, 0);
-      expect(full.isGrabbable, isFalse);
 
       final freed =
           full.mergeCapacity(capacityPayload(capacity: '165', selected: '164'));
@@ -280,7 +279,9 @@ void main() {
       expect(grouped.first.teachingClasses.length, 3);
       expect(grouped.first.number, 3);
       expect(grouped.first.publicCourseType, '学科前沿与科技创新-2025版');
-      expect(grouped.first.teachingClasses[1].isOnline, isTrue);
+      // 面授讲课+SPOC/MOOC is a blended classroom course, not a MOOC.
+      expect(grouped.first.teachingClasses[1].isBlended, isTrue);
+      expect(grouped.first.teachingClasses[1].isOnline, isFalse);
       expect(grouped.first.teachingClasses[0].isOnline, isFalse);
       expect(grouped.first.teachingClasses.first.firstVolunteers, 18);
       // service is only constructed to prove the method is reachable there
@@ -404,6 +405,79 @@ void main() {
           isTrue);
       expect(
           TeachingClass.fromJson({'teachingClassID': 'A'}).canDelete, isTrue);
+    });
+  });
+
+  group('online (MOOC) courses', () {
+    // Verified 2026-09-18 on the live 通识 list: ZH rows are 智慧树 titles by
+    // 网络教师, ey rows are 学习通 titles by the 教务处 account, neither has a
+    // room or time; 面授讲课+SPOC/MOOC classroom courses are not 网课.
+    test('are recognised by the course-number prefix, case-sensitively', () {
+      expect(onlinePlatformOf('ZH037'), '智慧树');
+      expect(onlinePlatformOf('ey024'), '学习通');
+      expect(onlinePlatformOf('yw001'), '知到');
+      expect(onlinePlatformOf('1010002'), '');
+      expect(onlinePlatformOf('RC001'), '');
+      expect(onlinePlatformOf('Ey024'), '', reason: 'prefixes are case-sensitive');
+      final zh = TeachingClass.fromJson({
+        'teachingClassID': '202620271ZH03701',
+        'courseNumber': 'ZH037',
+        'courseName': '食品标准与法规',
+        'teacherName': '网络教师',
+        'teachingMethod': null,
+      });
+      expect(zh.isOnline, isTrue);
+      expect(zh.onlinePlatform, '智慧树');
+      expect(zh.isBlended, isFalse);
+    });
+  });
+
+  group('落选 rows (unsuccessful.do)', () {
+    test('expose the outcome, time, acknowledgement and popup title', () {
+      final e = UnsuccessfulEntry.fromJson({
+        'deleteOperateTypeName': '抽签落选',
+        'deleteOperateTime': '2026-09-18 11:14:51',
+        'isConfirm': '1',
+        'teachingClassID': '202620271ey16201',
+        'courseNumber': 'ey162',
+        'courseName': '《共产党宣言》导读',
+        'courseIndex': '01',
+        'teacherName': '杨雨琼',
+        'wid': '5BB8ECD5054EF642E063481E10AC6DF4',
+      });
+      expect(e.reason, '抽签落选');
+      expect(e.time, '2026-09-18 11:14:51');
+      expect(e.confirmed, isTrue);
+      expect(e.displayTitle, '《共产党宣言》导读[01]');
+      expect(e.wid, '5BB8ECD5054EF642E063481E10AC6DF4');
+    });
+  });
+
+  group('sysparam.do', () {
+    test('supplies the official tab names with a fallback', () {
+      final sp = SysParams.fromJson({
+        'displayNameXGXK': '通识类选修课选课',
+        'displayNameALLKC': '全校课程查询',
+        'noDisplayVolunteer': '0',
+      });
+      expect(sp.tabName(CourseKind.xgxk), '通识类选修课选课');
+      expect(sp.tabName(CourseKind.qxkc), '全校课程查询');
+      expect(sp.tabName(CourseKind.fankc), '方案内课程');
+      expect(sp.hidesUnsuccessful, isFalse);
+    });
+  });
+
+  group('xkxf.do 通识 requirements', () {
+    test('spCourseDescription is split into category rows', () {
+      final c = CreditInfo.fromJson({
+        'spCourseDescription':
+            '粮食安全与人类健康-2025版：【要求学分：1-2】【已修学分：0】,艺术鉴赏与审美体验-2025版：【要求学分：2-】【已修学分：0】',
+      });
+      expect(c.requirements, hasLength(2));
+      expect(c.requirements.first.category, '粮食安全与人类健康-2025版');
+      expect(c.requirements.first.required, '1-2');
+      expect(c.requirements.first.earned, '0');
+      expect(c.requirements.last.required, '2-');
     });
   });
 }

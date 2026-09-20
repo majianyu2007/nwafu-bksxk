@@ -86,7 +86,7 @@ class AddParamPlan {
       AddShape.withBook => '含教材选择',
       AddShape.withTestAndBook => '含实验课与教材',
     };
-    return chooseVolunteer == null ? base : '$base · 第$chooseVolunteer志愿';
+    return chooseVolunteer == null ? base : '$base，第$chooseVolunteer志愿';
   }
 }
 
@@ -372,15 +372,13 @@ Map<String, String> buildUnsuccessfulQuery({
       'electiveBatchCode': electiveBatchCode,
     };
 
-/// Params for queryStudentQueue.do.
-Map<String, String> buildStudentQueueQuery({
+/// Params for submit/unsuccessful.do: the 落选 rows' wids joined by commas,
+/// as the official 落选课程提醒 popup posts them.
+Map<String, String> buildSubmitUnsuccessfulQuery({
   required String studentCode,
-  required String electiveBatchCode,
+  required List<String> wids,
 }) =>
-    {
-      'studentCode': studentCode,
-      'electiveBatchCode': electiveBatchCode,
-    };
+    {'wids': wids.join(','), 'studentCode': studentCode};
 
 /// Params for queryjxb.do (教学班详情).
 Map<String, String> buildTeachingClassDetailQuery({
@@ -417,36 +415,12 @@ Map<String, String> buildCourseVolunteerParam({
 
 // ---- Public-info queries ----
 
-/// Params for notice.do (公告列表). The frontend sends pageSize/pageNumber.
-Map<String, String> buildNoticeListQuery({
-  required String timestamp,
-  int pageSize = 10,
-  int pageNumber = 0,
-}) =>
-    {
-      'pageSize': '$pageSize',
-      'pageNumber': '$pageNumber',
-      'timestamp': timestamp,
-    };
-
 /// Params for notice/view.do (公告详情).
 Map<String, String> buildNoticeViewQuery({
   required String wid,
   required String timestamp,
 }) =>
     {'wid': wid, 'timestamp': timestamp};
-
-/// Params for problem.do (常见问题).
-Map<String, String> buildProblemListQuery(String timestamp) =>
-    {'timestamp': timestamp};
-
-/// Params for publicinfo/volunteer.do (志愿等级字典).
-Map<String, String> buildVolunteerGradeQuery(String timestamp) =>
-    {'timestamp': timestamp};
-
-/// Params for onlineUsers.do.
-Map<String, String> buildOnlineUsersQuery(String timestamp) =>
-    {'timestamp': timestamp};
 
 /// Params for student/xkxf.do (学分信息).
 ///

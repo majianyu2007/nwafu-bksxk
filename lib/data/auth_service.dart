@@ -274,13 +274,33 @@ class SessionManager {
   /// a negative value means unlimited (keeps trying with backoff).
   int maxSilentReloginAttempts = 3;
 
+  /// Master switch for silent re-login. Off = every drop asks the user.
+  bool silentReloginEnabled = true;
+
+  /// Why the last silent re-login gave up, for the re-login dialog.
+  String lastFailure = '';
+
   /// Fired when a silent re-login could not recover the session (attempts
-  /// exhausted, no stored password, or the account was rejected). The UI
-  /// prompts the user to log in again.
+  /// exhausted, no stored password, the account was rejected, or the session
+  /// is [contested]). The UI prompts the user to log in again.
   void Function()? onSilentReloginFailed;
 
-  /// Fired after a silent re-login succeeded; carries the fresh token.
-  void Function(String token)? onSilentReloginSucceeded;
+  /// The server keeps one session per account, so a login in a browser kills
+  /// the app's session and vice versa. With [contestedGuardEnabled], if the
+  /// app re-logged in silently and was kicked again within [contestedWindow],
+  /// someone else is using the account and re-logging in again would only
+  /// kick them in turn, every heartbeat. Off by default: the user asked for
+  /// the app to win the session unless they turn this on.
+  bool contestedGuardEnabled = false;
+  Duration contestedWindow = const Duration(minutes: 3);
+  DateTime? _lastSilentRelogin;
+
+  /// True when the last expiry was left alone because the account is in use
+  /// elsewhere (see [contestedWindow]). Cleared by the next login.
+  bool contested = false;
+
+  /// Fired after a silent re-login succeeded.
+  void Function()? onSilentReloginSucceeded;
 
   StudentInfo? student;
   List<ElectiveBatch> batches = [];
@@ -296,6 +316,8 @@ class SessionManager {
   void rememberCredentials(String loginName, String password) {
     _loginName = loginName;
     _password = password;
+    contested = false;
+    _lastSilentRelogin = null;
   }
 
   /// Full interactive login: caller supplies the solved captcha. Loads context
@@ -312,8 +334,7 @@ class SessionManager {
       verifyCode: verifyCode,
       vtoken: vtoken,
     );
-    // Silent re-login replays exactly these; without them every expiry went
-    // straight to the user (this call was missing until 2026-09-16).
+    // Silent re-login replays exactly these.
     rememberCredentials(loginName, password);
     final (info, batchList) = await _auth.loadContext(res.studentCode);
     final initialChoice = selectInitialBatch(batchList);
@@ -344,11 +365,27 @@ class SessionManager {
   /// retrying a few times through transient failures (server flaky right after a
   /// restart) and OCR misreads. Returns a fresh token or null.
   Future<String?> _onExpired() async {
+    if (!silentReloginEnabled || maxSilentReloginAttempts == 0) {
+      lastFailure = '自动重新登录已关闭';
+      onSilentReloginFailed?.call();
+      return null;
+    }
+    final last = _lastSilentRelogin;
+    if (contestedGuardEnabled &&
+        last != null &&
+        DateTime.now().difference(last) < contestedWindow) {
+      contested = true;
+      lastFailure = '刚重新登录又被踢下线，账号可能正在别处使用';
+      onSilentReloginFailed?.call();
+      return null;
+    }
     final token = await _silentRelogin();
     if (token == null) {
       onSilentReloginFailed?.call();
     } else {
-      onSilentReloginSucceeded?.call(token);
+      _lastSilentRelogin = DateTime.now();
+      contested = false;
+      onSilentReloginSucceeded?.call();
     }
     return token;
   }
@@ -360,7 +397,14 @@ class SessionManager {
   Future<String?> _silentRelogin() async {
     final name = _loginName;
     final pw = _password;
-    if (name == null || pw == null) return null;
+    if (name == null || pw == null) {
+      lastFailure = '没有保存的密码';
+      return null;
+    }
+    lastFailure = '';
+    var misreads = 0;
+    var unreadable = 0;
+    String? lastError;
 
     final unlimited = maxSilentReloginAttempts < 0;
     for (var attempt = 1;
@@ -377,6 +421,7 @@ class SessionManager {
         final solved = await _solver.solve(challenge.imageBytes);
         if (solved == null || solved.isEmpty) {
           // OCR couldn't read it — nothing to submit headlessly. Try a fresh one.
+          unreadable++;
           continue;
         }
         final res = await _auth.login(
@@ -388,15 +433,32 @@ class SessionManager {
         return res.token;
       } on LoginException catch (e) {
         // Wrong password won't fix itself — stop. Wrong captcha (3) → retry.
-        if (e.code == '2') return null;
+        if (e.code == '2') {
+          lastFailure = e.message;
+          return null;
+        }
+        if (e.code == '3') {
+          misreads++;
+        } else {
+          lastError = e.message;
+        }
       } on AppError catch (e) {
-        if (e.kind == AppErrorKind.account) return null;
+        if (e.kind == AppErrorKind.account) {
+          lastFailure = e.message;
+          return null;
+        }
+        lastError = e.message;
         // Transient (server restarting / busy) → back off and retry.
         await Future<void>.delayed(Duration(milliseconds: 500 * attempt));
-      } catch (_) {
+      } catch (e) {
+        lastError = '$e';
         await Future<void>.delayed(Duration(milliseconds: 500 * attempt));
       }
     }
+    final tried = misreads + unreadable;
+    lastFailure = tried > 0
+        ? '验证码自动识别连续 $tried 次未通过（识别错 $misreads 次，无法识别 $unreadable 次）'
+        : (lastError ?? '自动重新登录未成功');
     return null;
   }
 }

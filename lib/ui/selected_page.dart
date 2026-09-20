@@ -1,4 +1,4 @@
-/// 我的 hub: 已选课程, 我的课表, 落选课程, and 退选日志.
+/// 我的: 已选课程 (with textbook actions), 课表, 落选课程, 退选日志.
 library;
 
 import 'package:flutter/material.dart';
@@ -7,30 +7,31 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/providers.dart';
 import '../data/models.dart';
 import '../data/notifications.dart';
+import '../data/param_builders.dart';
+import 'courses_page.dart';
 import 'layout.dart';
 import 'weekly_timetable.dart';
 import 'widgets.dart';
 
-/// Loads selected courses for the active session.
+/// Loads selected courses for the shown account.
 final selectedCoursesProvider =
     FutureProvider.autoDispose<List<TeachingClass>>((ref) async {
-  ref.watch(selectionDataRevisionProvider);
+  ref.watch(currentSelectionRevisionProvider);
   final session = ref.watch(sessionProvider);
   final student = session.student;
   final batch = session.activeBatch;
   if (student == null || batch == null) return [];
-  final course = ref.read(courseServiceProvider);
-  return course.fetchSelected(
-    studentCode: student.studentCode,
-    batchCode: batch.code,
-    volunteerRound: batch.isVolunteerRound,
-  );
+  return ref.read(courseServiceProvider).fetchSelected(
+        studentCode: student.studentCode,
+        batchCode: batch.code,
+        volunteerRound: batch.isVolunteerRound,
+      );
 });
 
-/// Loads the full schedule (arranged + unarranged) for the active session.
+/// Loads the full schedule (arranged + unarranged).
 final scheduleProvider =
     FutureProvider.autoDispose<List<ScheduleEntry>>((ref) async {
-  ref.watch(selectionDataRevisionProvider);
+  ref.watch(currentSelectionRevisionProvider);
   final session = ref.watch(sessionProvider);
   final student = session.student;
   final batch = session.activeBatch;
@@ -45,29 +46,26 @@ final scheduleProvider =
   return [...results[0], ...results[1]];
 });
 
-/// Loads unsuccessful selection entries for the active session.
+/// The whole 落选 list (isRead=1), as the official sidebar shows it.
 final unsuccessfulProvider =
     FutureProvider.autoDispose<List<UnsuccessfulEntry>>((ref) async {
-  ref.watch(selectionDataRevisionProvider);
+  ref.watch(currentSelectionRevisionProvider);
   final session = ref.watch(sessionProvider);
   final student = session.student;
   final batch = session.activeBatch;
   if (student == null || batch == null) return [];
-  final course = ref.read(courseServiceProvider);
-  return course.fetchUnsuccessful(
-      studentCode: student.studentCode, batchCode: batch.code);
+  return ref.read(courseServiceProvider).fetchUnsuccessful(
+      studentCode: student.studentCode, batchCode: batch.code, isRead: true);
 });
 
-/// Loads drop-log (return-results) entries for the active session.
 final returnResultsProvider =
     FutureProvider.autoDispose<List<DropLogEntry>>((ref) async {
-  ref.watch(selectionDataRevisionProvider);
+  ref.watch(currentSelectionRevisionProvider);
   final session = ref.watch(sessionProvider);
   final student = session.student;
   final batch = session.activeBatch;
   if (student == null || batch == null) return [];
-  final course = ref.read(courseServiceProvider);
-  return course.fetchReturnResults(
+  return ref.read(courseServiceProvider).fetchReturnResults(
       studentCode: student.studentCode, batchCode: batch.code);
 });
 
@@ -75,8 +73,6 @@ class SelectedPage extends ConsumerWidget {
   const SelectedPage({super.key});
 
   Future<void> _refreshAll(WidgetRef ref) async {
-    // Each section renders its own error state, so a failed refresh must not
-    // escape as an unhandled error from RefreshIndicator.
     final refreshes = <Future<Object?>>[
       ref.refresh(selectedCoursesProvider.future),
       ref.refresh(scheduleProvider.future),
@@ -95,6 +91,7 @@ class SelectedPage extends ConsumerWidget {
     final scheduleAsync = ref.watch(scheduleProvider);
     final unsuccessfulAsync = ref.watch(unsuccessfulProvider);
     final returnAsync = ref.watch(returnResultsProvider);
+    final volunteer = batch?.isVolunteerRound == true;
 
     final items = <Widget>[
       PageHeader(
@@ -109,11 +106,9 @@ class SelectedPage extends ConsumerWidget {
         ],
       ),
       const SizedBox(height: 4),
-
-      // ── Section 1: 已选课程 ──
       _SectionHeader(
         icon: Icons.checklist,
-        title: batch?.isVolunteerRound == true ? '已填报志愿' : '已选课程',
+        title: volunteer ? '已填报志愿' : '已选课程',
         onRefresh: () => ref.invalidate(selectedCoursesProvider),
       ),
     ];
@@ -127,12 +122,20 @@ class SelectedPage extends ConsumerWidget {
         if (list.isEmpty) {
           items.add(EmptyState(
             icon: Icons.checklist,
-            title: batch?.isVolunteerRound == true ? '还没有填报志愿' : '还没有已选课程',
-            subtitle: batch?.isVolunteerRound == true
-                ? '在「选课」页填报志愿后会显示在这里，可在此退选或查看志愿状态。'
-                : '在「选课」页选课后会显示在这里。',
+            title: volunteer ? '还没有填报志愿' : '还没有已选课程',
           ));
         } else {
+          final credits = list.fold<double>(
+              0, (n, tc) => n + (double.tryParse(tc.credit) ?? 0));
+          items.add(Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+            child: Text(
+              '${list.length} 门，共 ${credits == credits.roundToDouble() ? credits.toStringAsFixed(0) : credits.toStringAsFixed(1)} 学分',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
+          ));
           items.add(AdaptiveGrid(
             minColumnWidth: 400,
             maxColumns: 3,
@@ -145,11 +148,10 @@ class SelectedPage extends ConsumerWidget {
       },
     );
 
-    // ── Section 2: 我的课表 ──
     items.add(const SizedBox(height: 12));
     items.add(_SectionHeader(
       icon: Icons.calendar_month,
-      title: '我的课表',
+      title: '课表',
       onRefresh: () => ref.invalidate(scheduleProvider),
     ));
     scheduleAsync.when(
@@ -159,8 +161,7 @@ class SelectedPage extends ConsumerWidget {
           EmptyState(icon: Icons.cloud_off, title: '课表加载失败', subtitle: '$e')),
       data: (list) {
         if (list.isEmpty) {
-          items.add(
-              const EmptyState(icon: Icons.calendar_month, title: '还没有课表数据'));
+          items.add(const EmptyState(icon: Icons.calendar_month, title: '还没有课表'));
         } else {
           items.add(WeeklyTimetable(entries: list));
           items.add(const SizedBox(height: 8));
@@ -168,84 +169,56 @@ class SelectedPage extends ConsumerWidget {
       },
     );
 
-    // ── Section 3: 落选课程 (hidden when empty) ──
-    unsuccessfulAsync.when(
-      loading: () {
-        items.add(const SizedBox(height: 12));
-        items.add(_SectionHeader(
-          icon: Icons.error_outline,
-          title: '落选课程',
-          onRefresh: () => ref.invalidate(unsuccessfulProvider),
-        ));
-        items.add(const Center(child: CircularProgressIndicator()));
-      },
-      error: (e, _) {
-        items.add(const SizedBox(height: 12));
-        items.add(_SectionHeader(
-          icon: Icons.error_outline,
-          title: '落选课程',
-          onRefresh: () => ref.invalidate(unsuccessfulProvider),
-        ));
-        items.add(
-            EmptyState(icon: Icons.cloud_off, title: '加载失败', subtitle: '$e'));
-      },
-      data: (list) {
-        if (list.isEmpty) return;
-        items.add(const SizedBox(height: 12));
-        items.add(_SectionHeader(
-          icon: Icons.error_outline,
-          title: '落选课程',
-          onRefresh: () => ref.invalidate(unsuccessfulProvider),
-        ));
-        items.add(AdaptiveGrid(
-          minColumnWidth: 360,
-          maxColumns: 3,
-          spacing: 8,
-          runSpacing: 8,
-          children: [for (final entry in list) _UnsuccessfulCard(entry: entry)],
-        ));
-        items.add(const SizedBox(height: 8));
-      },
-    );
+    void section(String title, IconData icon, VoidCallback onRefresh,
+        AsyncValue<List<Object>> async, Widget Function(List<Object>) body) {
+      async.when(
+        loading: () {
+          items.add(const SizedBox(height: 12));
+          items.add(_SectionHeader(icon: icon, title: title, onRefresh: onRefresh));
+          items.add(const Center(child: CircularProgressIndicator()));
+        },
+        error: (e, _) {
+          items.add(const SizedBox(height: 12));
+          items.add(_SectionHeader(icon: icon, title: title, onRefresh: onRefresh));
+          items.add(EmptyState(icon: Icons.cloud_off, title: '加载失败', subtitle: '$e'));
+        },
+        data: (list) {
+          if (list.isEmpty) return;
+          items.add(const SizedBox(height: 12));
+          items.add(_SectionHeader(icon: icon, title: title, onRefresh: onRefresh));
+          items.add(body(list));
+          items.add(const SizedBox(height: 8));
+        },
+      );
+    }
 
-    // ── Section 4: 退选日志 (hidden when empty) ──
-    returnAsync.when(
-      loading: () {
-        items.add(const SizedBox(height: 12));
-        items.add(_SectionHeader(
-          icon: Icons.history,
-          title: '退选日志',
-          onRefresh: () => ref.invalidate(returnResultsProvider),
-        ));
-        items.add(const Center(child: CircularProgressIndicator()));
-      },
-      error: (e, _) {
-        items.add(const SizedBox(height: 12));
-        items.add(_SectionHeader(
-          icon: Icons.history,
-          title: '退选日志',
-          onRefresh: () => ref.invalidate(returnResultsProvider),
-        ));
-        items.add(
-            EmptyState(icon: Icons.cloud_off, title: '加载失败', subtitle: '$e'));
-      },
-      data: (list) {
-        if (list.isEmpty) return;
-        items.add(const SizedBox(height: 12));
-        items.add(_SectionHeader(
-          icon: Icons.history,
-          title: '退选日志',
-          onRefresh: () => ref.invalidate(returnResultsProvider),
-        ));
-        items.add(AdaptiveGrid(
-          minColumnWidth: 340,
-          maxColumns: 3,
-          spacing: 6,
-          runSpacing: 6,
-          children: [for (final entry in list) _LogCard(entry: entry)],
-        ));
-        items.add(const SizedBox(height: 6));
-      },
+    section(
+      '落选课程',
+      Icons.error_outline,
+      () => ref.invalidate(unsuccessfulProvider),
+      unsuccessfulAsync,
+      (list) => AdaptiveGrid(
+        minColumnWidth: 360,
+        maxColumns: 3,
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final e in list.cast<UnsuccessfulEntry>()) _UnsuccessfulCard(entry: e)
+        ],
+      ),
+    );
+    section(
+      '退选记录',
+      Icons.history,
+      () => ref.invalidate(returnResultsProvider),
+      returnAsync,
+      (list) => AdaptiveGrid(
+        minColumnWidth: 340,
+        maxColumns: 3,
+        spacing: 6,
+        runSpacing: 6,
+        children: [for (final e in list.cast<DropLogEntry>()) _LogCard(entry: e)],
+      ),
     );
 
     return RefreshIndicator(
@@ -257,10 +230,6 @@ class SelectedPage extends ConsumerWidget {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Section header
-// ---------------------------------------------------------------------------
 
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({
@@ -301,10 +270,6 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Selected course card (kept as-is)
-// ---------------------------------------------------------------------------
-
 class _SelectedCard extends ConsumerStatefulWidget {
   const _SelectedCard({required this.tc});
   final TeachingClass tc;
@@ -314,41 +279,79 @@ class _SelectedCard extends ConsumerStatefulWidget {
 }
 
 class _SelectedCardState extends ConsumerState<_SelectedCard> {
-  bool _dropping = false;
+  bool _busy = false;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tc = widget.tc;
     final batch = ref.watch(sessionProvider.select((s) => s.activeBatch));
+    final volunteer = batch?.isVolunteerRound == true;
     // The server marks selections from other rounds canDelete="0", and a
-    // 选后不可退 round (tacticCode 02) disables dropping altogether. Show the
-    // state instead of letting the request bounce.
+    // 选后不可退 round (tacticCode 02) disables dropping altogether.
     final roundAllows = batch?.allowsDrop ?? true;
     final canDrop = tc.canDelete && roundAllows;
     final dropHint = !roundAllows
         ? '本轮次选后不可退'
         : !tc.canDelete
-            ? '非本轮次所选，本轮不可退'
+            ? '非本轮次所选'
             : null;
+    // Textbook buttons follow the official 已选课程 panel: 订购 when the round
+    // allows ordering and the class has textbooks; 退订 when the round allows
+    // cancelling and there is something ordered.
+    final canOrderBook = (batch?.canSelectBook ?? false) && tc.hasBook;
+    final canCancelBook = (batch?.canDeleteBook ?? false) &&
+        (tc.hasBook || tc.needBook == '1' || tc.needBook == '5');
+    final meta = [
+      if (tc.credit.isNotEmpty) '${tc.credit} 学分',
+      if (tc.hours.isNotEmpty) '${tc.hours} 学时',
+      if (tc.courseTypeName.isNotEmpty) tc.courseTypeName,
+      if (tc.publicCourseType.isNotEmpty) tc.publicCourseType,
+      if (tc.hasBook) '教材${tc.textbookStateLabel}',
+    ].join('  ');
     return Card(
-      margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(tc.courseName,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(tc.courseName,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 16)),
+                ),
+                StatusPill(
+                    label: volunteer && tc.heldVolunteerGrade.isNotEmpty
+                        ? '第${tc.heldVolunteerGrade}志愿'
+                        : '已选',
+                    color: Colors.green,
+                    icon: Icons.check),
+              ],
+            ),
             const SizedBox(height: 4),
             Text(tc.displayTitle,
                 style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
-            if (tc.teachingPlace.isNotEmpty)
-              Text(tc.teachingPlace,
+            Text(
+              tc.teachingPlace.isNotEmpty
+                  ? tc.teachingPlace
+                  : tc.onlinePlatform.isNotEmpty
+                      ? '${tc.onlinePlatform} 网课'
+                      : '',
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+            ),
+            if (meta.isNotEmpty)
+              Text(meta,
                   style:
                       TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
-            if (batch?.isVolunteerRound == true && tc.hasCapacityInfo) ...[
+            if (tc.isConflict && tc.conflictDesc.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(tc.conflictDesc,
+                    style: TextStyle(color: scheme.error, fontSize: 12)),
+              ),
+            if (volunteer && tc.hasCapacityInfo) ...[
               const SizedBox(height: 10),
               CapacityBar(
                 selected: tc.firstVolunteers,
@@ -357,28 +360,33 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
               ),
             ],
             const SizedBox(height: 12),
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              alignment: WrapAlignment.end,
               children: [
-                StatusPill(
-                    label: tc.heldVolunteerGrade.isNotEmpty &&
-                            batch?.isVolunteerRound == true
-                        ? '第${tc.heldVolunteerGrade}志愿'
-                        : '已选',
-                    color: Colors.green,
-                    icon: Icons.check),
-                const Spacer(),
+                if (canOrderBook)
+                  OutlinedButton(
+                    onPressed: _busy ? null : _orderBooks,
+                    child: const Text('订购教材'),
+                  ),
+                if (canCancelBook)
+                  OutlinedButton(
+                    onPressed: _busy ? null : _cancelBooks,
+                    child: const Text('退订教材'),
+                  ),
                 Tooltip(
                   message: dropHint ?? '',
                   child: OutlinedButton.icon(
-                    onPressed: _dropping || !canDrop ? null : _confirmDrop,
-                    icon: _dropping
+                    onPressed: _busy || !canDrop ? null : _confirmDrop,
+                    icon: _busy
                         ? const SizedBox(
                             height: 16,
                             width: 16,
                             child: CircularProgressIndicator(strokeWidth: 2))
                         : Icon(Icons.remove_circle_outline,
                             size: 18, color: canDrop ? scheme.error : null),
-                    label: Text(canDrop ? '退选' : '本轮不可退',
+                    label: Text(canDrop ? '退选' : (dropHint ?? '不可退'),
                         style: TextStyle(color: canDrop ? scheme.error : null)),
                   ),
                 ),
@@ -394,21 +402,21 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('确认退选'),
-        content: Text('确定要退选「${widget.tc.courseName}」吗？此操作会真实改变你的选课状态。'),
+        title: const Text('退选'),
+        content: Text('确定退选「${widget.tc.courseName}」？'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
               child: const Text('取消')),
           FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('确认退选')),
+              child: const Text('退选')),
         ],
       ),
     );
     if (ok != true) return;
 
-    setState(() => _dropping = true);
+    setState(() => _busy = true);
     try {
       final session = ref.read(sessionProvider);
       final enroll = ref.read(enrollServiceProvider);
@@ -420,7 +428,7 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
       if (!mounted) return;
       showToast(context, outcome.message, success: outcome.success);
       if (outcome.success) {
-        ref.read(selectionDataRevisionProvider.notifier).state++;
+        bumpCurrentSelectionRevision(ref);
         NotificationService.instance.dropped(
           courseName: widget.tc.courseName,
           className: widget.tc.displayTitle,
@@ -430,18 +438,103 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
       if (!mounted) return;
       showToast(context, '$e', success: false);
     } finally {
-      if (mounted) setState(() => _dropping = false);
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _orderBooks() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('订购教材'),
+        content: Text('订购「${widget.tc.courseName}」的教材？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('订购')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _busy = true);
+    try {
+      final session = ref.read(sessionProvider);
+      final res = await ref.read(courseServiceProvider).orderTextbooks(
+            studentCode: session.student!.studentCode,
+            batchCode: session.activeBatch!.code,
+            teachingClassId: widget.tc.teachingClassId,
+          );
+      if (!mounted) return;
+      showToast(context, res.ok ? '已订购教材' : (res.msg.isEmpty ? '订购失败' : res.msg),
+          success: res.ok);
+      if (res.ok) bumpCurrentSelectionRevision(ref);
+    } catch (e) {
+      if (mounted) showToast(context, '$e', success: false);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// 退订: the official dialog lists the ordered books and lets the student
+  /// pick which to cancel, with a reason each; modifybook.do czlx=0.
+  Future<void> _cancelBooks() async {
+    final session = ref.read(sessionProvider);
+    final student = session.student!;
+    final batch = session.activeBatch!;
+    setState(() => _busy = true);
+    try {
+      final course = ref.read(courseServiceProvider);
+      final results = await Future.wait([
+        course.fetchTextbookOptions(
+          studentCode: student.studentCode,
+          batchCode: batch.code,
+          teachingClassId: widget.tc.teachingClassId,
+        ),
+        ref.read(infoServiceProvider).fetchTextbookReasons(),
+      ]);
+      final reasons = results[1] as List<TextbookReason>;
+      final options = [
+        for (final o in results[0] as List<TextbookOption>)
+          if (o.ordered) o.copyWith(reasonCodes: reasons),
+      ];
+      if (!mounted) return;
+      if (options.isEmpty) {
+        showToast(context, '没有已订购的教材');
+        return;
+      }
+      final selection = await showAdaptiveSheet<TextbookSelection>(
+        context,
+        scrollControlled: true,
+        builder: (context) => TextbookPicker(options: options, title: '退订教材'),
+      );
+      if (selection == null || !mounted) return;
+      // Only declined books (bookCode-reason) are sent for a cancellation.
+      final declined = selection.choices.where((c) => !c.order).toList();
+      if (declined.isEmpty) {
+        showToast(context, '没有选择要退订的教材');
+        return;
+      }
+      final res = await course.modifyTextbooks(
+        studentCode: student.studentCode,
+        batchCode: batch.code,
+        teachingClassId: widget.tc.teachingClassId,
+        jcxx: buildBookSelection(declined),
+        cancel: true,
+      );
+      if (!mounted) return;
+      showToast(context, res.ok ? '已退订教材' : (res.msg.isEmpty ? '退订失败' : res.msg),
+          success: res.ok);
+      if (res.ok) bumpCurrentSelectionRevision(ref);
+    } catch (e) {
+      if (mounted) showToast(context, '$e', success: false);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Schedule entry card
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Unsuccessful card
-// ---------------------------------------------------------------------------
 
 class _UnsuccessfulCard extends StatelessWidget {
   const _UnsuccessfulCard({required this.entry});
@@ -452,47 +545,38 @@ class _UnsuccessfulCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final e = entry;
     return Card(
-      margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(e.courseName,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-            if (e.teacherName.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(e.teacherName,
-                    style: TextStyle(
-                        fontSize: 13, color: scheme.onSurfaceVariant)),
-              ),
-            if (e.reason.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: scheme.errorContainer,
-                    borderRadius: BorderRadius.circular(6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(e.displayTitle,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 15)),
+                  const SizedBox(height: 4),
+                  Text(
+                    [
+                      if (e.teacherName.isNotEmpty) e.teacherName,
+                      if (e.time.length >= 10) e.time.substring(0, 10),
+                      if (e.credit.isNotEmpty) '${e.credit} 学分',
+                    ].join('  '),
+                    style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
                   ),
-                  child: Text(e.reason,
-                      style: TextStyle(
-                          fontSize: 12, color: scheme.onErrorContainer)),
-                ),
+                ],
               ),
+            ),
+            const SizedBox(width: 8),
+            StatusPill(label: e.reason.isEmpty ? '落选' : e.reason, color: scheme.error),
           ],
         ),
       ),
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Drop-log compact row
-// ---------------------------------------------------------------------------
 
 class _LogCard extends StatelessWidget {
   const _LogCard({required this.entry});
@@ -503,26 +587,22 @@ class _LogCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final e = entry;
     return Card(
-      margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(e.courseName,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 14)),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${e.deleteOperateTypeName.isNotEmpty ? '${e.deleteOperateTypeName} · ' : ''}${e.deleteOperateTime}',
-                    style:
-                        TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-                  ),
-                ],
-              ),
+            Text(
+                '${e.courseName}${e.courseIndex.isNotEmpty ? '[${e.courseIndex}]' : ''}',
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+            const SizedBox(height: 2),
+            Text(
+              [
+                if (e.teacherName.isNotEmpty) e.teacherName,
+                if (e.deleteOperateTypeName.isNotEmpty) e.deleteOperateTypeName,
+                e.deleteOperateTime,
+              ].where((s) => s.isNotEmpty).join('  '),
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
             ),
           ],
         ),

@@ -1,5 +1,5 @@
-/// A teaching-class row: capacity, conflict/test/book badges, and grab/monitor
-/// actions. Used inside expandable course cards.
+/// A teaching-class row: title, place, badges, capacity and the grab /
+/// monitor actions. Used inside course cards and the wide detail pane.
 library;
 
 import 'package:flutter/material.dart';
@@ -17,18 +17,25 @@ class TeachingClassTile extends StatelessWidget {
     required this.onGrab,
     required this.onMonitor,
     required this.onRefresh,
+    this.watched = false,
     this.busy = false,
     this.bordered = true,
     this.browseOnly = false,
     this.volunteerRound = false,
     this.courseAlreadyHeld = false,
+    this.onCheck,
   });
 
   final TeachingClass teachingClass;
   final CourseKind kind;
   final VoidCallback onGrab;
+
+  /// Adds the class to the monitor, or removes it when [watched].
   final VoidCallback onMonitor;
   final Future<void> Function() onRefresh;
+
+  /// The class is already on this account's watch list.
+  final bool watched;
   final bool busy;
 
   /// Draw the top separator used when tiles stack inside a course card. Off
@@ -36,23 +43,26 @@ class TeachingClassTile extends StatelessWidget {
   final bool bordered;
 
   /// Whole-school query rows: the official page only lets you look these up
-  /// (selection happens under the class's own category), and the rows carry
-  /// no capacity, so no grab/monitor actions are offered.
+  /// and run the 检查 (canchoose) query; selection happens under the class's
+  /// own category, and the rows carry no capacity.
   final bool browseOnly;
 
   /// 预选 round: capacity is expressed as first-choice volunteers vs seats and
   /// the primary action files a volunteer grade instead of grabbing a seat.
   final bool volunteerRound;
 
-  /// The student already holds another class of this course. The server
-  /// refuses a second class of the same course (该课程已存在预选课程结果中), so
-  /// the tile says so instead of offering a grab that cannot succeed.
+  /// The student already holds another class of this course; the server
+  /// refuses a second class of the same course.
   final bool courseAlreadyHeld;
+
+  /// Opens the server's 能否选课 check (browse-only rows).
+  final VoidCallback? onCheck;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tc = teachingClass;
+    final platform = tc.onlinePlatform;
 
     return Container(
       decoration: bordered
@@ -75,12 +85,16 @@ class TeachingClassTile extends StatelessWidget {
                   children: [
                     Text(tc.displayTitle,
                         style: const TextStyle(fontWeight: FontWeight.w700)),
-                    if (tc.teachingPlace.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(tc.teachingPlace,
-                          style: TextStyle(
-                              color: scheme.onSurfaceVariant, fontSize: 12)),
-                    ],
+                    const SizedBox(height: 2),
+                    Text(
+                      tc.teachingPlace.isNotEmpty
+                          ? tc.teachingPlace
+                          : platform.isNotEmpty
+                              ? '$platform 网课，无固定上课时间'
+                              : '上课时间地点未安排',
+                      style: TextStyle(
+                          color: scheme.onSurfaceVariant, fontSize: 12),
+                    ),
                   ],
                 ),
               ),
@@ -95,33 +109,47 @@ class TeachingClassTile extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
                 icon: Icon(Icons.info_outline,
                     size: 20, color: scheme.onSurfaceVariant),
-                tooltip: '教学班详情',
+                tooltip: '详情',
                 onPressed: () => showTeachingClassDetail(context, tc),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              if (tc.hasTest)
-                const StatusPill(
-                    label: '含实验课',
-                    color: Colors.indigo,
-                    icon: Icons.science_outlined),
-              if (tc.hasBook)
-                const StatusPill(
-                    label: '需教材',
-                    color: Colors.brown,
-                    icon: Icons.menu_book_outlined),
-              if (tc.isConflict)
-                StatusPill(
-                    label: '冲突',
-                    color: Theme.of(context).colorScheme.error,
-                    icon: Icons.warning_amber),
-            ],
-          ),
+          if (platform.isNotEmpty ||
+              tc.hasTest ||
+              tc.hasBook ||
+              tc.isConflict ||
+              watched) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                if (platform.isNotEmpty)
+                  StatusPill(
+                      label: platform,
+                      color: Colors.teal,
+                      icon: Icons.laptop_outlined),
+                if (tc.hasTest)
+                  const StatusPill(
+                      label: '含实验课',
+                      color: Colors.indigo,
+                      icon: Icons.science_outlined),
+                if (tc.hasBook)
+                  const StatusPill(
+                      label: '需教材',
+                      color: Colors.brown,
+                      icon: Icons.menu_book_outlined),
+                if (tc.isConflict)
+                  StatusPill(
+                      label: '时间冲突',
+                      color: scheme.error,
+                      icon: Icons.warning_amber),
+                if (watched)
+                  StatusPill(
+                      label: '监控中', color: scheme.primary, icon: Icons.radar),
+              ],
+            ),
+          ],
           if (tc.isConflict && tc.conflictDesc.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(tc.conflictDesc,
@@ -133,7 +161,6 @@ class TeachingClassTile extends StatelessWidget {
             children: [
               Expanded(
                 child: CapacityBar(
-                  // 预选: the number that matters is first-choice volunteers.
                   selected:
                       volunteerRound ? tc.firstVolunteers : tc.numberOfSelected,
                   capacity: tc.classCapacity,
@@ -148,142 +175,135 @@ class TeachingClassTile extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          if (browseOnly)
-            Row(
-              children: [
-                Icon(Icons.info_outline,
-                    size: 16, color: scheme.onSurfaceVariant),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    '全校课程仅供查询，请在对应课程类别中选课',
-                    style:
-                        TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-                  ),
-                ),
-              ],
-            )
-          else if (tc.isHeld)
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.tonalIcon(
-                onPressed: null,
-                icon: const Icon(Icons.check, size: 18),
-                label: Text(volunteerRound ? '已填报志愿' : '已选课程'),
-              ),
-            )
-          else if (courseAlreadyHeld)
-            Row(
-              children: [
-                Icon(Icons.info_outline,
-                    size: 16, color: scheme.onSurfaceVariant),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    '你已选了本课程的另一个教学班，服务器不接受同一课程的第二个班；要换班请先退选。',
-                    style:
-                        TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-                  ),
-                ),
-              ],
-            )
-          else if (volunteerRound)
-            // 预选: there is no seat race. Filing a volunteer is the only
-            // action; the server ranks volunteers when the round closes.
-            Row(
-              children: [
-                if (tc.isConflict)
-                  Expanded(
-                    child: FilledButton.tonalIcon(
-                      onPressed: busy ? null : onGrab,
-                      icon: const Icon(Icons.warning_amber, size: 18),
-                      label: Text(busy ? '提交中' : '有冲突，仍要填报志愿'),
-                    ),
-                  )
-                else
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: busy ? null : onGrab,
-                      icon: busy
-                          ? const SizedBox(
-                              height: 16,
-                              width: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2))
-                          : const Icon(Icons.how_to_vote_outlined, size: 18),
-                      label: Text(busy ? '提交中' : '填报志愿'),
-                    ),
-                  ),
-              ],
-            )
-          else if (tc.remaining > 0)
-            // Seats exist. A conflicting class still gets a primary action, but
-            // the label says why the server will probably object; onGrab shows
-            // the conflict dialog before submitting.
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: busy ? null : onMonitor,
-                    icon: const Icon(Icons.radar, size: 18),
-                    label: const Text('监控余量'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: tc.isConflict
-                      ? FilledButton.tonalIcon(
-                          onPressed: busy ? null : onGrab,
-                          icon: busy
-                              ? const SizedBox(
-                                  height: 16,
-                                  width: 16,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.warning_amber, size: 18),
-                          label: Text(busy ? '提交中' : '有冲突，仍要选'),
-                        )
-                      : FilledButton.icon(
-                          onPressed: busy ? null : onGrab,
-                          icon: busy
-                              ? const SizedBox(
-                                  height: 16,
-                                  width: 16,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.bolt, size: 18),
-                          label: Text(busy ? '提交中' : '立即选课'),
-                        ),
-                ),
-              ],
-            )
-          else
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton.icon(
-                    onPressed: busy ? null : onGrab,
-                    icon: const Icon(Icons.send_outlined, size: 17),
-                    label: const Text('仍要尝试'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  flex: 2,
-                  child: FilledButton.icon(
-                    onPressed: busy ? null : onMonitor,
-                    icon: busy
-                        ? const SizedBox(
-                            height: 16,
-                            width: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.radar, size: 18),
-                    label: Text(busy ? '处理中' : '满员，监控空位'),
-                  ),
-                ),
-              ],
-            ),
+          _actions(context),
         ],
       ),
+    );
+  }
+
+  Widget _actions(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tc = teachingClass;
+    const spinner = SizedBox(
+        height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2));
+
+    if (browseOnly) {
+      return Row(
+        children: [
+          Expanded(
+            child: Text(
+              '全校课程只能查询，请到所属类别选课',
+              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+            ),
+          ),
+          if (onCheck != null)
+            OutlinedButton.icon(
+              onPressed: onCheck,
+              icon: const Icon(Icons.fact_check_outlined, size: 18),
+              label: const Text('检查能否选'),
+            ),
+        ],
+      );
+    }
+    if (tc.isHeld) {
+      return SizedBox(
+        width: double.infinity,
+        child: FilledButton.tonalIcon(
+          onPressed: null,
+          icon: const Icon(Icons.check, size: 18),
+          label: Text(volunteerRound ? '已填报' : '已选'),
+        ),
+      );
+    }
+    if (courseAlreadyHeld) {
+      return Text(
+        '已选了本课程的另一个教学班，换班请先退选',
+        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+      );
+    }
+    final monitorButton = Expanded(
+      child: watched
+          ? FilledButton.tonalIcon(
+              onPressed: busy ? null : onMonitor,
+              icon: const Icon(Icons.radar, size: 18),
+              label: const Text('取消监控'),
+            )
+          : OutlinedButton.icon(
+              onPressed: busy ? null : onMonitor,
+              icon: const Icon(Icons.radar, size: 18),
+              label: const Text('加入监控'),
+            ),
+    );
+    if (volunteerRound) {
+      // 预选: there is no seat race; filing a volunteer is the action.
+      return Row(
+        children: [
+          monitorButton,
+          const SizedBox(width: 10),
+          Expanded(
+            child: tc.isConflict
+                ? FilledButton.tonalIcon(
+                    onPressed: busy ? null : onGrab,
+                    icon: busy ? spinner : const Icon(Icons.warning_amber, size: 18),
+                    label: const Text('有冲突，仍填报'),
+                  )
+                : FilledButton.icon(
+                    onPressed: busy ? null : onGrab,
+                    icon: busy
+                        ? spinner
+                        : const Icon(Icons.how_to_vote_outlined, size: 18),
+                    label: const Text('填报志愿'),
+                  ),
+          ),
+        ],
+      );
+    }
+    if (tc.remaining > 0) {
+      return Row(
+        children: [
+          monitorButton,
+          const SizedBox(width: 10),
+          Expanded(
+            child: tc.isConflict
+                ? FilledButton.tonalIcon(
+                    onPressed: busy ? null : onGrab,
+                    icon: busy ? spinner : const Icon(Icons.warning_amber, size: 18),
+                    label: const Text('有冲突，仍要选'),
+                  )
+                : FilledButton.icon(
+                    onPressed: busy ? null : onGrab,
+                    icon: busy ? spinner : const Icon(Icons.bolt, size: 18),
+                    label: const Text('选课'),
+                  ),
+          ),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(
+          child: TextButton.icon(
+            onPressed: busy ? null : onGrab,
+            icon: const Icon(Icons.send_outlined, size: 17),
+            label: const Text('仍要提交'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          flex: 2,
+          child: watched
+              ? FilledButton.tonalIcon(
+                  onPressed: busy ? null : onMonitor,
+                  icon: const Icon(Icons.radar, size: 18),
+                  label: const Text('取消监控'),
+                )
+              : FilledButton.icon(
+                  onPressed: busy ? null : onMonitor,
+                  icon: busy ? spinner : const Icon(Icons.radar, size: 18),
+                  label: const Text('已满，监控空位'),
+                ),
+        ),
+      ],
     );
   }
 }

@@ -1,21 +1,22 @@
 /// Central configuration and endpoint paths for the NWAFU course system.
 ///
-/// Endpoint paths are transcribed from the repo-root API research
-/// (docs/api.notes.md, docs/api.coverage.md). Business calls hang off [apiBase].
+/// Endpoint paths are transcribed from the api-branch research
+/// (docs/api.notes.md, docs/api.runtime.md).
 library;
+
+/// Client version shown in diagnostics; keep in step with pubspec.yaml.
+const String kAppVersion = '1.2.0';
 
 class Env {
   Env._();
-
-  /// Business API host + prefix. All `/sys/...` paths append to this.
-  static const String apiBase = 'https://bksxk.nwafu.edu.cn/xsxkapp';
 
   /// Default when nothing is stored. The user can override in Settings, since
   /// the school occasionally moves the deployment.
   static const String defaultOrigin = 'https://bksxk.nwafu.edu.cn';
 }
 
-/// All endpoints, grouped by concern. Paths only — the client prepends [Env.apiBase].
+/// All endpoints, grouped by concern. Paths only — the client prepends
+/// `<origin>/xsxkapp`.
 class Api {
   Api._();
 
@@ -30,7 +31,6 @@ class Api {
   static const dictionary = '/sys/xsxkapp/publicinfo/dictionary.do';
   static const sysParam = '/sys/xsxkapp/publicinfo/sysparam.do';
   static const onlineUsers = '/sys/xsxkapp/publicinfo/onlineUsers.do';
-  static const guideMap = '/sys/xsxkapp/student/guideMap.do';
   static const creditInfo = '/sys/xsxkapp/student/xkxf.do';
   static const logout = '/sys/xsxkapp/student/logout.do';
 
@@ -39,7 +39,6 @@ class Api {
   static const programCourse = '/sys/xsxkapp/elective/programCourse.do';
   static const publicCourse = '/sys/xsxkapp/elective/publicCourse.do';
   static const queryCourse = '/sys/xsxkapp/elective/queryCourse.do';
-  static const courseSearch = '/sys/xsxkapp/elective/course.do';
 
   // ---- Selected / records ----
   static const courseResult = '/sys/xsxkapp/elective/courseResult.do';
@@ -52,7 +51,10 @@ class Api {
       '/sys/xsxkapp/elective/publicCourseResult.do';
   static const returnResults = '/sys/xsxkapp/elective/returnResults.do';
   static const unsuccessful = '/sys/xsxkapp/elective/unsuccessful.do';
-  static const studentQueue = '/sys/xsxkapp/elective/queryStudentQueue.do';
+
+  /// Marks 落选 rows as read (the official popup's 确认 button).
+  static const submitUnsuccessful =
+      '/sys/xsxkapp/elective/submit/unsuccessful.do';
 
   // ---- Detail / validation ----
   static const teachingClassDetail = '/sys/xsxkapp/publicinfo/queryjxb.do';
@@ -77,9 +79,9 @@ class Api {
   static const noArranged = '/sys/xsxkapp/elective/noArranged.do';
 
   // ---- Info ----
+  static const publicInfo = '/sys/xsxkapp/publicinfo.do';
   static const noticeList = '/sys/xsxkapp/publicinfo/notice.do';
   static const noticeView = '/sys/xsxkapp/publicinfo/notice/view.do';
-  static const problemList = '/sys/xsxkapp/publicinfo/problem.do';
   static const volunteerGrade = '/sys/xsxkapp/publicinfo/volunteer.do';
 }
 
@@ -88,7 +90,7 @@ enum CourseKind {
   tjkc('TJKC', '推荐课程', Api.recommendedCourse),
   fankc('FANKC', '方案内课程', Api.programCourse),
   fawkc('FAWKC', '方案外课程', Api.programCourse),
-  xgxk('XGXK', '通识/公选课', Api.publicCourse),
+  xgxk('XGXK', '通识选修课', Api.publicCourse),
   cxkc('CXKC', '重修课程', Api.programCourse),
   tykc('TYKC', '体育课程', Api.programCourse),
   fxkc('FXKC', '辅修课程', Api.programCourse),
@@ -99,7 +101,7 @@ enum CourseKind {
   /// The `teachingClassType` value sent in querySetting.
   final String code;
 
-  /// Human-facing tab label.
+  /// Fallback tab label; the server's sysparam.do `displayName*` wins.
   final String label;
 
   /// The POST endpoint this kind queries.
@@ -111,6 +113,34 @@ enum CourseKind {
   /// Whole-school query (`QXKC`) omits checkConflict/checkCapacity.
   bool get includesChecks => this != CourseKind.qxkc;
 
+  /// Whole-school rows are look-up only on the official page (no capacity,
+  /// selection happens under the class's own category), and the list is
+  /// thousands of rows, so it is paged server-side instead of loaded whole.
+  bool get isBrowseOnly => this == CourseKind.qxkc;
+
+  /// The sysparam.do key carrying this tab's official name.
+  String get displayNameKey => switch (this) {
+        CourseKind.tjkc => 'displayNameTJKC',
+        CourseKind.fankc => 'displayNameFANKC',
+        CourseKind.fawkc => 'displayNameFAWKC',
+        CourseKind.xgxk => 'displayNameXGXK',
+        CourseKind.cxkc => 'displayNameCXKC',
+        CourseKind.tykc => 'displayNameTYKC',
+        CourseKind.fxkc => 'displayNameFXKC',
+        CourseKind.qxkc => 'displayNameALLKC',
+      };
+
   static CourseKind fromCode(String code) =>
       CourseKind.values.firstWhere((k) => k.code == code, orElse: () => CourseKind.fankc);
 }
+
+/// Online (MOOC) courses are recognised by their course-number prefix, not by
+/// `teachingMethod` (面授讲课+SPOC/MOOC is a blended classroom course). The
+/// prefix is case-sensitive, as on the server. Verified on 2026-09-18: `ey`
+/// rows are 超星尔雅 titles taught by the 教务处 account, `ZH` rows are 智慧树
+/// titles taught by 网络教师; neither carries a time or a room.
+const Map<String, String> kOnlineCoursePlatforms = {
+  'ZH': '智慧树',
+  'ey': '学习通',
+  'yw': '知到',
+};

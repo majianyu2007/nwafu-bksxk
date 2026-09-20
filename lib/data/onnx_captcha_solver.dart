@@ -6,8 +6,9 @@
 /// non-blank indices to onnxruntime 1.27 in Python). That's what makes an
 /// accurate on-device solver possible here.
 ///
-/// Pipeline (matches AutoVerify's model.js exactly):
-///   - resize to height 64, width = round(w * 64/h), grayscale,
+/// Pipeline:
+///   - add horizontal whitespace for edge characters, then resize to height 64,
+///     preserve aspect ratio, and convert to grayscale,
 ///   - normalize (gray/255 - 0.5)/0.5  → [-1,1], tensor [1,1,64,W],
 ///   - model output `output` is [1, seqlen] of int64 class indices,
 ///   - CTC-collapse (drop consecutive repeats and blank=index 0), map through
@@ -54,12 +55,12 @@ class OnnxCaptchaSolver implements CaptchaSolver {
   Completer<void>? _initing;
 
   bool get unavailable => _initFailed;
+
   /// Pre-loads the ONNX session + charset so the first real [solve] is fast.
   /// Called from main() at app start to hide cold-start model load behind the
   /// splash / login screen mount.
   @override
   Future<void> warmUp() => _ensureInit();
-
 
   Future<void> _ensureInit() async {
     if (_session != null || _initFailed) return;
@@ -76,7 +77,8 @@ class OnnxCaptchaSolver implements CaptchaSolver {
           ? await OnnxRuntime().createSession('assets/$modelAsset')
           : await OnnxRuntime().createSessionFromAsset(modelAsset);
       _session = session;
-      _inputName = session.inputNames.isNotEmpty ? session.inputNames.first : 'input1';
+      _inputName =
+          session.inputNames.isNotEmpty ? session.inputNames.first : 'input1';
     } catch (_) {
       _initFailed = true;
     } finally {
@@ -97,7 +99,8 @@ class OnnxCaptchaSolver implements CaptchaSolver {
     OrtValue? input;
     Map<String, OrtValue>? outputs;
     try {
-      input = await OrtValue.fromList(pre.data, [1, 1, targetHeight, pre.width]);
+      input =
+          await OrtValue.fromList(pre.data, [1, 1, targetHeight, pre.width]);
       outputs = await session.run({_inputName: input});
       final indices = await outputs.values.first.asFlattenedList();
       return _decode(indices);
@@ -113,7 +116,7 @@ class OnnxCaptchaSolver implements CaptchaSolver {
     }
   }
 
-  /// Resize to height 64 keeping aspect ratio, grayscale, normalize to [-1,1].
+  /// Pad edge characters, resize to height 64, grayscale, normalize to [-1,1].
   _Pre? _preprocess(List<int> bytes) {
     img.Image? im;
     try {
@@ -122,7 +125,19 @@ class OnnxCaptchaSolver implements CaptchaSolver {
       return null;
     }
     if (im == null || im.height == 0) return null;
-    final width = (im.width * (targetHeight / im.height)).round().clamp(1, 2000);
+    // Rotated glyphs can touch the image boundary. Give the CRNN context on
+    // both sides so it does not drop the first/last character before CTC decode.
+    final padding = (im.height / 4).round().clamp(1, 500);
+    final padded = img.Image(
+      width: im.width + padding * 2,
+      height: im.height,
+      numChannels: 3,
+    );
+    img.fill(padded, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(padded, im, dstX: padding);
+    im = padded;
+    final width =
+        (im.width * (targetHeight / im.height)).round().clamp(1, 2000);
     final resized = img.copyResize(im, width: width, height: targetHeight);
     final out = Float32List(targetHeight * width);
     var i = 0;
@@ -161,7 +176,9 @@ class OnnxCaptchaSolver implements CaptchaSolver {
   bool _isAlnum(String ch) {
     if (ch.length != 1) return false;
     final code = ch.codeUnitAt(0);
-    return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+    return (code >= 48 && code <= 57) ||
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122);
   }
 
   Future<void> dispose() async {

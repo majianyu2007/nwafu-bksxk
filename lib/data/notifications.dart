@@ -36,22 +36,28 @@ class NotificationService {
       _ready = true;
       return;
     }
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const android = AndroidInitializationSettings('@drawable/ic_notification');
     const darwin = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
       requestSoundPermission: false,
     );
     const linux = LinuxInitializationSettings(defaultActionName: '打开');
+    const windows = WindowsInitializationSettings(
+      appName: '西农本科选课',
+      appUserModelId: 'cn.edu.nwafu.nwafuBksxk',
+      guid: '6f1e2c3a-7b4d-4e5f-9a80-1c2d3e4f5a6b',
+    );
     const settings = InitializationSettings(
       android: android,
       iOS: darwin,
       macOS: darwin,
       linux: linux,
+      windows: windows,
     );
     try {
       await _plugin.initialize(
-        settings,
+        settings: settings,
         onDidReceiveNotificationResponse: (response) =>
             _dispatchTap(response.payload),
       );
@@ -80,7 +86,6 @@ class NotificationService {
     }
   }
 
-  bool get browserSupported => kIsWeb && _browser.supported;
   String get browserPermission => kIsWeb ? _browser.permission : 'native';
 
   /// Requests notification permission from a direct user action.
@@ -120,10 +125,12 @@ class NotificationService {
       channelDescription: '选课成功、退课、余量变动等提醒',
       importance: Importance.max,
       priority: Priority.high,
+      icon: '@drawable/ic_notification',
     ),
     iOS: DarwinNotificationDetails(),
     macOS: DarwinNotificationDetails(),
     linux: LinuxNotificationDetails(urgency: LinuxNotificationUrgency.critical),
+    windows: WindowsNotificationDetails(),
   );
 
   Future<void> _show(String title, String body,
@@ -141,34 +148,29 @@ class NotificationService {
     }
     if (!_ready) return;
     try {
-      await _plugin.show(_id++, title, body, _details, payload: payload);
+      await _plugin.show(
+          id: _id++,
+          title: title,
+          body: body,
+          notificationDetails: _details,
+          payload: payload);
     } catch (_) {
       // Best-effort.
     }
   }
 
   /// A course was successfully grabbed.
-  Future<void> grabbed(
-          {required String courseName,
-          required String className,
-          String? place}) =>
+  Future<void> grabbed({
+    required String courseName,
+    required String className,
+    String? place,
+    String who = '',
+  }) =>
       _show(
-        '抢课成功',
-        '$courseName · $className${place != null && place.isNotEmpty ? '\n$place' : ''}',
+        who.isEmpty ? '抢课成功' : '$who 抢课成功',
+        '$courseName $className${place != null && place.isNotEmpty ? '\n$place' : ''}',
         payload: 'selected',
         tag: 'grabbed',
-      );
-
-  /// A seat opened for a watched class (before/independent of grabbing).
-  Future<void> seatOpen(
-          {required String courseName,
-          required String className,
-          required int remaining}) =>
-      _show(
-        '有余量了',
-        '$courseName · $className 余 $remaining',
-        payload: 'monitor',
-        tag: 'seat-open',
       );
 
   /// A drop succeeded.
@@ -176,22 +178,31 @@ class NotificationService {
           {required String courseName, required String className}) =>
       _show(
         '已退选',
-        '$courseName · $className',
+        '$courseName $className',
         payload: 'selected',
         tag: 'dropped',
       );
 
   /// The session dropped and silent re-login failed; the user must log in.
-  Future<void> sessionExpired() => _show(
-        '登录已失效',
-        '自动重新登录未成功，请回到应用重新登录（监控已暂停）',
+  Future<void> sessionExpired({String who = ''}) => _show(
+        who.isEmpty ? '登录已失效' : '$who 登录已失效',
+        '自动重新登录未成功，请回到应用重新登录，监控已暂停',
         payload: 'home',
         tag: 'session-expired',
       );
 
+  /// 落选 rows the student has not acknowledged yet.
+  Future<void> unsuccessful({required int count, required String first}) =>
+      _show(
+        '有 $count 门课程落选',
+        first,
+        payload: 'selected',
+        tag: 'unsuccessful',
+      );
+
   /// Monitoring auto-stopped (maintenance/throttle/abnormal).
-  Future<void> monitorStopped(String reason) => _show(
-        '监控已自动停止',
+  Future<void> monitorStopped(String reason, {String who = ''}) => _show(
+        who.isEmpty ? '监控已停止' : '$who 的监控已停止',
         reason,
         payload: 'monitor',
         tag: 'monitor-stopped',

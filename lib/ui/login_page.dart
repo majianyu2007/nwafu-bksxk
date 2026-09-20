@@ -1,9 +1,9 @@
-/// Login screen: fast captcha entry, saved-account quick switch, remember me.
+/// Login screen: captcha auto-recognition, saved-account chips, remember me.
 ///
-/// Speed touches: the captcha image is fetched as soon as the screen mounts (and
-/// again immediately after any failure), the captcha field autofocuses, and
-/// entering the expected number of characters submits automatically so the user
-/// never taps a button during a rush.
+/// The captcha is fetched the moment the screen mounts, recognised by the
+/// bundled model, and the login is submitted hands-free when the account and
+/// password are already filled in. A wrong captcha refetches and retries a few
+/// times before asking the user to type it.
 library;
 
 import 'package:flutter/material.dart';
@@ -23,7 +23,11 @@ import 'settings_page.dart';
 enum OcrStatus { idle, warming, recognizing, recognized, failed }
 
 class LoginPage extends ConsumerStatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({super.key, this.addingAccount = false});
+
+  /// Opened from a signed-in shell to sign in a second account; closes on
+  /// success instead of replacing the shell.
+  final bool addingAccount;
 
   @override
   ConsumerState<LoginPage> createState() => _LoginPageState();
@@ -43,7 +47,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _showCampusHint = false;
   String? _error;
 
-  /// Whether to auto-recognize captchas via OCR. User can turn it off to type.
   bool _autoRecognize = true;
   OcrStatus _ocrStatus = OcrStatus.idle;
   int _ocrRetries = 0;
@@ -52,7 +55,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   @override
   void initState() {
     super.initState();
-    // Read the persisted auto-recognize toggle (defaults to true).
     _autoRecognize = ref.read(storageProvider).autoOcr();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _prefillActiveAccount();
@@ -73,21 +75,19 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       builder: (context) => AlertDialog(
         title: const Text('网页版需要安装配套脚本'),
         content: const Text(
-          '由于浏览器跨域限制，网页版需要一个配套的浏览器脚本才能访问校园网选课接口。\n\n'
-          '请：\n'
-          '1. 安装篡改猴 (Tampermonkey) 或脚本猫 (ScriptCat) 扩展；\n'
-          '2. 安装「西农本科选课 · Web 跨域桥接」脚本；\n'
-          '3. 刷新本页面。\n\n'
-          '桌面端 / 手机端 App 无需此步骤。',
+          '浏览器不允许网页直接访问校园网选课接口，需要一个配套脚本转发请求。\n\n'
+          '1. 安装 Tampermonkey 或 ScriptCat 扩展\n'
+          '2. 安装「西农本科选课 Web 跨域桥接」脚本\n'
+          '3. 刷新本页面\n\n'
+          '桌面端和手机端不需要此步骤。',
         ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('我知道了')),
-          FilledButton.icon(
+              child: const Text('知道了')),
+          const FilledButton(
             onPressed: openWebBridgeInstaller,
-            icon: const Icon(Icons.install_desktop),
-            label: const Text('一键安装脚本'),
+            child: Text('安装脚本'),
           ),
         ],
       ),
@@ -104,11 +104,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   void _prefillActiveAccount() {
+    if (widget.addingAccount) return;
     final storage = ref.read(storageProvider);
     final active = storage.activeAccount();
-    if (active != null) {
-      _loginCtrl.text = active.loginName;
-    }
+    if (active != null) _useSavedAccount(active);
   }
 
   Future<void> _refreshCaptcha({bool autoRecognize = true}) async {
@@ -116,20 +115,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       _loadingCaptcha = true;
       _challenge = null;
       _captchaCtrl.clear();
-      // "warming" while the ONNX model is still loading (cold start); solve()
-      // will await it. Distinguishes "not yet ready" from "tried and failed".
       _ocrStatus = _autoRecognize ? OcrStatus.warming : OcrStatus.idle;
     });
     try {
-      final challenge = await ref.read(sessionProvider.notifier).fetchCaptcha();
+      final challenge = await ref.read(anonymousAuthProvider).fetchCaptcha();
       if (!mounted) return;
       setState(() => _challenge = challenge);
-      // Model finished loading (or was already warm): now actually recognizing.
       if (_ocrStatus == OcrStatus.warming) {
         setState(() => _ocrStatus = OcrStatus.recognizing);
       }
-
-      // Auto-recognize the captcha so the user never types during a rush.
       if (autoRecognize && _autoRecognize) {
         final solver = ref.read(captchaSolverProvider);
         final guess = await solver.solve(challenge.imageBytes);
@@ -137,7 +131,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         if (guess != null && guess.isNotEmpty) {
           _captchaCtrl.text = guess;
           setState(() => _ocrStatus = OcrStatus.recognized);
-          // Auto-submit if we also have credentials — full hands-free login.
           if (_loginCtrl.text.trim().isNotEmpty && _pwCtrl.text.isNotEmpty) {
             _submit(fromOcr: true);
           }
@@ -150,8 +143,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       }
     } on AppError catch (e) {
       if (!mounted) return;
-      // A captcha fetch failing is the first signal of an unreachable backend —
-      // surface the campus-network hint prominently.
       setState(() {
         _error = e.hint != null ? '${e.message}：${e.hint}' : e.message;
         _showCampusHint = e.kind == AppErrorKind.campusNetwork ||
@@ -161,7 +152,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = '验证码加载失败，请点击刷新';
+        _error = '验证码加载失败，点击图片重试';
         _ocrStatus = OcrStatus.idle;
       });
     } finally {
@@ -188,13 +179,25 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       _captchaFocus.requestFocus();
       return;
     }
+    if (ref.read(signedInAccountsProvider).contains(loginName)) {
+      setState(() => _error = '该账号已登录');
+      return;
+    }
+    if (!widget.addingAccount &&
+        !ref.read(multiAccountProvider) &&
+        ref.read(signedInAccountsProvider).isNotEmpty) {
+      // Single-account mode: replace the signed-in account.
+      for (final id in [...ref.read(signedInAccountsProvider)]) {
+        await leaveAccount(ref, id);
+      }
+    }
 
     setState(() {
       _submitting = true;
       _error = null;
     });
     try {
-      await ref.read(sessionProvider.notifier).login(
+      await ref.read(sessionControllerProvider(loginName).notifier).login(
             loginName: loginName,
             password: password,
             verifyCode: code,
@@ -202,13 +205,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             remember: _remember,
           );
       ref.read(accountsProvider.notifier).refresh();
-      // Navigation happens reactively via main.dart's home switch.
+      if (!mounted) return;
+      enterAccount(ref, loginName);
+      if (widget.addingAccount) Navigator.of(context).pop();
     } on LoginException catch (e) {
       if (!mounted) return;
       if (e.code == '3') {
-        // Wrong captcha (often OCR misread). Auto-refresh + re-recognize + retry
-        // — the user shouldn't have to intervene during a rush. Bounded so a
-        // persistently-failing OCR doesn't loop forever.
+        // Wrong captcha, usually an OCR misread: fetch another and retry
+        // hands-free a few times before asking the user to type it.
         _ocrRetries++;
         if (_ocrRetries <= _maxOcrRetries) {
           setState(() => _error = null);
@@ -219,14 +223,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         _ocrRetries = 0;
         await _refreshCaptcha(autoRecognize: false);
       } else {
-        // Wrong credentials or other — stop and show it; refresh the captcha.
         setState(() => _error = e.message);
         _ocrRetries = 0;
         await _refreshCaptcha(autoRecognize: false);
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = '$e');
+      setState(() => _error = e is AppError
+          ? (e.hint != null ? '${e.message}：${e.hint}' : e.message)
+          : '$e');
       await _refreshCaptcha(autoRecognize: false);
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -234,8 +239,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   void _onCaptchaChanged(String value) {
-    // Manual typing no longer auto-submits — the user presses 登录 (or OCR does
-    // it automatically). This avoids firing a login on every keystroke.
     if (_ocrStatus != OcrStatus.idle) {
       setState(() => _ocrStatus = OcrStatus.idle);
     }
@@ -244,9 +247,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   Future<void> _useSavedAccount(Account account) async {
     _loginCtrl.text = account.loginName;
     final pw = await ref.read(storageProvider).passwordFor(account.id);
+    if (!mounted) return;
     if (pw != null) {
       _pwCtrl.text = pw;
-      _captchaFocus.requestFocus();
+      // A recognised captcha may be waiting for credentials.
+      if (_ocrStatus == OcrStatus.recognized && _captchaCtrl.text.isNotEmpty) {
+        _submit(fromOcr: true);
+      } else {
+        _captchaFocus.requestFocus();
+      }
     }
     setState(() {});
   }
@@ -254,23 +263,29 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final accounts = ref.watch(accountsProvider);
-    final phase = ref.watch(sessionProvider.select((s) => s.phase));
-    final busy = _submitting || phase == AuthPhase.loggingIn;
+    final signedIn = ref.watch(signedInAccountsProvider);
+    final accounts = ref
+        .watch(accountsProvider)
+        .where((a) => !signedIn.contains(a.id))
+        .toList();
+    final busy = _submitting;
 
     return Scaffold(
+      appBar: widget.addingAccount ? AppBar(title: const Text('添加账号')) : null,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
+              constraints: const BoxConstraints(maxWidth: 400),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: 12),
-                  _Brand(scheme: scheme),
-                  const SizedBox(height: 28),
+                  if (!widget.addingAccount) ...[
+                    const SizedBox(height: 12),
+                    _Brand(scheme: scheme),
+                    const SizedBox(height: 28),
+                  ],
                   if (accounts.isNotEmpty) ...[
                     _SavedAccounts(
                       accounts: accounts,
@@ -294,6 +309,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     controller: _pwCtrl,
                     obscureText: _obscure,
                     textInputAction: TextInputAction.next,
+                    onSubmitted: (_) => _submit(),
                     decoration: InputDecoration(
                       labelText: '密码',
                       prefixIcon: const Icon(Icons.lock_outline),
@@ -307,7 +323,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _CaptchaRow(
+                  CaptchaRow(
                     challenge: _challenge,
                     loading: _loadingCaptcha,
                     controller: _captchaCtrl,
@@ -324,9 +340,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         value: _remember,
                         onChanged: (v) => setState(() => _remember = v ?? true),
                       ),
-                      const Text('记住此账号'),
+                      const Text('记住账号'),
                       const Spacer(),
-                      const Text('自动识别', style: TextStyle(fontSize: 13)),
+                      const Text('自动识别验证码', style: TextStyle(fontSize: 13)),
                       Switch(
                         value: _autoRecognize,
                         onChanged: (v) {
@@ -339,89 +355,53 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: scheme.errorContainer,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.error_outline,
-                              color: scheme.onErrorContainer, size: 18),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(_error!,
-                                style:
-                                    TextStyle(color: scheme.onErrorContainer)),
-                          ),
-                        ],
-                      ),
+                    _Note(
+                      icon: Icons.error_outline,
+                      color: scheme.errorContainer,
+                      foreground: scheme.onErrorContainer,
+                      child: Text(_error!),
                     ),
                   ],
                   if (_showCampusHint) ...[
                     const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: scheme.tertiaryContainer,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
+                    _Note(
+                      icon: Icons.wifi_off,
+                      color: scheme.tertiaryContainer,
+                      foreground: scheme.onTertiaryContainer,
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.wifi_off,
-                              color: scheme.onTertiaryContainer, size: 18),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '当前选课服务器不可用',
-                                  style: TextStyle(
-                                    color: scheme.onTertiaryContainer,
-                                    fontWeight: FontWeight.w700,
+                          const Text('连不上选课服务器',
+                              style: TextStyle(fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 2),
+                          Text(
+                            '选课系统只在校园网内可用，校外请先连接学校 VPN。\n当前地址：${ref.read(storageProvider).origin()}',
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              TextButton(
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(0, 32),
+                                ),
+                                onPressed: _showServerSettings,
+                                child: const Text('更改服务器'),
+                              ),
+                              TextButton(
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(0, 32),
+                                ),
+                                onPressed: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => const DiagnosticsPage(),
                                   ),
                                 ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '当前地址：${ref.read(storageProvider).origin()}\n'
-                                  '正式服务器通常需要校园网或学校 VPN；也可以切换到其他服务器。',
-                                  style: TextStyle(
-                                    color: scheme.onTertiaryContainer,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                Wrap(
-                                  spacing: 8,
-                                  children: [
-                                    TextButton(
-                                      style: TextButton.styleFrom(
-                                        padding: EdgeInsets.zero,
-                                        minimumSize: const Size(0, 32),
-                                      ),
-                                      onPressed: _showServerSettings,
-                                      child: const Text('更改服务器'),
-                                    ),
-                                    TextButton(
-                                      style: TextButton.styleFrom(
-                                        padding: EdgeInsets.zero,
-                                        minimumSize: const Size(0, 32),
-                                      ),
-                                      onPressed: () =>
-                                          Navigator.of(context).push(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) =>
-                                              const DiagnosticsPage(),
-                                        ),
-                                      ),
-                                      child: const Text('连接诊断'),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
+                                child: const Text('连接诊断'),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -430,6 +410,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   const SizedBox(height: 16),
                   FilledButton(
                     onPressed: busy ? null : _submit,
+                    style: FilledButton.styleFrom(minimumSize: const Size(64, 50)),
                     child: busy
                         ? const SizedBox(
                             height: 22,
@@ -437,8 +418,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                             child: CircularProgressIndicator(strokeWidth: 2.4))
                         : const Text('登录'),
                   ),
-                  const SizedBox(height: 8),
-                  _SettingsShortcut(onServer: _showServerSettings),
+                  if (!widget.addingAccount) ...[
+                    const SizedBox(height: 8),
+                    _SettingsShortcut(onServer: _showServerSettings),
+                  ],
                 ],
               ),
             ),
@@ -452,7 +435,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('连接设置'),
+        title: const Text('选课服务器'),
         content: SizedBox(
           width: 480,
           child: ServerOriginSetting(
@@ -479,6 +462,41 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 }
 
+class _Note extends StatelessWidget {
+  const _Note({
+    required this.icon,
+    required this.color,
+    required this.foreground,
+    required this.child,
+  });
+  final IconData icon;
+  final Color color;
+  final Color foreground;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: DefaultTextStyle.merge(
+        style: TextStyle(color: foreground),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: foreground, size: 18),
+            const SizedBox(width: 8),
+            Expanded(child: child),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _Brand extends StatelessWidget {
   const _Brand({required this.scheme});
   final ColorScheme scheme;
@@ -488,26 +506,20 @@ class _Brand extends StatelessWidget {
     return Column(
       children: [
         Container(
-          height: 72,
-          width: 72,
+          height: 64,
+          width: 64,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [scheme.primary, scheme.tertiary],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(20),
+            color: scheme.primary,
+            borderRadius: BorderRadius.circular(18),
           ),
-          child: const Icon(Icons.bolt, color: Colors.white, size: 40),
+          child: Icon(Icons.school_outlined, color: scheme.onPrimary, size: 36),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
         Text('西农本科选课',
             style: Theme.of(context)
                 .textTheme
                 .headlineSmall
                 ?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 4),
-        Text('选课 · 抢课，快人一步', style: TextStyle(color: scheme.onSurfaceVariant)),
       ],
     );
   }
@@ -541,8 +553,10 @@ class _SavedAccounts extends StatelessWidget {
   }
 }
 
-class _CaptchaRow extends StatelessWidget {
-  const _CaptchaRow({
+/// Captcha field + image, shared by the login screen and the re-login dialog.
+class CaptchaRow extends StatelessWidget {
+  const CaptchaRow({
+    super.key,
     required this.challenge,
     required this.loading,
     required this.controller,
@@ -590,41 +604,38 @@ class _CaptchaRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        Semantics(
-          button: true,
-          label: '刷新验证码',
-          child: Tooltip(
-            message: '点击刷新验证码',
-            child: GestureDetector(
-              onTap: onRefresh,
-              child: Container(
-                height: 52,
-                width: 120,
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: scheme.outlineVariant),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: loading
-                    ? const Center(
-                        child: SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      )
-                    : challenge != null && challenge!.imageBytes.isNotEmpty
-                        ? Image.memory(
-                            Uint8List.fromList(challenge!.imageBytes),
-                            fit: BoxFit.cover,
-                            gaplessPlayback: true,
-                          )
-                        : Center(
-                            child: Icon(Icons.refresh,
-                                color: scheme.onSurfaceVariant),
-                          ),
+        Tooltip(
+          message: '点击换一张',
+          child: InkWell(
+            onTap: loading ? null : onRefresh,
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              height: 48,
+              width: 112,
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: scheme.outlineVariant),
               ),
+              clipBehavior: Clip.antiAlias,
+              child: loading
+                  ? const Center(
+                      child: SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : challenge != null && challenge!.imageBytes.isNotEmpty
+                      ? Image.memory(
+                          Uint8List.fromList(challenge!.imageBytes),
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                        )
+                      : Center(
+                          child: Icon(Icons.refresh,
+                              color: scheme.onSurfaceVariant),
+                        ),
             ),
           ),
         ),
@@ -635,16 +646,6 @@ class _CaptchaRow extends StatelessWidget {
   Widget? _ocrIndicator(ColorScheme scheme) {
     switch (ocrStatus) {
       case OcrStatus.warming:
-        return const Tooltip(
-          message: '识别模型加载中…',
-          child: Padding(
-            padding: EdgeInsets.all(12),
-            child: SizedBox(
-                height: 16,
-                width: 16,
-                child: CircularProgressIndicator(strokeWidth: 2)),
-          ),
-        );
       case OcrStatus.recognizing:
         return const Padding(
           padding: EdgeInsets.all(12),

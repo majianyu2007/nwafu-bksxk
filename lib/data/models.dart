@@ -35,6 +35,14 @@ String teacherDisplayName(dynamic v) {
   return names.join('、');
 }
 
+/// The MOOC platform for a course number ('' when it is a classroom course).
+String onlinePlatformOf(String courseNumber) {
+  for (final e in kOnlineCoursePlatforms.entries) {
+    if (courseNumber.startsWith(e.key)) return e.value;
+  }
+  return '';
+}
+
 /// Reads an int from a string/num field, defaulting to [fallback].
 int _i(dynamic v, [int fallback = 0]) {
   if (v == null) return fallback;
@@ -88,6 +96,15 @@ class ElectiveBatch {
 
   /// 选后不可退 rounds carry tacticCode "02"; the official page disables 退选.
   bool get allowsDrop => tacticCode != '02';
+
+  /// Whether 退订教材 is offered in this round (canDeleteBook "1").
+  bool get canDeleteBook => _flag(raw['canDeleteBook']);
+
+  /// e.g. 可选可退.
+  String get tacticName => _s(raw['tacticName']);
+
+  /// e.g. 2026-2027学年 秋.
+  String get schoolTermName => _s(raw['schoolTermName']);
 
   /// typeCode "01" = 预选 (volunteer ranking, curriculavariable page): every
   /// add carries a chooseVolunteer grade. "02" = 正选/抢课 (grablessons page).
@@ -252,6 +269,26 @@ class CourseRow {
     return '';
   }
 
+  /// The MOOC platform when every class of the course is online, else ''.
+  String get onlinePlatform => onlinePlatformOf(courseNumber);
+
+  /// Whether the student holds any class of this course (list rows mark a
+  /// filed volunteer with chooseVolunteer rather than selected).
+  bool get isHeld => selected || teachingClasses.any((tc) => tc.isHeld);
+
+  /// A copy with a different class list (filters, capacity refreshes).
+  CourseRow withClasses(List<TeachingClass> classes) => CourseRow(
+        courseNumber: courseNumber,
+        courseName: courseName,
+        credit: credit,
+        courseNatureName: courseNatureName,
+        departmentName: departmentName,
+        number: classes.length,
+        selected: selected,
+        teachingClasses: classes,
+        raw: raw,
+      );
+
   factory CourseRow.fromJson(Map<String, dynamic> j) {
     final tc = (j['tcList'] as List?) ?? const [];
     return CourseRow(
@@ -332,6 +369,16 @@ class TeachingClass {
   /// The raw needBook flag/string from the row (not the submission string).
   final String needBook;
 
+  /// Textbook state on courseResult.do rows: "1" 已订购, "5" 订购部分, else 未订购.
+  String get textbookStateLabel => switch (needBook) {
+        '1' => '已订购',
+        '5' => '订购部分',
+        _ => '未订购',
+      };
+
+  /// 通识类别 label (publicCourseTypeName), '' when none.
+  String get publicCourseType => _s(raw['publicCourseTypeName']);
+
   /// Suffix param required by the capacity-refresh endpoint.
   final String capacitySuffix;
   final String campus;
@@ -348,9 +395,6 @@ class TeachingClass {
     final r = byCount < 0 ? 0 : byCount;
     return isFull ? 0 : r;
   }
-
-  /// True when there is at least one open seat and no conflict blocking us.
-  bool get isGrabbable => remaining > 0 && !isConflict;
 
   /// 预选 rounds: how many students already listed this class as their first
   /// choice. The official page shows "已报第一志愿 N 人" and marks the class
@@ -444,15 +488,20 @@ class TeachingClass {
   /// Teaching method label.
   String get teachingMethod => _s(raw['teachingMethod']);
 
-  /// True when the class is taught (partly) online: the server labels these
-  /// 面授讲课+SPOC/MOOC or similar.
-  bool get isOnline {
+  /// Blended classroom courses: the server labels these 面授讲课+SPOC/MOOC.
+  bool get isBlended {
     final m = teachingMethod.toUpperCase();
-    return m.contains('MOOC') ||
-        m.contains('SPOC') ||
-        m.contains('网络') ||
-        m.contains('线上');
+    return m.contains('MOOC') || m.contains('SPOC');
   }
+
+  /// The MOOC platform this class runs on (智慧树 / 学习通 / 知到), or '' for a
+  /// classroom course. Decided by the course-number prefix, which is what
+  /// actually distinguishes 网课 on this deployment; see
+  /// [kOnlineCoursePlatforms].
+  String get onlinePlatform => onlinePlatformOf(courseNumber);
+
+  /// True for a pure online (MOOC) class.
+  bool get isOnline => onlinePlatform.isNotEmpty;
 
   /// Term label.
   String get schoolTerm => _s(raw['schoolTerm']);
@@ -612,8 +661,6 @@ class Notice {
   final String content;
   final Map<String, dynamic> raw;
 
-  bool get hasAttachment => filename.isNotEmpty;
-
   factory Notice.fromJson(Map<String, dynamic> j) => Notice(
         wid: _s(j['wid']),
         title: _s(j['title']),
@@ -657,6 +704,16 @@ class ProblemEntry {
       );
 }
 
+/// One {code, name} row of a dictionary.do list.
+class DictEntry {
+  const DictEntry({required this.code, required this.name});
+  final String code;
+  final String name;
+
+  factory DictEntry.fromJson(Map<String, dynamic> j) =>
+      DictEntry(code: _s(j['code']), name: _s(j['name']));
+}
+
 /// A volunteer-grade dictionary row (publicinfo/volunteer.do). Used to label
 /// the `chooseVolunteer` field on a teaching class.
 class VolunteerGrade {
@@ -673,42 +730,54 @@ class VolunteerGrade {
 }
 
 /// Student selection credit summary (student/xkxf.do `data`).
-///
-/// The server returns a flat object; we surface the few fields a student
-/// actually reads while planning a round. Unknown/absent degrade to '' / 0.
 class CreditInfo {
   const CreditInfo({
     this.totalCredit = 0,
     this.getCredit = 0,
     this.needCredit = 0,
-    this.limitElective = '',
-    this.campusName = '',
     this.collegeName = '',
     this.majorName = '',
     this.grade = '',
     this.schoolClassName = '',
-    this.electiveIsOpen = false,
     this.noSelectReason = '',
+    this.spCourseDescription = '',
     this.raw = const {},
   });
 
   final double totalCredit;
   final double getCredit;
   final double needCredit;
-  final String limitElective;
-  final String campusName;
   final String collegeName;
   final String majorName;
   final String grade;
   final String schoolClassName;
-  final bool electiveIsOpen;
   final String noSelectReason;
+
+  /// The 通识 credit requirements text the official 通识 tab shows, e.g.
+  /// "粮食安全与人类健康-2025版：【要求学分：1-2】【已修学分：0】,…".
+  final String spCourseDescription;
   final Map<String, dynamic> raw;
 
   /// Credits selected in this round. The server's field is named needCredit
   /// but the official page labels it 已选学分 (totalCredit = 总学分, getCredit =
   /// 已获学分); there is no "still needed" figure.
   double get selectedCredit => needCredit;
+
+  /// [spCourseDescription] split into (category, requirement) rows.
+  List<CreditRequirement> get requirements {
+    if (spCourseDescription.isEmpty) return const [];
+    final out = <CreditRequirement>[];
+    for (final part in spCourseDescription.split(',')) {
+      final i = part.indexOf('：');
+      if (i <= 0) continue;
+      final name = part.substring(0, i).trim();
+      final rest = part.substring(i + 1);
+      final need = RegExp(r'要求学分：([^】]*)').firstMatch(rest)?.group(1) ?? '';
+      final got = RegExp(r'已修学分：([^】]*)').firstMatch(rest)?.group(1) ?? '';
+      out.add(CreditRequirement(category: name, required: need.trim(), earned: got.trim()));
+    }
+    return out;
+  }
 
   factory CreditInfo.fromJson(Map<String, dynamic> j) {
     double toDouble(dynamic v, [double fallback = 0]) {
@@ -721,14 +790,12 @@ class CreditInfo {
       totalCredit: toDouble(j['totalCredit']),
       getCredit: toDouble(j['getCredit']),
       needCredit: toDouble(j['needCredit']),
-      limitElective: _s(j['limitElective']),
-      campusName: _s(j['campusName']),
       collegeName: _s(j['collegeName']),
       majorName: _s(j['majorName'] ?? j['departmentName']),
       grade: _s(j['grade']),
       schoolClassName: _s(j['schoolClassName']),
-      electiveIsOpen: _flag(j['electiveIsOpen']),
       noSelectReason: _s(j['noSelectReason']),
+      spCourseDescription: _s(j['spCourseDescription']),
       raw: j,
     );
   }
@@ -737,39 +804,37 @@ class CreditInfo {
   static const empty = CreditInfo();
 }
 
+/// One 通识 category's credit requirement, parsed from spCourseDescription.
+class CreditRequirement {
+  const CreditRequirement(
+      {required this.category, required this.required, required this.earned});
+  final String category;
+
+  /// The required range as the server writes it, e.g. "1-2" or "2-".
+  final String required;
+  final String earned;
+}
+
 /// A schedule row from teachingTime.do / noArranged.do.
 ///
-/// The response is a list of teaching-class-shaped rows. We keep the raw map
-/// and expose the few fields the schedule grid needs.
+/// teachingTime.do returns one row per (class, weekday, week pattern):
+/// dayOfWeek "1".."7", beginSection/endSection "1".."11", weekName like
+/// "1-3周,6-11周", `week` as a bit string (index i = week i+1, length varies),
+/// startTime/endTime as "14:30", and teachingPlace holding only the room.
 class ScheduleEntry {
-  ScheduleEntry({this.raw = const {}}) {
-    _tc = TeachingClass.fromJson(raw);
-  }
+  ScheduleEntry({this.raw = const {}});
 
   final Map<String, dynamic> raw;
-  late final TeachingClass _tc;
 
-  String get courseName => _tc.courseName;
-  String get courseNumber => _tc.courseNumber;
-  String get teacherName => _tc.teacherName;
-  String get teachingPlace => _tc.teachingPlace;
-  String get credit => _tc.credit;
-  String get hours => _tc.hours;
-  String get courseIndex => _tc.courseIndex;
-  String get examTime => _tc.examTime;
-  String get schoolTerm => _tc.schoolTerm;
-  String get courseNatureName => _s(raw['courseNatureName']);
-  String get courseTypeName => _tc.courseTypeName;
-  String get displayTitle => _tc.displayTitle;
-  String get teachingClassId => _tc.teachingClassId;
+  String get courseName => _s(raw['courseName']);
+  String get courseNumber => _s(raw['courseNumber']);
+  String get teacherName => teacherDisplayName(raw['teacherName']);
+  String get teachingPlace => _s(raw['teachingPlace']);
+  String get teachingClassId =>
+      _s(raw['teachingClassID'] ?? raw['teachingClassId']);
 
   /// True when this row came from noArranged.do (time/place not yet published).
   bool get isUnarranged => teachingPlace.isEmpty;
-
-  // teachingTime.do returns one row per (class, weekday, week pattern):
-  // dayOfWeek "1".."7", beginSection/endSection "1".."11", weekName like
-  // "1-3周,6-11周", and `week` as a bit string (index i = week i+1, length
-  // varies), with teachingPlace holding only the room.
 
   /// 1 = Monday … 7 = Sunday; 0 when absent.
   int get dayOfWeek => _i(raw['dayOfWeek']);
@@ -806,26 +871,26 @@ class ScheduleEntry {
       ScheduleEntry(raw: j);
 }
 
-/// A drop-log row from returnResults.do. Carries who/when/ip metadata.
+/// A drop-log row from returnResults.do.
 class DropLogEntry {
   DropLogEntry({this.raw = const {}});
   final Map<String, dynamic> raw;
 
   String get courseName => _s(raw['courseName']);
-  String get courseNumber => _s(raw['courseNumber']);
-  String get teachingClassId =>
-      _s(raw['teachingClassID'] ?? raw['teachingClassId']);
+  String get courseIndex => _s(raw['courseIndex']);
   String get teacherName => teacherDisplayName(raw['teacherName']);
   String get deleteOperateTime => _s(raw['deleteOperateTime']);
   String get deleteOperateTypeName => _s(raw['deleteOperateTypeName']);
-  String get deleteOperatePersonName => _s(raw['deleteOperatePersonName']);
-  String get operateIP => _s(raw['operateIP']);
-  String get selectStatus => _s(raw['selectStatus']);
 
   factory DropLogEntry.fromJson(Map<String, dynamic> j) => DropLogEntry(raw: j);
 }
 
-/// An unsuccessful-selection row from unsuccessful.do.
+/// An unsuccessful-selection row from unsuccessful.do (落选课程).
+///
+/// Verified 2026-09-18: rows are drop-log shaped — `deleteOperateTypeName`
+/// (e.g. 抽签落选) is the outcome, `deleteOperateTime` when it happened,
+/// `isConfirm` whether the student has acknowledged it, and `wid` the id the
+/// official popup posts back to submit/unsuccessful.do.
 class UnsuccessfulEntry {
   UnsuccessfulEntry({this.raw = const {}});
   final Map<String, dynamic> raw;
@@ -833,56 +898,44 @@ class UnsuccessfulEntry {
   String get wid => _s(raw['wid']);
   String get courseName => _s(raw['courseName']);
   String get courseNumber => _s(raw['courseNumber']);
+  String get courseIndex => _s(raw['courseIndex']);
   String get teachingClassId =>
       _s(raw['teachingClassID'] ?? raw['teachingClassId']);
   String get teacherName => teacherDisplayName(raw['teacherName']);
-  String get reason => _s(raw['reason'] ?? raw['unsuccessfulReason']);
+  String get credit => _s(raw['credit']);
+  String get departmentName => _s(raw['departmentName']);
+  String get courseTypeName => _s(raw['courseTypeName']);
+
+  /// Outcome label from the server, e.g. 抽签落选.
+  String get reason =>
+      _s(raw['deleteOperateTypeName'] ?? raw['reason'] ?? raw['unsuccessfulReason']);
+
+  /// When the outcome was recorded ("2026-09-18 11:14:51").
+  String get time => _s(raw['deleteOperateTime']);
+
+  /// Whether the student has already acknowledged this row (isConfirm "1").
+  bool get confirmed => _flag(raw['isConfirm']);
+
+  /// "课程名[课序号](分组)" the way the official popup titles a row.
+  String get displayTitle {
+    var t = courseName;
+    if (courseIndex.isNotEmpty) t += '[$courseIndex]';
+    final group = _s(raw['sportName'] ?? raw['engpName']);
+    if (group.isNotEmpty) t += '($group)';
+    return t;
+  }
 
   factory UnsuccessfulEntry.fromJson(Map<String, dynamic> j) =>
       UnsuccessfulEntry(raw: j);
 }
 
-/// A queue-position row from queryStudentQueue.do.
-class QueueEntry {
-  QueueEntry({this.raw = const {}});
-  final Map<String, dynamic> raw;
-
-  String get courseName => _s(raw['courseName']);
-  String get teachingClassId =>
-      _s(raw['teachingClassID'] ?? raw['teachingClassId']);
-  String get inQueue => _s(raw['inQuene'] ?? raw['inQueue']);
-  String get queueIndex => _s(raw['queueIndex'] ?? raw['queueNo']);
-
-  factory QueueEntry.fromJson(Map<String, dynamic> j) => QueueEntry(raw: j);
-}
-
-/// Online-user stats from onlineUsers.do. The server returns a data object
-/// whose fields vary by deployment; we surface the common count plus the raw.
+/// Online-user count from onlineUsers.do (`data.onlineUsers`).
 class OnlineUserStats {
-  const OnlineUserStats({this.count = 0, this.raw = const {}});
+  const OnlineUserStats({this.count = 0});
   final int count;
-  final Map<String, dynamic> raw;
 
-  factory OnlineUserStats.fromJson(Map<String, dynamic> j) {
-    // The endpoint usually returns `data` as a map with a numeric field; we
-    // scan the most common names and fall back to 0.
-    int pick(List<String> keys) {
-      for (final k in keys) {
-        final v = j[k];
-        if (v == null) continue;
-        if (v is num) return v.toInt();
-        final n = int.tryParse(_s(v));
-        if (n != null) return n;
-      }
-      return 0;
-    }
-
-    return OnlineUserStats(
-      count:
-          pick(['onlineUserCount', 'onlineUsers', 'count', 'number', 'total']),
-      raw: j,
-    );
-  }
+  factory OnlineUserStats.fromJson(Map<String, dynamic> j) =>
+      OnlineUserStats(count: _i(j['onlineUsers'] ?? j['count']));
 
   static const empty = OnlineUserStats();
 }
@@ -987,4 +1040,85 @@ class TextbookReason {
   factory TextbookReason.fromJson(Map<String, dynamic> j) => TextbookReason(
       code: _s(j['code'] ?? j['reasonCode']),
       name: _s(j['name'] ?? j['reasonName']));
+}
+
+/// The deployment's system parameters (publicinfo/sysparam.do `data`). The
+/// official page reads these once after login; the app only needs the tab
+/// names and a few display switches, so the rest stays in [raw].
+class SysParams {
+  const SysParams({this.raw = const {}});
+  final Map<String, dynamic> raw;
+
+  /// The official tab name for [kind] (displayName* keys), or its fallback.
+  String tabName(CourseKind kind) {
+    final v = _s(raw[kind.displayNameKey]);
+    return v.isEmpty ? kind.label : v;
+  }
+
+  /// noDisplayVolunteer "1" hides the 落选课程 entry and its popup.
+  bool get hidesUnsuccessful => _flag(raw['noDisplayVolunteer']);
+
+  /// The current term, e.g. 2026-2027-1.
+  String get schoolTerm => _s(raw['currentSchoolTerm'] ?? raw['schoolTerm']);
+
+  factory SysParams.fromJson(Map<String, dynamic> j) => SysParams(raw: j);
+
+  static const empty = SysParams();
+}
+
+/// The 教务处 contact block from publicinfo.do (`consultMethod`).
+class ConsultMethod {
+  const ConsultMethod({this.raw = const {}});
+  final Map<String, dynamic> raw;
+
+  String get unitName => _s(raw['unitName']);
+  String get phoneNumber => _s(raw['phoneNumber']);
+  String get callPhoneNumber => _s(raw['callPhoneNumber']);
+  String get email => _s(raw['email']);
+  String get qqNumber => _s(raw['qqNumber']);
+
+  bool get isEmpty =>
+      phoneNumber.isEmpty &&
+      callPhoneNumber.isEmpty &&
+      email.isEmpty &&
+      qqNumber.isEmpty;
+
+  factory ConsultMethod.fromJson(Map<String, dynamic> j) =>
+      ConsultMethod(raw: j);
+}
+
+/// The home-page aggregate (publicinfo.do `data`): notices, common problems,
+/// contact info and the 停止说明 banner, all in one call as the official index
+/// page loads them.
+class PublicInfo {
+  const PublicInfo({
+    this.notices = const [],
+    this.problems = const [],
+    this.consult = const ConsultMethod(),
+    this.stopInfo = '',
+  });
+
+  final List<Notice> notices;
+  final List<ProblemEntry> problems;
+  final ConsultMethod consult;
+
+  /// Free text the school shows when selection is halted; '' otherwise.
+  final String stopInfo;
+
+  factory PublicInfo.fromJson(Map<String, dynamic> j) {
+    List<Map<String, dynamic>> rows(dynamic v) => v is List
+        ? v.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList()
+        : const [];
+    final consult = j['consultMethod'];
+    return PublicInfo(
+      notices: rows(j['noticeList']).map(Notice.fromJson).toList(),
+      problems: rows(j['commonProblemList']).map(ProblemEntry.fromJson).toList(),
+      consult: consult is Map
+          ? ConsultMethod.fromJson(consult.cast<String, dynamic>())
+          : const ConsultMethod(),
+      stopInfo: _s(j['stopInfo']),
+    );
+  }
+
+  static const empty = PublicInfo();
 }

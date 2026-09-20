@@ -1,10 +1,9 @@
-/// Public-info queries: announcements, common problems, online-user count,
-/// selection-credit summary, and the volunteer-grade dictionary.
+/// Public-info queries: the home-page aggregate (notices, common problems,
+/// contact), system parameters, online-user count, the credit summary, the
+/// volunteer-grade dictionary and the textbook decline reasons.
 ///
-/// These endpoints are read-only and shared across the app — notices on the
-/// home page, credit info beside the batch selector, online-user load in
-/// diagnostics — so they live in their own service rather than crowding
-/// [CourseService].
+/// These endpoints are read-only and shared across the app, so they live in
+/// their own service rather than crowding [CourseService].
 library;
 
 import '../core/constants.dart';
@@ -17,26 +16,17 @@ class InfoService {
 
   final ApiClient _client;
 
-  /// Fetches the announcement list (notice.do). Paged by the server; the home
-  /// page only wants the first page, so the default [pageSize] is small.
-  Future<List<Notice>> fetchNotices({
-    int pageSize = 10,
-    int pageNumber = 0,
-  }) async {
+  /// The home-page aggregate (publicinfo.do): notices, common problems, the
+  /// 教务处 contact block and the 停止说明 text, in one call as the official
+  /// index page loads them.
+  Future<PublicInfo> fetchPublicInfo() async {
     final res = await _client.getJson(
-      Api.noticeList,
-      query: buildNoticeListQuery(
-        timestamp: ApiClient.nowStamp(),
-        pageSize: pageSize,
-        pageNumber: pageNumber,
-      ),
+      Api.publicInfo,
+      auth: false,
+      query: {'pageSize': '10', 'pageNumber': '1'},
     );
-    if (!res.ok) return [];
-    return res.dataList
-        .whereType<Map>()
-        .map((e) => Notice.fromJson(e.cast<String, dynamic>()))
-        .where((n) => n.title.isNotEmpty)
-        .toList();
+    if (!res.ok || res.data is! Map) return PublicInfo.empty;
+    return PublicInfo.fromJson((res.data as Map).cast<String, dynamic>());
   }
 
   /// Fetches a single notice by id (notice/view.do). Returns null when the
@@ -50,27 +40,40 @@ class InfoService {
     return Notice.fromJson((res.data as Map).cast<String, dynamic>());
   }
 
-  /// Fetches the common-problem list (problem.do).
-  Future<List<ProblemEntry>> fetchProblems() async {
-    final res = await _client.getJson(
-      Api.problemList,
-      query: buildProblemListQuery(ApiClient.nowStamp()),
-    );
-    if (!res.ok) return [];
-    return res.dataList
-        .whereType<Map>()
-        .map((e) => ProblemEntry.fromJson(e.cast<String, dynamic>()))
-        .where((p) => p.title.isNotEmpty)
-        .toList();
+  /// The deployment's system parameters (sysparam.do): tab names and display
+  /// switches. Public; the official page loads it right after login.
+  Future<SysParams> fetchSysParams() async {
+    final res = await _client.getJson(Api.sysParam, auth: false);
+    if (!res.ok || res.data is! Map) return SysParams.empty;
+    return SysParams.fromJson((res.data as Map).cast<String, dynamic>());
+  }
+
+  /// The filter dictionaries (dictionary.do → dictionaryList): XGXKLB (通识
+  /// 类别), KKDW (开课单位), KCXZ (课程性质), KCLB (课程类别), TJCYY (教材
+  /// 不订购原因). Each is a list of {code, name}.
+  Future<Map<String, List<DictEntry>>> fetchDictionary() async {
+    final res = await _client.getJson(Api.dictionary, auth: false);
+    final data = res.data;
+    if (!res.ok || data is! Map) return const {};
+    final dict = data['dictionaryList'];
+    if (dict is! Map) return const {};
+    final out = <String, List<DictEntry>>{};
+    for (final e in dict.entries) {
+      final list = e.value;
+      if (list is! List) continue;
+      out[e.key.toString()] = list
+          .whereType<Map>()
+          .map((m) => DictEntry.fromJson(m.cast<String, dynamic>()))
+          .where((d) => d.code.isNotEmpty)
+          .toList();
+    }
+    return out;
   }
 
   /// Fetches the volunteer-grade dictionary (publicinfo/volunteer.do). Used to
   /// label the `chooseVolunteer` field on teaching classes.
   Future<List<VolunteerGrade>> fetchVolunteerGrades() async {
-    final res = await _client.getJson(
-      Api.volunteerGrade,
-      query: buildVolunteerGradeQuery(ApiClient.nowStamp()),
-    );
+    final res = await _client.getJson(Api.volunteerGrade);
     if (!res.ok) return [];
     return res.dataList
         .whereType<Map>()
@@ -79,39 +82,27 @@ class InfoService {
   }
 
   /// Fetches the textbook decline reasons (dictionary.do → TJCYY), e.g.
-  /// 01 从高年级借用到正版教材 / 02 从其他途径已购买正版教材. The textbook rows
-  /// themselves carry no reason list on this deployment.
+  /// 01 从高年级借用到正版教材 / 02 从其他途径已购买正版教材.
   Future<List<TextbookReason>> fetchTextbookReasons() async {
-    final res = await _client.getJson(Api.dictionary);
-    final data = res.data;
-    if (!res.ok || data is! Map) return const [];
-    final dict = data['dictionaryList'];
-    final list = dict is Map ? dict['TJCYY'] : null;
-    if (list is! List) return const [];
-    return list
-        .whereType<Map>()
-        .map((e) => TextbookReason.fromJson(e.cast<String, dynamic>()))
-        .where((r) => r.code.isNotEmpty)
-        .toList();
+    final dict = await fetchDictionary();
+    return [
+      for (final d in dict['TJCYY'] ?? const <DictEntry>[])
+        TextbookReason(code: d.code, name: d.name),
+    ];
   }
 
-  /// Fetches the current online-user count (onlineUsers.do). Used by the
-  /// diagnostics page to explain slowness during a rush.
+  /// Fetches the current online-user count (onlineUsers.do). The official
+  /// index page shows it next to the login box.
   Future<OnlineUserStats> fetchOnlineUsers() async {
-    final res = await _client.getJson(
-      Api.onlineUsers,
-      query: buildOnlineUsersQuery(ApiClient.nowStamp()),
-    );
+    final res = await _client.getJson(Api.onlineUsers, auth: false);
     if (!res.ok || res.data is! Map) return OnlineUserStats.empty;
     return OnlineUserStats.fromJson((res.data as Map).cast<String, dynamic>());
   }
 
   /// Fetches the student's selection-credit summary (student/xkxf.do).
   ///
-  /// [batchType] is the `electiveBatchType` from the active [ElectiveBatch] —
-  /// threaded through as `xklclx` per docs/api.notes.md. When the server does
-  /// not require it (some deployments) the empty default is sent and the call
-  /// still succeeds.
+  /// [batchType] is the round's `batchType`, sent as `xklclx` exactly as the
+  /// official index page does.
   Future<CreditInfo> fetchCreditInfo({
     required String studentCode,
     required String electiveBatchCode,
