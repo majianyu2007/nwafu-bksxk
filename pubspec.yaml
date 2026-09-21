@@ -3,7 +3,7 @@ description: >-
   西农本科选课 · A fast, cross-platform NWAFU (bksxk.nwafu.edu.cn) course
   selection and auto-grab client.
 publish_to: "none"
-version: 1.3.0+4
+version: 1.3.1+5
 
 environment:
   sdk: ">=3.3.0 <4.0.0"

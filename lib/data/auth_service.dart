@@ -8,7 +8,7 @@
 ///      loginName, loginPwd, verifyCode, vtoken
 ///      -> code=="1": data.token (auth), data.number (studentCode)
 ///   5. GET student/<studentCode>.do      -> student profile
-///   6. GET elective/batch.do             -> visible batches
+///   6. GET elective/batch.do             -> supplementary public metadata
 ///
 /// [SessionManager] holds the live token and knows how to silently re-login,
 /// which the [ApiClient] invokes when it detects an expired session. Because a
@@ -120,13 +120,27 @@ class AuthService {
     }
   }
 
-  /// Steps 5+6: load student profile and the visible elective batches.
+  /// The student profile owns round membership; public rows only enrich it.
   Future<(StudentInfo, List<ElectiveBatch>)> loadContext(
       String studentCode) async {
     final infoRes = await _client.getJson(Api.studentInfo(studentCode));
-    final infoMap = (infoRes.data is Map)
-        ? (infoRes.data as Map).cast<String, dynamic>()
-        : <String, dynamic>{'code': studentCode};
+    if (!infoRes.ok) {
+      throw AppError.fromBusiness(
+          infoRes.code, infoRes.msg.isEmpty ? '获取学生选课信息失败' : infoRes.msg);
+    }
+    if (infoRes.data is! Map) {
+      throw AppError(AppErrorKind.schemaOrRedirect,
+          message: '学生选课信息格式异常', hint: '未读取公共轮次作为替代，请稍后重试。');
+    }
+    final infoMap = (infoRes.data as Map).cast<String, dynamic>();
+    final regular = infoMap['electiveBatchList'];
+    final experimental = infoMap['expElectiveBatchList'];
+    if ((regular is! List && experimental is! List) ||
+        (regular != null && regular is! List) ||
+        (experimental != null && experimental is! List)) {
+      throw AppError(AppErrorKind.schemaOrRedirect,
+          message: '学生接口未返回有效的选课轮次列表', hint: '不能用公共轮次代替学生轮次，请稍后重试。');
+    }
     final info = StudentInfo.fromJson(infoMap);
     final batchRes = await _client.getJson(Api.batch);
     final batches = mergeBatchAvailability(
@@ -183,13 +197,9 @@ class AuthService {
   }
 }
 
-/// Builds the round list from batch.do rows plus the student profile.
-///
-/// batch.do describes every round but leaves `canSelect` null; the profile's
-/// `electiveBatchList` repeats the rounds with the per-student `canSelect` and
-/// `noSelectReason`, which is what the official page reads. Values already
-/// present on the batch.do row win; profile-only rounds (and the profile's
-/// experimental `expElectiveBatchList`) are appended so nothing disappears.
+/// The official post-login picker uses only the student profile's regular and
+/// experimental lists. batch.do may describe other/old rounds: it must never
+/// add membership or override student eligibility/acknowledgement state.
 List<ElectiveBatch> mergeBatchAvailability(
   List<Map<String, dynamic>> batchRows,
   Map<String, dynamic> studentInfo,
@@ -204,27 +214,27 @@ List<ElectiveBatch> mergeBatchAvailability(
     ...rows(studentInfo['electiveBatchList']),
     ...rows(studentInfo['expElectiveBatchList']),
   ];
-  final byCode = {for (final r in profileRows) codeOf(r): r};
-
+  final byCode = {for (final r in batchRows) codeOf(r): r};
+  const studentFields = {
+    'canSelect',
+    'noSelectReason',
+    'needConfirm',
+    'isConfirmed',
+  };
   final merged = <ElectiveBatch>[];
   final seen = <String>{};
-  for (final row in batchRows) {
-    final code = codeOf(row);
-    final profile = byCode[code];
-    final combined = <String, dynamic>{
-      if (profile != null) ...profile,
-      // batch.do wins wherever it actually has a value.
-      for (final e in row.entries)
-        if (e.value != null) e.key: e.value,
-    };
-    merged.add(ElectiveBatch.fromJson(combined));
-    seen.add(code);
-  }
-  for (final row in profileRows) {
-    final code = codeOf(row);
-    if (code.isEmpty || seen.contains(code)) continue;
-    merged.add(ElectiveBatch.fromJson(row));
-    seen.add(code);
+  for (final profile in profileRows) {
+    final code = codeOf(profile);
+    if (code.isEmpty || !seen.add(code)) continue;
+    final public = byCode[code];
+    merged.add(ElectiveBatch.fromJson({
+      if (public != null)
+        for (final entry in public.entries)
+          if (!studentFields.contains(entry.key) && entry.value != null)
+            entry.key: entry.value,
+      for (final entry in profile.entries)
+        if (entry.value != null) entry.key: entry.value,
+    }));
   }
   return merged;
 }

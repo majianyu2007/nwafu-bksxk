@@ -183,7 +183,7 @@ void main() {
       expect(merged[0].noSelectReason, isEmpty);
       expect(merged[1].canSelect, isFalse);
       expect(merged[1].noSelectReason, '不在选课轮次范围内');
-      // batch.do values still win where present.
+      // Public metadata fills fields absent from the student row.
       expect(merged[0].name, '补选一');
       expect(merged[1].allowsDrop, isFalse);
       expect(merged[0].allowsDrop, isTrue);
@@ -198,19 +198,15 @@ void main() {
       expect(merged[1].showsKind(CourseKind.xgxk), isTrue);
     });
 
-    test('profile-only rounds are appended; a missing profile changes nothing',
-        () {
+    test('student-only rounds survive; public-only rounds never appear', () {
       final extra = mergeBatchAvailability(batchRows, {
         'electiveBatchList': [
           {'code': 'B3', 'name': '实验轮次', 'batchType': '02', 'canSelect': '1'},
         ],
       });
-      expect(extra.map((b) => b.code), ['B1', 'B2', 'B3']);
-      expect(extra[2].canSelect, isTrue);
-
-      final bare = mergeBatchAvailability(batchRows, const {});
-      expect(bare, hasLength(2));
-      expect(bare[0].canSelect, isFalse);
+      expect(extra.map((b) => b.code), ['B3']);
+      expect(extra.single.canSelect, isTrue);
+      expect(mergeBatchAvailability(batchRows, const {}), isEmpty);
     });
 
     test('notice confirmation is only needed when the round asks for it', () {
@@ -232,7 +228,9 @@ void main() {
   });
 
   group('flat course rows (publicCourse / queryCourse)', () {
-    Map<String, dynamic> flat(String course, String index, {String type = '学科前沿与科技创新-2025版'}) => {
+    Map<String, dynamic> flat(String course, String index,
+            {String type = '学科前沿与科技创新-2025版'}) =>
+        {
           'teachingClassID': '2026$course$index',
           'courseNumber': course,
           'courseName': '课程$course',
@@ -249,19 +247,31 @@ void main() {
           'teachingMethod': index == '02' ? '面授讲课+SPOC/MOOC' : '面授讲课',
         };
 
-    test('one flat row per class is grouped into one course per course number', () async {
+    test('one flat row per class is grouped into one course per course number',
+        () async {
       final client = _CannedClient({});
       final service = CourseService(client);
       final rows = [
-        for (final r in [flat('1010004', '01'), flat('1010004', '02'), flat('1010010', '01'), flat('1010004', '03')])
+        for (final r in [
+          flat('1010004', '01'),
+          flat('1010004', '02'),
+          flat('1010010', '01'),
+          flat('1010004', '03')
+        ])
           CourseRow.fromJson(r),
       ];
       // CourseRow.fromJson yields no classes for flat rows; the service wraps
       // them first, which is what _asCourseRow does for rows without tcList.
-      expect(rows.first.teachingClasses, isEmpty, reason: 'the bug the grouping fixes');
+      expect(rows.first.teachingClasses, isEmpty,
+          reason: 'the bug the grouping fixes');
 
       final wrapped = [
-        for (final r in [flat('1010004', '01'), flat('1010004', '02'), flat('1010010', '01'), flat('1010004', '03')])
+        for (final r in [
+          flat('1010004', '01'),
+          flat('1010004', '02'),
+          flat('1010010', '01'),
+          flat('1010004', '03')
+        ])
           CourseRow(
             courseNumber: r['courseNumber'] as String,
             courseName: r['courseName'] as String,
@@ -290,21 +300,50 @@ void main() {
   });
 
   group('selected volunteers in 预选 rounds', () {
-    ApiResult envelope(List<Map<String, dynamic>> rows) =>
-        ApiResult(code: '1', msg: '', data: null, dataList: rows, totalCount: rows.length);
+    ApiResult envelope(List<Map<String, dynamic>> rows) => ApiResult(
+        code: '1',
+        msg: '',
+        data: null,
+        dataList: rows,
+        totalCount: rows.length);
 
-    test('come from volunteerResult + publicCourseResult, not courseResult', () async {
+    test('come from volunteerResult + publicCourseResult, not courseResult',
+        () async {
       final client = _CannedClient({
         Api.courseResult: envelope(const []),
         Api.publicCourseResult: envelope([
-          {'courseName': '音乐鉴赏', 'courseIndex': '01', 'teachingClassID': 'P1', 'chooseVolunteer': '1', 'numberOfFirstVolunteer': '319', 'classCapacity': '50', 'canDelete': '1', 'selectStatus': '01'},
-          {'courseName': '《共产党宣言》导读', 'courseIndex': '01', 'teachingClassID': 'P2', 'chooseVolunteer': '2', 'numberOfFirstVolunteer': '47', 'classCapacity': '50', 'canDelete': '1'},
+          {
+            'courseName': '音乐鉴赏',
+            'courseIndex': '01',
+            'teachingClassID': 'P1',
+            'chooseVolunteer': '1',
+            'numberOfFirstVolunteer': '319',
+            'classCapacity': '50',
+            'canDelete': '1',
+            'selectStatus': '01'
+          },
+          {
+            'courseName': '《共产党宣言》导读',
+            'courseIndex': '01',
+            'teachingClassID': 'P2',
+            'chooseVolunteer': '2',
+            'numberOfFirstVolunteer': '47',
+            'classCapacity': '50',
+            'canDelete': '1'
+          },
         ]),
         Api.volunteerResult: envelope([
           {
-            'courseName': '大学物理', 'courseNumber': 'K9', 'credit': '3',
+            'courseName': '大学物理',
+            'courseNumber': 'K9',
+            'credit': '3',
             'tcList': [
-              {'teachingClassID': 'V1', 'courseIndex': '02', 'chooseVolunteer': '1', 'isTest': '0'},
+              {
+                'teachingClassID': 'V1',
+                'courseIndex': '02',
+                'chooseVolunteer': '1',
+                'isTest': '0'
+              },
               {'teachingClassID': 'V1-lab', 'courseIndex': '02', 'isTest': '1'},
             ],
           },
@@ -312,15 +351,20 @@ void main() {
       });
       final service = CourseService(client);
 
-      final normal = await service.fetchSelected(studentCode: 'S', batchCode: 'B');
+      final normal =
+          await service.fetchSelected(studentCode: 'S', batchCode: 'B');
       expect(normal, isEmpty);
       expect(client.calls.map((c) => c.$1), [Api.courseResult]);
 
       client.calls.clear();
-      final volunteers = await service.fetchSelected(studentCode: 'S', batchCode: 'B', volunteerRound: true);
-      expect(client.calls.map((c) => c.$1).toSet(), {Api.volunteerResult, Api.publicCourseResult});
-      expect(volunteers.map((t) => t.teachingClassId), ['V1', 'P1', 'P2'], reason: 'experiment classes are hidden');
-      expect(volunteers[0].courseName, '大学物理', reason: 'course-level fields flow down to tcList rows');
+      final volunteers = await service.fetchSelected(
+          studentCode: 'S', batchCode: 'B', volunteerRound: true);
+      expect(client.calls.map((c) => c.$1).toSet(),
+          {Api.volunteerResult, Api.publicCourseResult});
+      expect(volunteers.map((t) => t.teachingClassId), ['V1', 'P1', 'P2'],
+          reason: 'experiment classes are hidden');
+      expect(volunteers[0].courseName, '大学物理',
+          reason: 'course-level fields flow down to tcList rows');
       expect(volunteers[1].heldVolunteerGrade, '1');
       expect(volunteers[1].firstVolunteers, 319);
       expect(volunteers[1].canDelete, isTrue);
@@ -418,7 +462,8 @@ void main() {
       expect(onlinePlatformOf('yw001'), '知到');
       expect(onlinePlatformOf('1010002'), '');
       expect(onlinePlatformOf('RC001'), '');
-      expect(onlinePlatformOf('Ey024'), '', reason: 'prefixes are case-sensitive');
+      expect(onlinePlatformOf('Ey024'), '',
+          reason: 'prefixes are case-sensitive');
       final zh = TeachingClass.fromJson({
         'teachingClassID': '202620271ZH03701',
         'courseNumber': 'ZH037',
