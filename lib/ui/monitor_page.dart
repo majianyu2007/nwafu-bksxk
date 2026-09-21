@@ -32,7 +32,8 @@ class MonitorPage extends ConsumerWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final sideLog = constraints.maxWidth >= _kSideLogBreakpoint;
+        final sideLog = constraints.maxWidth >=
+            _kSideLogBreakpoint * layoutTextScale(context);
         final list = _WatchList(watches: watches, labelOf: labelOf);
 
         return Column(
@@ -226,7 +227,8 @@ class _WatchCard extends ConsumerWidget {
               children: [
                 StatusPill(label: categoryLabel, color: scheme.secondary),
                 if (tc.publicCourseType.isNotEmpty)
-                  StatusPill(label: tc.publicCourseType, color: scheme.tertiary),
+                  StatusPill(
+                      label: tc.publicCourseType, color: scheme.tertiary),
                 if (watch.volunteerGrade != null)
                   StatusPill(
                       label: '第${watch.volunteerGrade}志愿',
@@ -251,14 +253,14 @@ class _WatchCard extends ConsumerWidget {
               Text(
                   '上次检查 ${formatClock(watch.lastCheckedAt!)}  已提交 ${watch.attempts} 次',
                   style:
-                      TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+                      TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
             ],
             if (watch.lastResultAt != null && watch.lastRawResult != null) ...[
               const SizedBox(height: 2),
               Text(
                   '服务器回复 ${formatClock(watch.lastResultAt!)}：${watch.lastRawResult}',
                   style:
-                      TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+                      TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
             ],
             const SizedBox(height: 8),
             Row(

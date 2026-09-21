@@ -78,7 +78,9 @@ SessionScope _scope(String id, CourseService course) {
     enroll: enroll,
     info: InfoService(client),
     manager: SessionManager(
-        client: client, auth: auth, solver: OcrCaptchaSolver((_) async => null)),
+        client: client,
+        auth: auth,
+        solver: OcrCaptchaSolver((_) async => null)),
     engine: MonitorEngine(courseService: course, enrollService: enroll),
   );
 }
@@ -107,18 +109,12 @@ void main() {
 
     service.requests['second']!.complete([_row('newest')]);
     await second;
-    expect(container.read(coursesOfProvider(id)).rows.single.courseName, 'newest');
+    expect(
+        container.read(coursesOfProvider(id)).rows.single.courseName, 'newest');
 
     service.requests['first']!.complete([_row('stale')]);
     await first;
-    expect(container.read(coursesOfProvider(id)).rows.single.courseName, 'newest');
-  });
-
-  test('switching to the whole-school catalogue pages instead of loading whole',
-      () {
-    final state = CoursesState(kind: CourseKind.qxkc, totalCount: 6381);
-    expect(state.paged, isTrue);
-    expect(state.pageCount, 64);
-    expect(CoursesState(kind: CourseKind.xgxk).paged, isFalse);
+    expect(
+        container.read(coursesOfProvider(id)).rows.single.courseName, 'newest');
   });
 }

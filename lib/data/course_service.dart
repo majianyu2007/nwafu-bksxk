@@ -67,16 +67,15 @@ class CourseService {
     return groupFlatRows(rows);
   }
 
-  /// One server page of the whole-school catalogue (queryCourse.do). The
-  /// catalogue is ~6400 flat rows and 18 MB when pulled whole, so the official
-  /// page pages it 10 at a time; the app pages it too, with a larger page.
-  /// Returns the grouped rows of this page and the server's total row count.
+  /// One bounded server page of whole-school teaching-class records.
+  /// Keep these ungrouped: totalCount and page offsets count classes, not
+  /// courses. Grouping before persistence would lose all but the first raw row.
   Future<({List<CourseRow> rows, int totalCount})> fetchCatalogPage({
     required String studentCode,
     required String campus,
     required String batchCode,
     String queryContent = '',
-    int pageSize = 100,
+    int pageSize = 20,
     int pageNumber = 0,
   }) async {
     final form = buildCourseQuery(
@@ -90,21 +89,26 @@ class CourseService {
     );
     final res = await _client.postForm(CourseKind.qxkc.endpoint, form);
     if (!res.ok) {
-      if (res.msg.isNotEmpty) throw AppError.fromBusiness(res.code, res.msg);
-      return (rows: <CourseRow>[], totalCount: 0);
+      throw AppError.fromBusiness(
+          res.code, res.msg.isEmpty ? '全校课程目录暂时无法读取，请稍后重试' : res.msg);
     }
-    final rows = [
-      for (final row in res.dataList.whereType<Map>())
-        _asCourseRow(CourseKind.qxkc, row.cast<String, dynamic>()),
-    ];
-    return (rows: groupFlatRows(rows), totalCount: res.totalCount);
+    return (
+      rows: catalogRowsFromJson(res.dataList
+          .whereType<Map>()
+          .map((row) => row.cast<String, dynamic>())),
+      totalCount: res.totalCount,
+    );
   }
+
+  static List<CourseRow> catalogRowsFromJson(
+          Iterable<Map<String, dynamic>> rows) =>
+      [for (final row in rows) _asCourseRow(CourseKind.qxkc, row)];
 
   /// Some endpoints return course rows with a `tcList`; others (publicCourse
   /// for XGXK, queryCourse for QXKC) return one flat row per teaching class.
   /// Flat rows are wrapped as single-class courses here and merged per course
   /// number by [groupFlatRows] afterwards.
-  CourseRow _asCourseRow(CourseKind kind, Map<String, dynamic> row) {
+  static CourseRow _asCourseRow(CourseKind kind, Map<String, dynamic> row) {
     final flat = !row.containsKey('tcList') && row['teachingClassID'] != null;
     if (flat) {
       final tc = TeachingClass.fromJson(row);

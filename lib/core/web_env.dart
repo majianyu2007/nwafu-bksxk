@@ -6,7 +6,8 @@
 /// build never references dart:js_interop.
 library;
 
-import 'web_env_stub.dart' if (dart.library.js_interop) 'web_env_web.dart' as impl;
+import 'web_env_stub.dart' if (dart.library.js_interop) 'web_env_web.dart'
+    as impl;
 
 /// True only when running as a web app in a browser.
 bool get isWebRuntime => impl.isWebRuntime;
@@ -15,6 +16,9 @@ bool get isWebRuntime => impl.isWebRuntime;
 /// its XHR bridge (it sets window.__bksxkBridgeReady). Always true off-web,
 /// since native has no CORS restriction.
 bool get isWebBridgeReady => impl.isWebBridgeReady;
+
+/// Installed bridge version, or null when absent, native, or a legacy script.
+String? get installedWebBridgeVersion => impl.installedWebBridgeVersion;
 
 /// Opens the deployed userscript URL so Tampermonkey or ScriptCat can install
 /// the web bridge directly. This is a no-op on native platforms.

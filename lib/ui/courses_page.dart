@@ -72,7 +72,8 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
     final state = ref.watch(coursesStateProvider);
     final ctrl = ref.read(coursesProvider);
     final batch = ref.watch(sessionProvider.select((s) => s.activeBatch));
-    final sysParams = ref.watch(sysParamsProvider).asData?.value ?? SysParams.empty;
+    final sysParams =
+        ref.watch(sysParamsProvider).asData?.value ?? SysParams.empty;
     // Each round says which categories it exposes (display* flags); offer
     // only those, as the official tab bar does.
     final kinds = [
@@ -82,7 +83,8 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= _kMasterDetailBreakpoint;
+        final wide = constraints.maxWidth >=
+            _kMasterDetailBreakpoint * layoutTextScale(context);
         return Column(
           children: [
             _Header(
@@ -93,17 +95,36 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
               searchCtrl: _searchCtrl,
               onSearch: (q) {
                 ctrl.setQuery(q);
-                ctrl.load();
+                if (!state.paged) ctrl.load();
               },
-              onRefresh: state.loading ? null : ctrl.load,
+              onRefresh: state.loading ? null : ctrl.refreshCatalogOrCourses,
               wide: wide,
             ),
             if (state.kind == CourseKind.xgxk) const _CreditRequirementStrip(),
             if (state.rows.isNotEmpty || state.paged)
               _FilterBar(state: state, ctrl: ctrl),
+            if (state.paged)
+              NoticeStrip(
+                icon: state.catalogComplete
+                    ? Icons.offline_pin_outlined
+                    : Icons.download_outlined,
+                text: state.loading
+                    ? '正在后台下载目录：${state.catalogDownloaded}'
+                        '${state.totalCount > 0 ? ' / ${state.totalCount}' : ''} 个班'
+                        '${state.catalogComplete ? '；继续使用原完整缓存' : '；已下载部分可搜索'}'
+                    : state.catalogComplete
+                        ? '完整目录已保存本机${state.cachedAt == null ? '' : '（${_ago(state.cachedAt!)}）'}；搜索和翻页无需联网'
+                        : '目录尚未完整：已保存 ${state.catalogDownloaded} 个班；搜索仅覆盖已下载部分',
+                action: state.loading
+                    ? null
+                    : TextButton(
+                        onPressed: ctrl.refreshCatalogOrCourses,
+                        child: Text(state.catalogComplete ? '更新目录' : '继续下载'),
+                      ),
+              ),
             if (state.loading && state.rows.isNotEmpty)
               const LinearProgressIndicator(minHeight: 2),
-            if (state.cachedAt != null)
+            if (!state.paged && state.cachedAt != null)
               NoticeStrip(
                 icon: Icons.history,
                 text: state.loading
@@ -115,7 +136,9 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
                 icon: Icons.cloud_off_outlined,
                 error: true,
                 text: '刷新失败：${state.error}',
-                action: TextButton(onPressed: ctrl.load, child: const Text('重试')),
+                action: TextButton(
+                    onPressed: ctrl.refreshCatalogOrCourses,
+                    child: const Text('重试')),
               ),
             Expanded(
               child: wide
@@ -145,7 +168,8 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
       return const Center(child: CircularProgressIndicator());
     }
     if (state.error != null && state.rows.isEmpty) {
-      return _ErrorState(message: state.error!, onRetry: ctrl.load);
+      return _ErrorState(
+          message: state.error!, onRetry: ctrl.refreshCatalogOrCourses);
     }
     if (!state.loadedOnce) {
       return const Center(child: CircularProgressIndicator());
@@ -164,14 +188,15 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
       BuildContext context, CoursesState state, CoursesController ctrl) {
     final placeholder = _placeholder(state, ctrl);
     if (placeholder != null) return placeholder;
+    final rows = state.visibleRows;
     return RefreshIndicator(
-      onRefresh: ctrl.load,
+      onRefresh: ctrl.refreshCatalogOrCourses,
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 88),
-        itemCount: state.visibleRows.length,
+        itemCount: rows.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (context, i) =>
-            _CourseCard(row: state.visibleRows[i], kind: state.kind),
+            _CourseCard(row: rows[i], kind: state.kind),
       ),
     );
   }
@@ -253,7 +278,7 @@ class _Header extends StatelessWidget {
       controller: searchCtrl,
       textInputAction: TextInputAction.search,
       decoration: InputDecoration(
-        hintText: '课程名或课程号',
+        hintText: kind.isBrowseOnly ? '本地搜索课程名、课程号或教师' : '课程名或课程号',
         prefixIcon: const Icon(Icons.search),
         suffixIcon: IconButton(
           icon: const Icon(Icons.arrow_forward),
@@ -261,10 +286,11 @@ class _Header extends StatelessWidget {
           onPressed: () => onSearch(searchCtrl.text.trim()),
         ),
       ),
+      onChanged: kind.isBrowseOnly ? onSearch : null,
       onSubmitted: (q) => onSearch(q.trim()),
     );
     final chips = SizedBox(
-      height: 40,
+      height: 32 + MediaQuery.textScalerOf(context).scale(20),
       child: ListView(
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.symmetric(horizontal: wide ? 0 : 12),
@@ -290,7 +316,7 @@ class _Header extends StatelessWidget {
             title: '选课',
             actions: [
               IconButton(
-                tooltip: '刷新',
+                tooltip: kind.isBrowseOnly ? '更新完整目录' : '刷新',
                 icon: const Icon(Icons.refresh),
                 onPressed: onRefresh,
               ),
@@ -366,7 +392,8 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     );
   }
 
-  Future<bool> _confirmConflict(TeachingClass tc, {required bool monitor}) async {
+  Future<bool> _confirmConflict(TeachingClass tc,
+      {required bool monitor}) async {
     final proceed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -587,10 +614,8 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
 
   Widget _tile(TeachingClass tc, CourseRow row, CourseKind kind,
       {bool bordered = true}) {
-    final watched = ref
-        .watch(watchesProvider)
-        .any((w) => w.id == _ctrl.watchIdFor(tc) &&
-            w.status != WatchStatus.grabbed);
+    final watched = ref.watch(watchesProvider).any(
+        (w) => w.id == _ctrl.watchIdFor(tc) && w.status != WatchStatus.grabbed);
     return TeachingClassTile(
       teachingClass: tc,
       kind: kind,
@@ -635,7 +660,8 @@ class _CourseListTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final classes = row.teachingClasses;
-    final open = classes.where((c) => !c.hasCapacityInfo || c.remaining > 0).length;
+    final open =
+        classes.where((c) => !c.hasCapacityInfo || c.remaining > 0).length;
     return Material(
       color: selected ? scheme.secondaryContainer : Colors.transparent,
       borderRadius: BorderRadius.circular(12),
@@ -663,12 +689,15 @@ class _CourseListTile extends StatelessWidget {
                         ),
                         if (row.onlinePlatform.isNotEmpty) ...[
                           const SizedBox(width: 6),
-                          StatusPill(label: row.onlinePlatform, color: Colors.teal),
+                          StatusPill(
+                              label: row.onlinePlatform, color: Colors.teal),
                         ],
                         if (row.isHeld) ...[
                           const SizedBox(width: 6),
                           const StatusPill(
-                              label: '已选', color: Colors.green, icon: Icons.check),
+                              label: '已选',
+                              color: Colors.green,
+                              icon: Icons.check),
                         ],
                       ],
                     ),
@@ -786,7 +815,8 @@ class _CourseCardState extends ConsumerState<_CourseCard>
     final scheme = Theme.of(context).colorScheme;
     final row = widget.row;
     final classes = row.teachingClasses;
-    final open = classes.where((c) => !c.hasCapacityInfo || c.remaining > 0).length;
+    final open =
+        classes.where((c) => !c.hasCapacityInfo || c.remaining > 0).length;
 
     return Card(
       child: Column(
@@ -814,7 +844,9 @@ class _CourseCardState extends ConsumerState<_CourseCard>
                             ),
                             if (row.onlinePlatform.isNotEmpty) ...[
                               const SizedBox(width: 6),
-                              StatusPill(label: row.onlinePlatform, color: Colors.teal),
+                              StatusPill(
+                                  label: row.onlinePlatform,
+                                  color: Colors.teal),
                             ],
                             if (row.isHeld) ...[
                               const SizedBox(width: 6),
@@ -842,9 +874,10 @@ class _CourseCardState extends ConsumerState<_CourseCard>
                                 ? '$open/${classes.length} 班可选'
                                 : '${classes.length} 班',
                             style: TextStyle(
-                                color: open == 0 && classes.first.hasCapacityInfo
-                                    ? scheme.error
-                                    : scheme.onSurfaceVariant,
+                                color:
+                                    open == 0 && classes.first.hasCapacityInfo
+                                        ? scheme.error
+                                        : scheme.onSurfaceVariant,
                                 fontSize: 12)),
                         Icon(_expanded ? Icons.expand_less : Icons.expand_more,
                             color: scheme.onSurfaceVariant),
@@ -874,7 +907,7 @@ class _CreditRequirementStrip extends ConsumerWidget {
     final reqs = credit?.requirements ?? const [];
     if (reqs.isEmpty) return const SizedBox.shrink();
     return SizedBox(
-      height: 36,
+      height: 24 + MediaQuery.textScalerOf(context).scale(20),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
@@ -886,8 +919,10 @@ class _CreditRequirementStrip extends ConsumerWidget {
             message: '${r.category}\n要求学分 ${r.required}，已修 ${r.earned}',
             child: Chip(
               visualDensity: VisualDensity.compact,
-              label: Text('${r.category.replaceAll('-2025版', '')}  ${r.earned}/${r.required}',
-                  style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+              label: Text(
+                  '${r.category.replaceAll('-2025版', '')}  ${r.earned}/${r.required}',
+                  style:
+                      TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
             ),
           );
         },
@@ -896,9 +931,8 @@ class _CreditRequirementStrip extends ConsumerWidget {
   }
 }
 
-/// Chips that narrow the loaded list: 通识类别 and 开课单位 facets, plus 无冲突
-/// / 有余量 / 网课 switches. For the paged catalogue the facets are sent to
-/// the server (dictionary codes), as the official page does.
+/// Local facets for downloaded courses, with enrollment-only switches hidden
+/// for the query-only whole-school catalogue.
 class _FilterBar extends ConsumerWidget {
   const _FilterBar({required this.state, required this.ctrl});
   final CoursesState state;
@@ -908,55 +942,26 @@ class _FilterBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final f = state.filters;
     final scheme = Theme.of(context).colorScheme;
-    final dict = ref.watch(dictionaryProvider).asData?.value ?? const {};
     final chips = <Widget>[];
-    if (state.paged) {
-      final types = dict['XGXKLB'] ?? const [];
-      final departments = dict['KKDW'] ?? const [];
-      if (types.isNotEmpty) {
-        chips.add(_FacetMenu(
-          label: '通识类别',
-          value: f.publicType,
-          options: [for (final d in types) d.name],
-          onChanged: (v) => v == null
-              ? ctrl.setCatalogFacets(clearType: true)
-              : ctrl.setCatalogFacets(
-                  typeName: v,
-                  typeCode: types.firstWhere((d) => d.name == v).code),
-        ));
-      }
-      if (departments.isNotEmpty) {
-        chips.add(_FacetMenu(
-          label: '开课单位',
-          value: f.department,
-          options: [for (final d in departments) d.name],
-          onChanged: (v) => v == null
-              ? ctrl.setCatalogFacets(clearDepartment: true)
-              : ctrl.setCatalogFacets(
-                  departmentName: v,
-                  departmentCode:
-                      departments.firstWhere((d) => d.name == v).code),
-        ));
-      }
-    } else {
-      final types = state.publicTypes;
-      final departments = state.departments;
-      if (types.length > 1) {
-        chips.add(_FacetMenu(
-          label: '类别',
-          value: f.publicType,
-          options: types,
-          onChanged: (v) => ctrl.setFilters(f.copyWith(publicType: v)),
-        ));
-      }
-      if (departments.length > 1) {
-        chips.add(_FacetMenu(
-          label: '开课单位',
-          value: f.department,
-          options: departments,
-          onChanged: (v) => ctrl.setFilters(f.copyWith(department: v)),
-        ));
-      }
+    final types = state.publicTypes;
+    final departments = state.departments;
+    if (types.length > 1) {
+      chips.add(_FacetMenu(
+        label: '类别',
+        value: f.publicType,
+        options: types,
+        onChanged: (v) => ctrl.setFilters(f.copyWith(publicType: v)),
+      ));
+    }
+    if (departments.length > 1) {
+      chips.add(_FacetMenu(
+        label: '开课单位',
+        value: f.department,
+        options: departments,
+        onChanged: (v) => ctrl.setFilters(f.copyWith(department: v)),
+      ));
+    }
+    if (!state.paged) {
       chips.addAll([
         FilterChip(
           label: const Text('无冲突'),
@@ -977,13 +982,11 @@ class _FilterBar extends ConsumerWidget {
         onSelected: (v) => ctrl.setFilters(f.copyWith(onlyOnline: v)),
       ));
     }
-    if (f.isActive && (!state.paged || f.onlyOnline)) {
+    if (f.isActive) {
       chips.add(ActionChip(
         avatar: const Icon(Icons.clear, size: 16),
         label: const Text('清除'),
-        onPressed: () => state.paged
-            ? ctrl.setFilters(f.copyWith(onlyOnline: false))
-            : ctrl.setFilters(const CourseFilters()),
+        onPressed: () => ctrl.setFilters(const CourseFilters()),
       ));
     }
     if (chips.isEmpty) return const SizedBox.shrink();
@@ -996,7 +999,7 @@ class _FilterBar extends ConsumerWidget {
         children: [
           Expanded(
             child: SizedBox(
-              height: 36,
+              height: 28 + MediaQuery.textScalerOf(context).scale(20),
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: chips.length,
@@ -1008,7 +1011,7 @@ class _FilterBar extends ConsumerWidget {
           const SizedBox(width: 12),
           Text(
             state.paged
-                ? '共 ${state.totalCount} 个班'
+                ? '${state.filteredRows.length} 门（本地）'
                 : '${state.visibleRows.length} 门 $classCount 班',
             style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
           ),
@@ -1034,15 +1037,15 @@ class _Pager extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           IconButton(
-            onPressed: state.page > 0 && !state.loading
-                ? () => onPage(state.page - 1)
-                : null,
+            tooltip: '上一页',
+            onPressed: state.page > 0 ? () => onPage(state.page - 1) : null,
             icon: const Icon(Icons.chevron_left),
           ),
           Text('第 ${state.page + 1} / ${state.pageCount} 页',
               style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
           IconButton(
-            onPressed: state.page + 1 < state.pageCount && !state.loading
+            tooltip: '下一页',
+            onPressed: state.page + 1 < state.pageCount
                 ? () => onPage(state.page + 1)
                 : null,
             icon: const Icon(Icons.chevron_right),

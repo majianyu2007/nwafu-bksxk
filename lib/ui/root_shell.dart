@@ -22,6 +22,7 @@ import 'selected_page.dart';
 import 'settings_page.dart';
 import 'batch_pick_dialog.dart';
 import 'widgets.dart';
+import 'update_widgets.dart';
 
 @visibleForTesting
 int notificationDestinationIndex(String? payload) => switch (payload) {
@@ -83,7 +84,9 @@ class _RootShellState extends ConsumerState<RootShell>
     ref.read(monitorLogOfProvider(id));
     if (_onboarded.add(id)) {
       final batches = ref.read(sessionControllerProvider(id)).batches;
-      if (batches.isNotEmpty && mounted) await showBatchPickDialog(context, ref);
+      if (batches.isNotEmpty && mounted) {
+        await showBatchPickDialog(context, ref);
+      }
     }
     if (!mounted) return;
     if (_unsuccessfulChecked.add(id)) await _checkUnsuccessful(id);
@@ -199,7 +202,9 @@ class _RootShellState extends ConsumerState<RootShell>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final useRail = constraints.maxWidth >= kRailBreakpoint;
+        final textScale = layoutTextScale(context);
+        final useRail = constraints.maxWidth >= kRailBreakpoint &&
+            constraints.maxHeight >= 560 * textScale;
         final tabs = multi
             ? AccountTabs(
                 signedIn: signedIn,
@@ -214,9 +219,10 @@ class _RootShellState extends ConsumerState<RootShell>
           child: Column(
             children: [
               if (tabs != null) tabs,
+              const UpdateNoticeBanner(),
               Expanded(
                 child: Align(
-                  alignment: Alignment.topLeft,
+                  alignment: Alignment.topCenter,
                   child: ConstrainedBox(
                     constraints:
                         const BoxConstraints(maxWidth: kContentMaxWidth),
@@ -231,7 +237,8 @@ class _RootShellState extends ConsumerState<RootShell>
         );
 
         if (useRail) {
-          final extended = constraints.maxWidth >= kExtendedRailBreakpoint;
+          final extended =
+              constraints.maxWidth >= kExtendedRailBreakpoint * textScale;
           return Scaffold(
             body: Row(
               children: [
@@ -290,6 +297,10 @@ class _RootShellState extends ConsumerState<RootShell>
         return Scaffold(
           body: content,
           bottomNavigationBar: NavigationBar(
+            height: 56 + MediaQuery.textScalerOf(context).scale(20),
+            labelBehavior: constraints.maxWidth < 400 || textScale > 1.3
+                ? NavigationDestinationLabelBehavior.onlyShowSelected
+                : NavigationDestinationLabelBehavior.alwaysShow,
             selectedIndex: _index,
             onDestinationSelected: _selectPage,
             destinations: [
@@ -350,7 +361,7 @@ class AccountTabs extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      height: 44,
+      height: 24 + MediaQuery.textScalerOf(context).scale(24),
       color: scheme.surfaceContainer,
       child: Row(
         children: [
@@ -379,7 +390,8 @@ class AccountTabs extends ConsumerWidget {
     );
   }
 
-  Future<void> _confirmClose(BuildContext context, WidgetRef ref, String id) async {
+  Future<void> _confirmClose(
+      BuildContext context, WidgetRef ref, String id) async {
     final s = ref.read(sessionControllerProvider(id));
     final running = ref.read(sessionScopeProvider(id)).engine.isRunning;
     final ok = await showDialog<bool>(
@@ -483,12 +495,15 @@ class _Avatar extends ConsumerWidget {
         ref.read(sessionScopeProvider(id)).engine.isRunning;
     final avatar = CircleAvatar(
       radius: size / 2,
-      backgroundColor: expired ? scheme.errorContainer : scheme.primaryContainer,
+      backgroundColor:
+          expired ? scheme.errorContainer : scheme.primaryContainer,
       child: Text(initial,
           style: TextStyle(
               fontSize: size * 0.42,
               fontWeight: FontWeight.w700,
-              color: expired ? scheme.onErrorContainer : scheme.onPrimaryContainer)),
+              color: expired
+                  ? scheme.onErrorContainer
+                  : scheme.onPrimaryContainer)),
     );
     if (!running && !expired) return avatar;
     return Badge(
@@ -540,7 +555,8 @@ class _UnsuccessfulDialog extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(r.displayTitle,
-                            style: const TextStyle(fontWeight: FontWeight.w600)),
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w600)),
                         const SizedBox(height: 2),
                         Text(
                           [

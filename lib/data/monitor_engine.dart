@@ -116,6 +116,9 @@ class Watch {
   /// the same seat.
   bool submitInFlight = false;
 
+  /// Invalidates capacity responses started before this watch was paused.
+  int _pollGeneration = 0;
+
   /// When the last add/drop result was recorded, and the raw server text — kept
   /// so the user can confirm the outcome and to aid dispute troubleshooting.
   DateTime? lastResultAt;
@@ -390,9 +393,10 @@ class MonitorEngine {
 
   void pauseWatch(String id) {
     final w = _watches[id];
-    if (w == null) return;
+    if (w == null || w.status != WatchStatus.watching) return;
     _timers.remove(id)?.cancel();
-    if (w.status == WatchStatus.watching) w.status = WatchStatus.paused;
+    w._pollGeneration++;
+    w.status = WatchStatus.paused;
     _changes.add(null);
   }
 
@@ -400,6 +404,7 @@ class MonitorEngine {
     final w = _watches[id];
     if (w == null) return;
     if (w.status == WatchStatus.paused || w.status == WatchStatus.needsSetup) {
+      w.status = WatchStatus.watching;
       _validate(w);
       if (w.status == WatchStatus.watching && _running) {
         _schedule(w, immediate: true);
@@ -509,10 +514,12 @@ class MonitorEngine {
   Future<void> _tick(Watch w) async {
     if (!_running || w.status != WatchStatus.watching) return;
     final generation = _pollGeneration;
+    final watchGeneration = w._pollGeneration;
     bool active() =>
         !_disposed &&
         _running &&
         generation == _pollGeneration &&
+        watchGeneration == w._pollGeneration &&
         w.status == WatchStatus.watching &&
         identical(_watches[w.id], w);
     try {

@@ -5,6 +5,17 @@ library;
 
 import 'package:flutter/material.dart';
 
+/// Multiply the platform scaler without discarding its nonlinear behavior.
+class AppTextScaler extends TextScaler {
+  const AppTextScaler(this.system, this.factor);
+  final TextScaler system;
+  final double factor;
+  @override
+  double scale(double fontSize) => system.scale(fontSize) * factor;
+  @override
+  double get textScaleFactor => scale(14) / 14;
+}
+
 class AppTheme {
   AppTheme._();
 
@@ -20,7 +31,22 @@ class AppTheme {
     final baseText = brightness == Brightness.dark
         ? Typography.material2021().white
         : Typography.material2021().black;
-    final textTheme = baseText.apply(fontFamily: fontFamily);
+    final textTheme = baseText
+        .apply(
+          fontFamily: fontFamily,
+          bodyColor: scheme.onSurface,
+          displayColor: scheme.onSurface,
+        )
+        .copyWith(
+          bodyLarge: baseText.bodyLarge?.copyWith(
+              fontFamily: fontFamily, color: scheme.onSurface, height: 1.5),
+          bodyMedium: baseText.bodyMedium?.copyWith(
+              fontFamily: fontFamily, color: scheme.onSurface, height: 1.5),
+          bodySmall: baseText.bodySmall?.copyWith(
+              fontFamily: fontFamily,
+              color: scheme.onSurfaceVariant,
+              height: 1.4),
+        );
 
     return ThemeData(
       useMaterial3: true,
@@ -29,6 +55,8 @@ class AppTheme {
       fontFamily: fontFamily,
       scaffoldBackgroundColor: scheme.surface,
       textTheme: textTheme,
+      materialTapTargetSize: MaterialTapTargetSize.padded,
+      visualDensity: VisualDensity.standard,
       splashFactory: InkSparkle.splashFactory,
       appBarTheme: AppBarTheme(
         backgroundColor: scheme.surface,
@@ -68,19 +96,23 @@ class AppTheme {
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: scheme.primary, width: 2),
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size(64, 44),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          textStyle: textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+          minimumSize: const Size(64, 48),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          textStyle:
+              textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size(64, 44),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          minimumSize: const Size(64, 48),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(

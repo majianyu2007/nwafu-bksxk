@@ -18,6 +18,7 @@ import '../data/auth_service.dart';
 import '../data/storage.dart';
 import 'diagnostics_page.dart';
 import 'settings_page.dart';
+import 'update_widgets.dart';
 
 /// Visual state of the OCR captcha recognizer.
 enum OcrStatus { idle, warming, recognizing, recognized, failed }
@@ -286,6 +287,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     _Brand(scheme: scheme),
                     const SizedBox(height: 28),
                   ],
+                  const UpdateNoticeBanner(),
                   if (accounts.isNotEmpty) ...[
                     _SavedAccounts(
                       accounts: accounts,
@@ -410,7 +412,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   const SizedBox(height: 16),
                   FilledButton(
                     onPressed: busy ? null : _submit,
-                    style: FilledButton.styleFrom(minimumSize: const Size(64, 50)),
+                    style:
+                        FilledButton.styleFrom(minimumSize: const Size(64, 50)),
                     child: busy
                         ? const SizedBox(
                             height: 22,

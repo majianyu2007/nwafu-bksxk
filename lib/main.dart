@@ -46,12 +46,22 @@ class NwafuXkApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(themeControllerProvider);
     final signedIn = ref.watch(activeAccountIdProvider) != null;
+    final textScale = ref.watch(textScaleProvider);
 
     return DynamicColorBuilder(
       builder: (lightDynamic, darkDynamic) {
         return MaterialApp(
           title: '西农本科选课',
           debugShowCheckedModeBanner: false,
+          builder: (context, child) {
+            final media = MediaQuery.of(context);
+            return MediaQuery(
+              data: media.copyWith(
+                textScaler: AppTextScaler(media.textScaler, textScale),
+              ),
+              child: child!,
+            );
+          },
           themeMode: theme.mode,
           theme: AppTheme.build(
             brightness: Brightness.light,

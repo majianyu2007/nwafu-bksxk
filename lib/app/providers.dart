@@ -254,17 +254,18 @@ final sessionScopeProvider = Provider.family<SessionScope, String>((ref, id) {
       Duration(minutes: ref.read(contestedWindowMinutesProvider));
   ref.listen<int>(contestedWindowMinutesProvider,
       (_, next) => manager.contestedWindow = Duration(minutes: next));
-  manager.onSilentReloginFailed =
-      () => ref.read(sessionControllerProvider(id).notifier).markSessionExpired();
-  manager.onSilentReloginSucceeded =
-      () => ref.read(sessionControllerProvider(id).notifier).onSessionRecovered();
+  manager.onSilentReloginFailed = () =>
+      ref.read(sessionControllerProvider(id).notifier).markSessionExpired();
+  manager.onSilentReloginSucceeded = () =>
+      ref.read(sessionControllerProvider(id).notifier).onSessionRecovered();
 
   final engine = MonitorEngine(
     courseService: course,
     enrollService: enroll,
     config: ref.read(monitorConfigProvider),
   );
-  ref.listen<MonitorConfig>(monitorConfigProvider, (_, next) => engine.config = next);
+  ref.listen<MonitorConfig>(
+      monitorConfigProvider, (_, next) => engine.config = next);
   try {
     engine.loadWatches(storage.watchesJson(id));
   } catch (_) {
@@ -393,7 +394,8 @@ class SessionController extends StateNotifier<SessionState> {
 
   void _startHeartbeat() {
     _heartbeat?.cancel();
-    _heartbeat = Timer.periodic(const Duration(seconds: 45), (_) => heartbeat());
+    _heartbeat =
+        Timer.periodic(const Duration(seconds: 45), (_) => heartbeat());
   }
 
   /// Called when the API client detected an expired session and the silent
@@ -424,7 +426,8 @@ class SessionController extends StateNotifier<SessionState> {
     required String vtoken,
   }) async {
     final account = state.account;
-    final loginName = account?.loginName ?? state.student?.studentCode ?? accountId;
+    final loginName =
+        account?.loginName ?? state.student?.studentCode ?? accountId;
     state = state.copyWith(clearError: true);
     final previousActive = state.activeBatch?.code;
     await _mgr.loginInteractive(
@@ -685,17 +688,22 @@ final backgroundDriverProvider = Provider<void>((ref) {
       final e = ref.read(sessionScopeProvider(id)).engine;
       if (e.isRunning) {
         running++;
-        watching += e.watches.where((w) => w.status == WatchStatus.watching).length;
+        watching +=
+            e.watches.where((w) => w.status == WatchStatus.watching).length;
       }
     }
     AppBackground.instance.setMonitoring(running > 0,
         runInBackground: runInBackground, keepAwake: keepAwake);
-    AppBackground.instance.updateStatus(
-        running == 0 ? '' : '$running 个账号监控中，$watching 门课');
+    AppBackground.instance
+        .updateStatus(running == 0 ? '' : '$running 个账号监控中，$watching 门课');
   }
 
   for (final id in ids) {
-    subs.add(ref.read(sessionScopeProvider(id)).engine.changes.listen((_) => apply()));
+    subs.add(ref
+        .read(sessionScopeProvider(id))
+        .engine
+        .changes
+        .listen((_) => apply()));
   }
   AppBackground.instance.setCloseToTray(runInBackground);
   apply();
@@ -821,6 +829,18 @@ class ThemeController extends StateNotifier<ThemeSettings> {
 final themeControllerProvider =
     StateNotifierProvider<ThemeController, ThemeSettings>(
         (ref) => ThemeController(ref.watch(storageProvider)));
+
+class TextScaleController extends StateNotifier<double> {
+  TextScaleController(this.storage) : super(storage.textScale());
+  final Storage storage;
+  Future<void> set(double value) async {
+    state = value.clamp(0.85, 1.6);
+    await storage.setTextScale(state);
+  }
+}
+
+final textScaleProvider = StateNotifierProvider<TextScaleController, double>(
+    (ref) => TextScaleController(ref.watch(storageProvider)));
 
 // ---------------------------------------------------------------------------
 // Saved accounts

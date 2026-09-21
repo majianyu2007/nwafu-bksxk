@@ -42,6 +42,12 @@ const double kReadableMaxWidth = 860;
 /// Horizontal page gutter for the given width.
 double pageGutter(double width) => WindowClass.of(width).isWide ? 24 : 16;
 
+/// Use the actual text scaler when deciding how much room a layout needs.
+/// This changes layout density, never the user's requested font size.
+double layoutTextScale(BuildContext context) =>
+    (MediaQuery.textScalerOf(context).scale(14) / 14)
+        .clamp(1.0, double.infinity);
+
 /// Lays [children] out in as many equal-width columns as fit, given a minimum
 /// column width. Rows take the height of their tallest child, so cards of
 /// varying height still line up without a fixed aspect ratio.
@@ -73,7 +79,7 @@ class AdaptiveGrid extends StatelessWidget {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final columns = columnsFor(width,
-            minColumnWidth: minColumnWidth,
+            minColumnWidth: minColumnWidth * layoutTextScale(context),
             maxColumns: maxColumns,
             spacing: spacing);
         final itemWidth = (width - spacing * (columns - 1)) / columns;
@@ -109,19 +115,38 @@ class PageHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: padding,
-      child: Row(
-        children: [
-          Text(
-            title,
-            style: Theme.of(context)
-                .textTheme
-                .headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const Spacer(),
-          ...actions,
-        ],
-      ),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final heading = Text(
+          title,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+        );
+        final controls = Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: actions,
+        );
+        if (actions.isEmpty) return heading;
+        if (constraints.maxWidth < 600 * layoutTextScale(context)) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              heading,
+              const SizedBox(height: 8),
+              controls,
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: heading),
+            const SizedBox(width: 16),
+            Flexible(flex: 2, child: controls),
+          ],
+        );
+      }),
     );
   }
 }
@@ -152,7 +177,7 @@ class TwoColumn extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth < breakpoint) {
+        if (constraints.maxWidth < breakpoint * layoutTextScale(context)) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [primary, SizedBox(height: gap), secondary],
@@ -187,6 +212,7 @@ Future<T?> showAdaptiveSheet<T>(
     return showModalBottomSheet<T>(
       context: context,
       isScrollControlled: scrollControlled,
+      useSafeArea: true,
       showDragHandle: true,
       builder: builder,
     );

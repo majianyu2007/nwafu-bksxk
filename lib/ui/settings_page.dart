@@ -9,7 +9,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
 import '../app/theme.dart';
-import '../core/constants.dart';
 import '../data/background.dart';
 import '../data/http_ocr_solver.dart';
 import '../data/notifications.dart';
@@ -17,6 +16,7 @@ import '../data/storage.dart';
 import 'diagnostics_page.dart';
 import 'layout.dart';
 import 'login_page.dart';
+import 'update_widgets.dart';
 import 'widgets.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -42,17 +42,13 @@ class SettingsPage extends ConsumerWidget {
             const _Group(title: '验证码', children: [_OcrSettings()]),
             const _Group(title: '账号', children: [_Accounts()]),
             const _Group(title: '后台运行', children: [_BackgroundSettings()]),
+            const _Group(title: '版本与更新', children: [UpdateSettings()]),
             const _Group(
               title: '高级',
               children: [
                 ServerOriginSetting(),
                 _BrowserNotificationSetting(),
                 _DiagnosticsEntry(),
-                ListTile(
-                  leading: Icon(Icons.info_outline),
-                  title: Text('西农本科选课 $kAppVersion'),
-                  subtitle: Text('只连接所配置的选课服务器，密码用官网相同的方式加密后发送。'),
-                ),
               ],
             ),
           ],
@@ -75,18 +71,48 @@ class _Appearance extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ListTile(
-          leading: const Icon(Icons.brightness_6_outlined),
-          title: const Text('显示模式'),
-          trailing: SegmentedButton<ThemeMode>(
-            segments: const [
-              ButtonSegment(value: ThemeMode.system, label: Text('系统')),
-              ButtonSegment(value: ThemeMode.light, label: Text('浅色')),
-              ButtonSegment(value: ThemeMode.dark, label: Text('深色')),
+        const ListTile(
+          leading: Icon(Icons.brightness_6_outlined),
+          title: Text('显示模式'),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final (mode, label) in [
+                (ThemeMode.system, '系统'),
+                (ThemeMode.light, '浅色'),
+                (ThemeMode.dark, '深色'),
+              ])
+                ChoiceChip(
+                  label: Text(label),
+                  selected: theme.mode == mode,
+                  onSelected: (_) => ctrl.setMode(mode),
+                ),
             ],
-            selected: {theme.mode},
-            showSelectedIcon: false,
-            onSelectionChanged: (s) => ctrl.setMode(s.first),
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.text_fields),
+          title: Text('文字大小 ${(ref.watch(textScaleProvider) * 100).round()}%'),
+          subtitle: const Text('叠加系统字体大小；4K 屏可适当调大。'),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final scale in [0.85, 1.0, 1.15, 1.3, 1.45, 1.6])
+                ChoiceChip(
+                  label: Text('${(scale * 100).round()}%'),
+                  selected: (ref.watch(textScaleProvider) - scale).abs() < 0.01,
+                  onSelected: (_) =>
+                      ref.read(textScaleProvider.notifier).set(scale),
+                ),
+            ],
           ),
         ),
         SwitchListTile(
@@ -102,8 +128,7 @@ class _Appearance extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('主题色',
-                    style: TextStyle(color: scheme.onSurfaceVariant)),
+                Text('主题色', style: TextStyle(color: scheme.onSurfaceVariant)),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 10,
@@ -331,7 +356,8 @@ class _Accounts extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.all(12),
             child: OutlinedButton.icon(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              onPressed: () =>
+                  Navigator.of(context).push(MaterialPageRoute<void>(
                 builder: (_) => const LoginPage(addingAccount: true),
               )),
               icon: const Icon(Icons.person_add_alt_1_outlined),
@@ -418,43 +444,45 @@ class _SilentReloginSettingState extends ConsumerState<_SilentReloginSetting> {
                   ? '不限次数，间隔逐步拉长'
                   : '验证码最多识别 $attempts 次，仍失败再弹窗并说明原因'),
           value: enabled,
-          onChanged: (v) => ref.read(silentReloginEnabledProvider.notifier).set(v),
+          onChanged: (v) =>
+              ref.read(silentReloginEnabledProvider.notifier).set(v),
         ),
-        if (enabled) Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 120,
-                child: TextField(
-                  controller: _ctrl,
-                  enabled: !unlimited,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(
-                    labelText: '次数',
-                    isDense: true,
+        if (enabled)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 120,
+                  child: TextField(
+                    controller: _ctrl,
+                    enabled: !unlimited,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(
+                      labelText: '次数',
+                      isDense: true,
+                    ),
+                    onSubmitted: _apply,
+                    onTapOutside: (_) => _apply(_ctrl.text),
                   ),
-                  onSubmitted: _apply,
-                  onTapOutside: (_) => _apply(_ctrl.text),
                 ),
-              ),
-              const SizedBox(width: 16),
-              FilterChip(
-                label: const Text('不限'),
-                selected: unlimited,
-                onSelected: (v) {
-                  if (v) {
-                    ref.read(silentReloginAttemptsProvider.notifier).set(-1);
-                  } else {
-                    _ctrl.text = '3';
-                    ref.read(silentReloginAttemptsProvider.notifier).set(3);
-                  }
-                },
-              ),
-            ],
+                const SizedBox(width: 16),
+                FilterChip(
+                  label: const Text('不限'),
+                  selected: unlimited,
+                  onSelected: (v) {
+                    if (v) {
+                      ref.read(silentReloginAttemptsProvider.notifier).set(-1);
+                    } else {
+                      _ctrl.text = '3';
+                      ref.read(silentReloginAttemptsProvider.notifier).set(3);
+                    }
+                  },
+                ),
+              ],
+            ),
           ),
-        ),
         if (enabled)
           SwitchListTile(
             secondary: const Icon(Icons.swap_horiz),
@@ -687,8 +715,7 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
                         value: OcrRequestFormat.multipart,
                         child: Text('multipart 文件上传')),
                     DropdownMenuItem(
-                        value: OcrRequestFormat.rawBytes,
-                        child: Text('原始字节')),
+                        value: OcrRequestFormat.rawBytes, child: Text('原始字节')),
                   ],
                 ),
               ),

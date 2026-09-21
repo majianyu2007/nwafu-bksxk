@@ -224,6 +224,11 @@ class Storage {
   int themeModeIndex() => _prefs.getInt(_kThemeMode) ?? 0;
   Future<void> setThemeModeIndex(int v) async => _prefs.setInt(_kThemeMode, v);
 
+  double textScale() =>
+      (_prefs.getDouble('text_scale.v1') ?? 1).clamp(0.85, 1.6);
+  Future<void> setTextScale(double value) =>
+      _prefs.setDouble('text_scale.v1', value.clamp(0.85, 1.6));
+
   int seedColor() => _prefs.getInt(_kSeedColor) ?? 0xFF3B6FE0;
   Future<void> setSeedColor(int v) async => _prefs.setInt(_kSeedColor, v);
 
@@ -304,10 +309,21 @@ class Storage {
   bool keepAwake() => _prefs.getBool(_kKeepAwake) ?? true;
   Future<void> setKeepAwake(bool v) async => _prefs.setBool(_kKeepAwake, v);
 
+  // Calendar calibration and update preferences are not disposable course data.
+  String? academicCalendarJson(String termKey) =>
+      _prefs.getString('academic_calendar.v1::$termKey');
+  Future<void> setAcademicCalendarJson(String termKey, String value) =>
+      _prefs.setString('academic_calendar.v1::$termKey', value);
+
+  int? updateLastCheckMillis() => _prefs.getInt('updates.last_check.v1');
+  Future<void> setUpdateLastCheckMillis(int value) =>
+      _prefs.setInt('updates.last_check.v1', value);
+
   // ---- Course cache (gzip+base64 JSON blobs, see CourseCache) ----
   String? cacheGet(String key) => _prefs.getString('$_kCache::$key');
   Future<void> cacheSet(String key, String value) =>
       _prefs.setString('$_kCache::$key', value);
+  Future<void> cacheRemove(String key) => _prefs.remove('$_kCache::$key');
   Future<void> cacheClear() async {
     for (final k in _prefs.getKeys().where((k) => k.startsWith('$_kCache::'))) {
       await _prefs.remove(k);

@@ -125,6 +125,7 @@ jobs:
           files: artifacts/**/*
           generate_release_notes: true
           name: ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
             西农本科选课 ${{ github.ref_name }}
 
@@ -154,6 +155,8 @@ jobs:
         run: |
           mkdir -p public/app
           cp -r site/* public/
+          # Flutter's generated version.json is the web update source; it is
+          # deployed with the app, independent of native GitHub Releases.
           cp -r build/web/* public/app/
           cp web_bridge/bksxk-web-bridge.user.js public/bksxk-web-bridge.user.js
           # SPA fallback so deep links to the app resolve.

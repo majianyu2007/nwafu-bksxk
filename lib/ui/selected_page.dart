@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
+import '../app/academic_calendar_providers.dart';
+import '../data/academic_calendar.dart';
+import 'academic_calendar_dialog.dart';
 import '../data/models.dart';
 import '../data/notifications.dart';
 import '../data/param_builders.dart';
@@ -161,9 +164,36 @@ class SelectedPage extends ConsumerWidget {
           EmptyState(icon: Icons.cloud_off, title: '课表加载失败', subtitle: '$e')),
       data: (list) {
         if (list.isEmpty) {
-          items.add(const EmptyState(icon: Icons.calendar_month, title: '还没有课表'));
+          items.add(
+              const EmptyState(icon: Icons.calendar_month, title: '还没有课表'));
         } else {
-          items.add(WeeklyTimetable(entries: list));
+          if (batch != null) {
+            final term = AcademicTerm.fromBatch(batch);
+            final scope = (
+              origin: ref.read(storageProvider).origin(),
+              termId: term.id,
+            );
+            final calendar = ref.watch(academicCalendarProvider(scope));
+            final today = ref.watch(schoolDateProvider);
+            items.add(WeeklyTimetable(
+              entries: list,
+              term: term,
+              calendar: calendar,
+              today: today,
+              onCalibrate: () async {
+                final result = await showDialog<AcademicCalendar>(
+                  context: context,
+                  builder: (_) => AcademicCalendarDialog(
+                      term: term, today: today, calendar: calendar),
+                );
+                if (result != null && context.mounted) {
+                  await ref
+                      .read(academicCalendarProvider(scope).notifier)
+                      .save(result);
+                }
+              },
+            ));
+          }
           items.add(const SizedBox(height: 8));
         }
       },
@@ -174,18 +204,22 @@ class SelectedPage extends ConsumerWidget {
       async.when(
         loading: () {
           items.add(const SizedBox(height: 12));
-          items.add(_SectionHeader(icon: icon, title: title, onRefresh: onRefresh));
+          items.add(
+              _SectionHeader(icon: icon, title: title, onRefresh: onRefresh));
           items.add(const Center(child: CircularProgressIndicator()));
         },
         error: (e, _) {
           items.add(const SizedBox(height: 12));
-          items.add(_SectionHeader(icon: icon, title: title, onRefresh: onRefresh));
-          items.add(EmptyState(icon: Icons.cloud_off, title: '加载失败', subtitle: '$e'));
+          items.add(
+              _SectionHeader(icon: icon, title: title, onRefresh: onRefresh));
+          items.add(
+              EmptyState(icon: Icons.cloud_off, title: '加载失败', subtitle: '$e'));
         },
         data: (list) {
           if (list.isEmpty) return;
           items.add(const SizedBox(height: 12));
-          items.add(_SectionHeader(icon: icon, title: title, onRefresh: onRefresh));
+          items.add(
+              _SectionHeader(icon: icon, title: title, onRefresh: onRefresh));
           items.add(body(list));
           items.add(const SizedBox(height: 8));
         },
@@ -203,7 +237,8 @@ class SelectedPage extends ConsumerWidget {
         spacing: 8,
         runSpacing: 8,
         children: [
-          for (final e in list.cast<UnsuccessfulEntry>()) _UnsuccessfulCard(entry: e)
+          for (final e in list.cast<UnsuccessfulEntry>())
+            _UnsuccessfulCard(entry: e)
         ],
       ),
     );
@@ -217,7 +252,9 @@ class SelectedPage extends ConsumerWidget {
         maxColumns: 3,
         spacing: 6,
         runSpacing: 6,
-        children: [for (final e in list.cast<DropLogEntry>()) _LogCard(entry: e)],
+        children: [
+          for (final e in list.cast<DropLogEntry>()) _LogCard(entry: e)
+        ],
       ),
     );
 
@@ -468,7 +505,8 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
             teachingClassId: widget.tc.teachingClassId,
           );
       if (!mounted) return;
-      showToast(context, res.ok ? '已订购教材' : (res.msg.isEmpty ? '订购失败' : res.msg),
+      showToast(
+          context, res.ok ? '已订购教材' : (res.msg.isEmpty ? '订购失败' : res.msg),
           success: res.ok);
       if (res.ok) bumpCurrentSelectionRevision(ref);
     } catch (e) {
@@ -525,7 +563,8 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
         cancel: true,
       );
       if (!mounted) return;
-      showToast(context, res.ok ? '已退订教材' : (res.msg.isEmpty ? '退订失败' : res.msg),
+      showToast(
+          context, res.ok ? '已退订教材' : (res.msg.isEmpty ? '退订失败' : res.msg),
           success: res.ok);
       if (res.ok) bumpCurrentSelectionRevision(ref);
     } catch (e) {
@@ -564,13 +603,15 @@ class _UnsuccessfulCard extends StatelessWidget {
                       if (e.time.length >= 10) e.time.substring(0, 10),
                       if (e.credit.isNotEmpty) '${e.credit} 学分',
                     ].join('  '),
-                    style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                    style:
+                        TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
                   ),
                 ],
               ),
             ),
             const SizedBox(width: 8),
-            StatusPill(label: e.reason.isEmpty ? '落选' : e.reason, color: scheme.error),
+            StatusPill(
+                label: e.reason.isEmpty ? '落选' : e.reason, color: scheme.error),
           ],
         ),
       ),
@@ -594,7 +635,8 @@ class _LogCard extends StatelessWidget {
           children: [
             Text(
                 '${e.courseName}${e.courseIndex.isNotEmpty ? '[${e.courseIndex}]' : ''}',
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                style:
+                    const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
             const SizedBox(height: 2),
             Text(
               [

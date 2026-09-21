@@ -171,14 +171,39 @@ class NoticeStrip extends StatelessWidget {
         color: bg,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: fg),
-          const SizedBox(width: 10),
-          Expanded(child: Text(text, style: TextStyle(color: fg, fontSize: 13))),
-          if (action != null) ...[const SizedBox(width: 8), action!],
-        ],
-      ),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final message = Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20, color: fg),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(text,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: fg)),
+            ),
+          ],
+        );
+        if (action == null) return message;
+        if (constraints.maxWidth < 480 ||
+            MediaQuery.textScalerOf(context).scale(14) > 20) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              message,
+              const SizedBox(height: 8),
+              Align(alignment: AlignmentDirectional.centerEnd, child: action),
+            ],
+          );
+        }
+        return Row(children: [
+          Expanded(child: message),
+          const SizedBox(width: 12),
+          action!,
+        ]);
+      }),
     );
   }
 }
@@ -208,7 +233,9 @@ class DetailRow extends StatelessWidget {
             child: Text(label,
                 style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
           ),
-          Expanded(child: SelectableText(value, style: const TextStyle(fontSize: 14))),
+          Expanded(
+              child:
+                  SelectableText(value, style: const TextStyle(fontSize: 14))),
         ],
       ),
     );

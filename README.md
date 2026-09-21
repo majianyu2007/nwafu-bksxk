@@ -15,8 +15,9 @@ for a separate graduate system.)
 > **Build & deploy:** see [DEPLOYMENT.md](DEPLOYMENT.md) (macOS needs full Xcode;
 > web needs a companion Tampermonkey bridge for CORS).
 >
-> **Network:** the app only ever talks to `https://bksxk.nwafu.edu.cn`, which is
+> **Network:** enrollment requests go only to the configured school server,
 > reachable **only on the campus network** (use the school VPN off-campus).
+> Update checks separately contact GitHub and `mjy.js.org` without school credentials.
 
 ## Feature highlights
 
@@ -26,14 +27,16 @@ for a separate graduate system.)
 - **Fast captcha** — the captcha only gates login/re-login (grabbing uses the `token` header alone), so the login screen prefetches the image, autofocuses the field, and auto-submits the moment the code is entered. An OCR solver is pluggable for hands-free re-login.
 - **Multiple accounts at once** (optional, off by default) — sign in several accounts as tabs; each keeps its own server session, watch list and monitor, so different accounts grab different courses in parallel.
 - **Runs in the background** — desktop closes to a tray icon and keeps polling; Android runs a foreground service while a monitor is active; results and errors arrive as system notifications on every platform.
-- **Instant lists** — every course list is cached on the device and shown at once while the fresh copy loads. Passwords are stored in the platform keychain/keystore; saved accounts appear as one-tap chips on the login screen.
+- **Local whole-school catalogue** — first use fills a persistent catalogue in small background pages. Complete snapshots are searched locally without refresh-on-entry; explicit refresh or a changed account/server/campus/round/term scope starts a new fill. Failed refreshes retain the previous complete snapshot. Other course lists retain cache-first/live-refresh behavior.
+- **Calendar-aware timetable** — the teaching week advances from a saved first Monday, not the first course's starting week. The 2026 autumn initial calibration uses the user-reported 2026-09-21 = week 3 (not an official calendar); other terms require calibration. Phone agenda and desktop table both expose overlapping courses.
+- **Update notices** — settings offer manual app and web-bridge version checks; startup checks are throttled to once per day. New versions link to the official download/install page; nothing installs or restarts automatically.
 - **Sessions that stay alive** — every account is pinged every 45 s; a dropped session can be re-authenticated with on-device OCR (enabled by default, up to 3 captcha attempts). Optional “被踢下线时让步” protection avoids repeated session contention with another device; it is off by default.
 - **落选 popup** — courses lost in a lottery are shown once after login, exactly like the official site, and acknowledged to the server so they do not come back.
 - **Typed errors + diagnostics** — every failure is classified (campus-network unreachable, timeout, session-expired, captcha, 5xx, course-full, batch-closed, maintenance, schema drift) with a specific message and remedy, never a bare “请求失败”. A diagnostics page probes reachability and exports a privacy-scrubbed report; the login screen shows a campus-network hint when the backend is unreachable.
 - **System notifications** — grab success, 落选, and monitor auto-stop, named per account. Desktop + mobile.
 - **Conflict-aware** — selecting a class the server marks as conflicting warns you (naming the conflict) *before* submitting.
 - **网课 done right** — MOOC classes (智慧树 `ZH…`, 学习通 `ey…`, 知到 `yw…`) are recognised by course-number prefix and labelled with their platform; the 网课 filter and the 通识 credit requirements mirror the official tab.
-- **Offline Chinese** — a bundled Noto Sans SC subset (no font CDN), so nothing but the school server is ever contacted.
+- **Offline Chinese** — a bundled Noto Sans SC subset, with no font CDN.
 - **Beautiful, adaptive UI** — Material 3, light/dark/system with a one-tap toggle and accent-color presets, plus platform dynamic color where available.
 
 ## Architecture

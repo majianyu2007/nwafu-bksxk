@@ -104,6 +104,20 @@ class DeferredCourseService implements CourseService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class QueuedCourseService implements CourseService {
+  final requests = <Completer<TeachingClass>>[];
+
+  @override
+  Future<TeachingClass> refreshCapacity(TeachingClass tc, String studentCode) {
+    final response = Completer<TeachingClass>();
+    requests.add(response);
+    return response.future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 TeachingClass plainTc(String id) => TeachingClass.fromJson({
       'teachingClassID': id,
       'courseName': 'C-$id',
@@ -125,6 +139,78 @@ Watch watchFor(TeachingClass tc) => Watch(
     );
 
 void main() {
+  test('resuming a paused watch polls again and can grab a seat', () async {
+    final course = FakeCourseService({
+      'resume': [1]
+    });
+    final enroll = FakeEnrollService();
+    final engine = MonitorEngine(courseService: course, enrollService: enroll);
+    addTearDown(engine.dispose);
+    final watch = watchFor(plainTc('resume'));
+    engine.addWatch(watch);
+    engine.pauseWatch(watch.id);
+    engine.start();
+    engine.resumeWatch(watch.id);
+    expect(watch.status, WatchStatus.watching);
+    expect(
+      await _waitFor(() => watch.status == WatchStatus.grabbed,
+          timeout: const Duration(seconds: 2)),
+      isTrue,
+    );
+    expect(enroll.submitted, hasLength(1));
+  });
+
+  test('resuming one watch does not restart a stopped engine', () async {
+    final enroll = FakeEnrollService();
+    final engine = MonitorEngine(
+      courseService: FakeCourseService({
+        'stopped': [1]
+      }),
+      enrollService: enroll,
+    );
+    addTearDown(engine.dispose);
+    final watch = watchFor(plainTc('stopped'));
+    engine.addWatch(watch);
+    engine.pauseWatch(watch.id);
+    engine.resumeWatch(watch.id);
+    expect(watch.status, WatchStatus.watching);
+    expect(engine.isRunning, isFalse);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(enroll.submitted, isEmpty);
+  });
+
+  test('pause then resume ignores capacity from before the pause', () async {
+    final course = QueuedCourseService();
+    final enroll = FakeEnrollService();
+    final engine = MonitorEngine(courseService: course, enrollService: enroll);
+    addTearDown(engine.dispose);
+    final watch = watchFor(plainTc('stale'));
+    engine.addWatch(watch);
+    engine.start();
+    expect(
+        await _waitFor(() => course.requests.length == 1,
+            timeout: const Duration(seconds: 2)),
+        isTrue);
+    engine.pauseWatch(watch.id);
+    engine.resumeWatch(watch.id);
+    expect(
+        await _waitFor(() => course.requests.length == 2,
+            timeout: const Duration(seconds: 2)),
+        isTrue);
+    course.requests.first.complete(watch.teachingClass
+        .withCapacity(classCapacity: 10, numberOfSelected: 0, isFull: false));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(enroll.submitted, isEmpty,
+        reason: 'a cancelled poll cannot submit after the watch is re-armed');
+    course.requests.last.complete(watch.teachingClass
+        .withCapacity(classCapacity: 10, numberOfSelected: 9, isFull: false));
+    expect(
+        await _waitFor(() => watch.status == WatchStatus.grabbed,
+            timeout: const Duration(seconds: 2)),
+        isTrue);
+    expect(enroll.submitted, hasLength(1));
+  });
+
   for (final cancel in ['stop', 'remove', 'pause']) {
     test('$cancel prevents a late capacity response from submitting', () async {
       final course = DeferredCourseService();

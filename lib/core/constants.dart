@@ -5,7 +5,7 @@
 library;
 
 /// Client version shown in diagnostics; keep in step with pubspec.yaml.
-const String kAppVersion = '1.2.0';
+const String kAppVersion = '1.3.0';
 
 class Env {
   Env._();
