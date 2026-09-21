@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <base href="/nwafu-bksxk/app/">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="西农本科选课">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="西农本科选课">
+  <meta name="theme-color" content="#3B6FE0">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <link rel="icon" type="image/png" href="favicon.png"/>
+  <title>西农本科选课</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    html, body { margin: 0; height: 100%; background: #f6f7fb; }
+    @media (prefers-color-scheme: dark) { html, body { background: #111318; } }
+    #boot {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 14px;
+      font: 15px system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #5b6070; transition: opacity .25s;
+    }
+    #boot .logo { width: 56px; height: 56px; border-radius: 16px; background: #3B6FE0; }
+    #boot .bar { width: 160px; height: 4px; border-radius: 2px; background: rgba(59,111,224,.18); overflow: hidden; }
+    #boot .bar i { display: block; height: 100%; width: 40%; background: #3B6FE0; border-radius: 2px;
+      animation: slide 1.1s ease-in-out infinite; }
+    @keyframes slide { 0% { transform: translateX(-100%);} 100% { transform: translateX(400%);} }
+    #boot.gone { opacity: 0; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <div id="boot">
+    <div class="logo"></div>
+    <div id="boot-text">正在加载，首次打开需要下载约 5 MB</div>
+    <div class="bar"><i></i></div>
+  </div>
+  <!-- onnxruntime-web for on-device captcha OCR (same model as the desktop app).
+       Bundled locally (no CDN) so the web app only connects to bksxk.nwafu.edu.cn.
+       Loaded deferred: it is only needed once the login screen asks for it. -->
+  <script defer src="ort/ort.min.js" onload="if(window.ort){ort.env.wasm.numThreads=1;ort.env.wasm.simd=true;ort.env.wasm.wasmPaths='ort/';}"></script>
+  <script>
+    // Hide the boot screen once Flutter has drawn its first frame.
+    window.addEventListener('flutter-first-frame', function () {
+      var b = document.getElementById('boot');
+      if (b) { b.classList.add('gone'); setTimeout(function () { b.remove(); }, 300); }
+    });
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
