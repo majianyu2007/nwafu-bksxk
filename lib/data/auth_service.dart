@@ -260,14 +260,11 @@ List<ElectiveBatch> mergeBatchAvailability(
 /// backgrounded), re-login fails gracefully and the caller surfaces it.
 class SessionManager {
   SessionManager({
-    required ApiClient client,
-    required AuthService auth,
-    required CaptchaSolver solver,
-    InfoService? info,
-  })  : _client = client,
-        _auth = auth,
-        _solver = solver,
-        _info = info {
+    required this._client,
+    required this._auth,
+    required this._solver,
+    this._info,
+  }) {
     _client.onSessionExpired = _onExpired;
   }
 

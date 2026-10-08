@@ -112,7 +112,7 @@ Widget page(
   ),
 );
 
-Future<void> savedAccount(
+Future<void> _savedAccount(
   _Storage storage,
   String id, {
   String? password,
@@ -126,7 +126,7 @@ void main() {
     'OCR retries after releasing submit guard and uses a fresh token',
     (tester) async {
       final (storage, container, auth) = await setup(['3']);
-      await savedAccount(storage, 'student', password: 'password');
+      await _savedAccount(storage, 'student', password: 'password');
       await storage.setActiveAccount('student');
       await tester.pumpWidget(page(container));
       await tester.pumpAndSettle();
@@ -148,7 +148,7 @@ void main() {
         ['2'],
       ]) {
         final (storage, container, auth) = await setup(failures);
-        await savedAccount(storage, 'student', password: 'password');
+        await _savedAccount(storage, 'student', password: 'password');
         await storage.setActiveAccount('student');
         await tester.pumpWidget(page(container));
         await tester.pumpAndSettle();
@@ -170,8 +170,8 @@ void main() {
         [],
         solver: OcrCaptchaSolver((_) async => null),
       );
-      await savedAccount(storage, 'first', password: 'first-secret');
-      await savedAccount(storage, 'second');
+      await _savedAccount(storage, 'first', password: 'first-secret');
+      await _savedAccount(storage, 'second');
       await tester.pumpWidget(page(container));
       await tester.pumpAndSettle();
       await tester.tap(find.text('first'));

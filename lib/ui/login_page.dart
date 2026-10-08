@@ -272,8 +272,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     final pw = await ref.read(storageProvider).passwordFor(account.id);
     if (!mounted ||
         request != _accountRequest ||
-        _loginCtrl.text != account.loginName)
+        _loginCtrl.text != account.loginName) {
       return;
+    }
     if (pw != null) {
       _pwCtrl.text = pw;
       // A recognised captcha may be waiting for credentials.
