@@ -121,8 +121,7 @@ To build:
 flutter build apk --release --split-per-abi  # Android: three smaller APKs
 flutter build ipa         # iOS
 flutter build macos       # macOS
-flutter build windows --target-platform windows-x64    # Windows x64
-flutter build windows --target-platform windows-arm64  # Windows ARM64
+flutter build windows --release  # uses native SDK architecture: x64 or ARM64
 flutter build linux       # Linux
 ```
 

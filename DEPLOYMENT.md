@@ -69,11 +69,11 @@ Release 构建应为 Universal；校验扫描整个包，包含 Flutter、App、
 
 ## Windows：x64 与 ARM64
 
-需要 Visual Studio C++ 工具链。ARM64 还需 ARM64 C++ 编译器和 ATL。
+需要 Visual Studio C++ 工具链。ARM64 需原生 ARM64 Windows、原生 ARM64 Dart/Flutter SDK、ARM64 C++ 编译器和 ATL。Flutter 3.44.6 的 Windows 构建根据运行 SDK 的宿主架构选择目标，没有 `--target-platform` 参数。CI 使用 `windows-2022` 和 `windows-11-arm` 分别构建，后者从固定 Flutter tag 引导原生 SDK。
 
 ```bash
-flutter build windows --release --target-platform windows-x64
-flutter build windows --release --target-platform windows-arm64
+# 分别在 x64 / ARM64 Windows 的对应原生 SDK 下执行：
+flutter build windows --release
 python tool/verify-native.py build/windows/arm64/runner/Release arm64
 ```
 

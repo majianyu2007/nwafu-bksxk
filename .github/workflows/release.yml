@@ -129,24 +129,31 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64]
-    runs-on: windows-2022
+        include:
+          - arch: x64
+            runner: windows-2022
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
+        if: matrix.arch == 'x64'
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-      - name: Install ARM64 C++ tools
+      - name: Bootstrap native ARM64 Flutter SDK
         if: matrix.arch == 'arm64'
         shell: pwsh
         run: |
-          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
-          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          $process = Start-Process $installer -ArgumentList @('modify', '--installPath', "`"$vs`"", '--add', 'Microsoft.VisualStudio.Component.VC.Tools.ARM64', '--add', 'Microsoft.VisualStudio.Component.VC.ATL.ARM64', '--quiet', '--norestart') -Wait -PassThru
-          if ($process.ExitCode -notin @(0, 3010)) { throw "VS installer failed: $($process.ExitCode)" }
+          if ($env:PROCESSOR_ARCHITECTURE -ne 'ARM64') { throw 'Native ARM64 shell required' }
+          git clone --depth 1 --branch $env:FLUTTER_VERSION https://github.com/flutter/flutter.git "$env:RUNNER_TEMP/flutter"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "$env:RUNNER_TEMP/flutter/bin" >> $env:GITHUB_PATH
+          & "$env:RUNNER_TEMP/flutter/bin/flutter.bat" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build windows --release --target-platform windows-${{ matrix.arch }}
+      - run: flutter build windows --release
       - name: Verify architecture and package
         shell: pwsh
         run: |
