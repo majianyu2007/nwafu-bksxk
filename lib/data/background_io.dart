@@ -20,7 +20,9 @@ bool _trayShown = false;
 bool _closeToTray = false;
 bool _serviceRunning = false;
 Future<void> _monitoringUpdate = Future<void>.value();
+Future<void> _trayUpdate = Future<void>.value();
 final _windowListener = _WindowCloser();
+final _trayListener = _TrayHandler();
 
 Future<void> init() async {
   if (_desktop) {
@@ -38,8 +40,9 @@ Future<void> init() async {
         priority: NotificationPriority.LOW,
         onlyAlertOnce: true,
       ),
-      iosNotificationOptions:
-          const IOSNotificationOptions(showNotification: false),
+      iosNotificationOptions: const IOSNotificationOptions(
+        showNotification: false,
+      ),
       foregroundTaskOptions: ForegroundTaskOptions(
         eventAction: ForegroundTaskEventAction.nothing(),
         allowWakeLock: true,
@@ -54,30 +57,50 @@ void attach(BackgroundHost host) {
   _host = host;
 }
 
-Future<void> setCloseToTray(bool enabled) async {
+Future<void> setCloseToTray(bool enabled) {
+  final next = _trayUpdate.then((_) => _applyCloseToTray(enabled));
+  _trayUpdate = next.catchError((Object _) {});
+  return next;
+}
+
+Future<void> _applyCloseToTray(bool enabled) async {
   if (!_desktop) return;
-  _closeToTray = enabled;
-  await windowManager.setPreventClose(enabled);
   if (enabled) {
     await _ensureTray();
-  } else if (_trayShown) {
+  }
+  // Never hide a window if no working tray exists to bring it back.
+  _closeToTray = enabled && _trayShown;
+  await windowManager.setPreventClose(_closeToTray);
+  if (!enabled && _trayShown) {
+    trayManager.removeListener(_trayListener);
     await trayManager.destroy();
     _trayShown = false;
   }
 }
 
-Future<void> setMonitoring(bool running,
-    {required bool runInBackground, required bool keepAwake}) {
+Future<void> setMonitoring(
+  bool running, {
+  required bool runInBackground,
+  required bool keepAwake,
+}) {
   // A stop must wait for an in-flight permission prompt/start to finish;
   // otherwise it can observe _serviceRunning=false and leave a late start alive.
-  final next = _monitoringUpdate.then((_) => _applyMonitoring(running,
-      runInBackground: runInBackground, keepAwake: keepAwake));
+  final next = _monitoringUpdate.then(
+    (_) => _applyMonitoring(
+      running,
+      runInBackground: runInBackground,
+      keepAwake: keepAwake,
+    ),
+  );
   _monitoringUpdate = next.catchError((Object _) {});
   return next;
 }
 
-Future<void> _applyMonitoring(bool running,
-    {required bool runInBackground, required bool keepAwake}) async {
+Future<void> _applyMonitoring(
+  bool running, {
+  required bool runInBackground,
+  required bool keepAwake,
+}) async {
   try {
     if (keepAwake) {
       await WakelockPlus.toggle(enable: running);
@@ -99,7 +122,8 @@ Future<void> _applyMonitoring(bool running,
           notificationTitle: '西农本科选课',
           notificationText: _host?.statusLine ?? '监控运行中',
           notificationIcon: const NotificationIcon(
-              metaDataName: 'cn.edu.nwafu.nwafu_bksxk.NOTIFICATION_ICON'),
+            metaDataName: 'cn.edu.nwafu.nwafu_bksxk.NOTIFICATION_ICON',
+          ),
         );
         _serviceRunning = res is ServiceRequestSuccess;
       } catch (_) {
@@ -129,7 +153,9 @@ Future<void> updateStatus(String text) async {
   if (_serviceRunning) {
     try {
       await FlutterForegroundTask.updateService(
-          notificationTitle: '西农本科选课', notificationText: text);
+        notificationTitle: '西农本科选课',
+        notificationText: text,
+      );
     } catch (_) {}
   }
 }
@@ -138,20 +164,26 @@ Future<void> _ensureTray() async {
   if (_trayShown) return;
   try {
     if (Platform.isMacOS) {
-      await trayManager.setIcon('assets/icons/tray_template.png',
-          isTemplate: true);
+      await trayManager.setIcon(
+        'assets/icons/tray_template.png',
+        isTemplate: true,
+      );
     } else if (Platform.isWindows) {
       await trayManager.setIcon('assets/icons/tray.ico');
     } else {
       await trayManager.setIcon('assets/icons/tray_color.png');
     }
     await trayManager.setToolTip('西农本科选课');
-    await trayManager.setContextMenu(Menu(items: [
-      MenuItem(key: 'show', label: '打开窗口'),
-      MenuItem.separator(),
-      MenuItem(key: 'quit', label: '退出'),
-    ]));
-    trayManager.addListener(_TrayHandler());
+    await trayManager.setContextMenu(
+      Menu(
+        items: [
+          MenuItem(key: 'show', label: '打开窗口'),
+          MenuItem.separator(),
+          MenuItem(key: 'quit', label: '退出'),
+        ],
+      ),
+    );
+    trayManager.addListener(_trayListener);
     _trayShown = true;
   } catch (_) {
     _trayShown = false;

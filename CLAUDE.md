@@ -37,7 +37,7 @@ tool/create-dmg.sh                                # packages build/macos/.../Rel
 flutter build web --release --base-href /nwafu-bksxk/app/   # what CI runs; web/ is committed (custom index.html + web/ort/)
 ```
 
-`.github/workflows/release.yml` builds all native platforms on every push to `main`, deploys the web app + `site/` landing page + userscript to the `web` branch, and publishes a GitHub Release on `v*` tags.
+`.github/workflows/release.yml` validates every PR/main push. Native platform builds run for PRs, v* tags and manual dispatches; main pushes build/deploy web only. Tags assemble a draft GitHub Release after all required jobs pass. See PLATFORMS.md for architectures and unimplemented native HarmonyOS support.
 
 Gotchas:
 - `flutter create . --platforms web` re-adds a stub `test/widget_test.dart`; delete it before `flutter test`.
@@ -100,7 +100,7 @@ The school server sends no CORS headers, so the web app only works with the Tamp
 - **macOS entitlements**: `com.apple.security.network.client` must be in both `DebugProfile.entitlements` and `Release.entitlements`; without it the sandbox silently blocks all network. `macos/Runner/Info.plist` sets `NSAllowsLocalNetworking` so a `localhost` simulator origin is allowed.
 - **macOS deployment target is 14.0** (required by `flutter_onnxruntime`); `macos/Podfile` forces it on every pod in `post_install`.
 - **Android**: `INTERNET` and `POST_NOTIFICATIONS` live in the **main** manifest; Flutter only auto-adds `INTERNET` to debug/profile.
-- **Fonts**: a Noto Sans SC subset (GB2312 plus every character in the live course catalogue, Latin, CJK punctuation) is bundled in `assets/fonts/`; the app must never contact a font CDN. The only network peer is the school server (plus a user-configured OCR API if set).
+- **Fonts**: a Noto Sans SC subset (GB2312 plus every character in the live course catalogue, Latin, CJK punctuation) is bundled in `assets/fonts/`; the app must never contact a font CDN. Selection traffic goes to the configured school server. Update checks separately reach GitHub and mjy.js.org; an explicitly configured OCR service receives captcha images. No font CDN is used.
 - **Windows**: `windows/runner/CMakeLists.txt` compiles with `/utf-8`; without it MSVC read the UTF-8 sources in the machine's ANSI code page and the Chinese window title came out as mojibake. `Runner.rc` uses `#pragma code_page(65001)` for the same reason.
 
 ## Safety

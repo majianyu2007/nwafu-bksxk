@@ -30,6 +30,7 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
   bool _submitting = false;
   OcrStatus _ocr = OcrStatus.idle;
   int _ocrRetries = 0;
+  int _captchaRequest = 0;
   String? _error;
   static const _maxOcrRetries = 3;
 
@@ -51,13 +52,16 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
   }
 
   Future<void> _prepare() async {
+    if (!mounted) return;
     final pw = await ref.read(storageProvider).passwordFor(widget.accountId);
     if (!mounted) return;
     if (pw != null && pw.isNotEmpty) _pwCtrl.text = pw;
     await _refreshCaptcha();
   }
 
-  Future<void> _refreshCaptcha() async {
+  Future<void> _refreshCaptcha({bool autoRecognize = true}) async {
+    if (!mounted || _submitting) return;
+    final request = ++_captchaRequest;
     setState(() {
       _loadingCaptcha = true;
       _challenge = null;
@@ -66,13 +70,15 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
     });
     try {
       final challenge = await _controller.fetchCaptcha();
-      if (!mounted) return;
+      if (!mounted || request != _captchaRequest) return;
       setState(() => _challenge = challenge);
-      if (ref.read(storageProvider).autoOcr()) {
+      if (autoRecognize && ref.read(storageProvider).autoOcr()) {
         setState(() => _ocr = OcrStatus.recognizing);
-        final guess =
-            await ref.read(captchaSolverProvider).solve(challenge.imageBytes);
-        if (!mounted) return;
+        final guess = await ref
+            .read(captchaSolverProvider)
+            .solve(challenge.imageBytes);
+        if (!mounted || request != _captchaRequest) return;
+        if (_captchaCtrl.text.isNotEmpty) return;
         if (guess != null && guess.isNotEmpty) {
           _captchaCtrl.text = guess;
           setState(() => _ocr = OcrStatus.recognized);
@@ -86,14 +92,17 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
       }
       _captchaFocus.requestFocus();
     } on AppError catch (e) {
-      if (!mounted) return;
+      if (!mounted || request != _captchaRequest) return;
       setState(
-          () => _error = e.hint != null ? '${e.message}：${e.hint}' : e.message);
+        () => _error = e.hint != null ? '${e.message}：${e.hint}' : e.message,
+      );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || request != _captchaRequest) return;
       setState(() => _error = '验证码加载失败，点击图片重试');
     } finally {
-      if (mounted) setState(() => _loadingCaptcha = false);
+      if (mounted && request == _captchaRequest) {
+        setState(() => _loadingCaptcha = false);
+      }
     }
   }
 
@@ -119,6 +128,7 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
       _submitting = true;
       _error = null;
     });
+    bool? refreshWithOcr;
     try {
       await _controller.relogin(
         password: password,
@@ -130,19 +140,25 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
       if (!mounted) return;
       if (e.code == '3' && fromOcr && _ocrRetries < _maxOcrRetries) {
         _ocrRetries++;
-        await _refreshCaptcha();
-        return;
+        refreshWithOcr = true;
+      } else {
+        setState(() => _error = e.message);
+        _ocrRetries = 0;
+        refreshWithOcr = false;
       }
-      setState(() => _error = e.message);
-      await _refreshCaptcha();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e is AppError
-          ? (e.hint != null ? '${e.message}：${e.hint}' : e.message)
-          : '$e');
-      await _refreshCaptcha();
+      setState(
+        () => _error = e is AppError
+            ? (e.hint != null ? '${e.message}：${e.hint}' : e.message)
+            : '$e',
+      );
+      refreshWithOcr = false;
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+    if (mounted && refreshWithOcr != null) {
+      await _refreshCaptcha(autoRecognize: refreshWithOcr);
     }
   }
 
@@ -159,6 +175,7 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
 
     return AlertDialog(
       title: const Text('登录已失效'),
+      scrollable: true,
       content: SizedBox(
         width: 420,
         child: Column(
@@ -177,14 +194,19 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
                   color: scheme.errorContainer,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Text(session.error!,
-                    style: TextStyle(
-                        color: scheme.onErrorContainer, fontSize: 13)),
+                child: Text(
+                  session.error!,
+                  style: TextStyle(
+                    color: scheme.onErrorContainer,
+                    fontSize: 13,
+                  ),
+                ),
               ),
             ],
             const SizedBox(height: 14),
             TextField(
               controller: _pwCtrl,
+              enabled: !_submitting,
               obscureText: true,
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
@@ -195,7 +217,7 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
             const SizedBox(height: 10),
             CaptchaRow(
               challenge: _challenge,
-              loading: _loadingCaptcha,
+              loading: _loadingCaptcha || _submitting,
               controller: _captchaCtrl,
               focusNode: _captchaFocus,
               ocrStatus: _ocr,
@@ -211,9 +233,13 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
                   color: scheme.errorContainer,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Text(_error!,
-                    style: TextStyle(
-                        color: scheme.onErrorContainer, fontSize: 13)),
+                child: Text(
+                  _error!,
+                  style: TextStyle(
+                    color: scheme.onErrorContainer,
+                    fontSize: 13,
+                  ),
+                ),
               ),
             ],
           ],
@@ -230,7 +256,8 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
               ? const SizedBox(
                   height: 16,
                   width: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('重新登录'),
         ),
       ],

@@ -162,30 +162,31 @@
 <section id="download">
   <div class="wrap">
     <h2>下载</h2>
-    <p class="section-sub">从 GitHub Release 获取对应平台的安装包。推荐使用原生客户端（体验与稳定性最佳）。</p>
+    <p class="section-sub">从 GitHub Release 获取已发布的安装包，具体架构以该版本附件为准。Android 手机优先选择 arm64-v8a；不要下载 AAB 直接安装。</p>
     <div class="downloads">
       <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
         <svg viewBox="0 0 24 24"><path d="M16 2H8a2 2 0 00-2 2v16a2 2 0 002 2h8a2 2 0 002-2V4a2 2 0 00-2-2zm-4 19a1 1 0 110-2 1 1 0 010 2z"/></svg>
-        <div><div class="label">Android</div><div class="hint">.apk</div></div>
+        <div><div class="label">Android</div><div class="hint">ARM64 / ARM32 / x86_64 · APK</div></div>
       </a>
       <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
         <svg viewBox="0 0 24 24"><path d="M18 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2zm-6 20a1 1 0 110-2 1 1 0 010 2z"/></svg>
-        <div><div class="label">iOS</div><div class="hint">自行签名安装</div></div>
+        <div><div class="label">iOS</div><div class="hint">iOS 16+ · IPA 需自行签名</div></div>
       </a>
       <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
         <svg viewBox="0 0 24 24"><path d="M18 3a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6a3 3 0 013-3z"/></svg>
-        <div><div class="label">macOS</div><div class="hint">.app / .dmg</div></div>
+        <div><div class="label">macOS</div><div class="hint">macOS 14+ · Intel / Apple Silicon</div></div>
       </a>
       <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
         <svg viewBox="0 0 24 24"><path d="M3 5h18v12H3z"/><path d="M8 21h8" stroke="#fff" stroke-width="1.5"/></svg>
-        <div><div class="label">Windows</div><div class="hint">.zip</div></div>
+        <div><div class="label">Windows</div><div class="hint">x64 / ARM64 · ZIP</div></div>
       </a>
       <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
         <svg viewBox="0 0 24 24"><path d="M12 2a4 4 0 014 4c0 2-1 3-1 5l2 6H7l2-6c0-2-1-3-1-5a4 4 0 014-4z"/></svg>
-        <div><div class="label">Linux</div><div class="hint">.tar.gz</div></div>
+        <div><div class="label">Linux</div><div class="hint">x64 / ARM64 · tar.gz</div></div>
       </a>
     </div>
   </div>
+<p class="section-sub" style="margin-top:20px">鸿蒙：能安装 APK 的设备可尝试 Android 包。原生 HarmonyOS NEXT／5+ 的 Flutter 适配尚未完成，目前没有可发布的 HAP。</p>
 </section>
 
 <section id="web">
@@ -200,14 +201,14 @@
       <div class="step"><div>安装 <strong><a href="bksxk-web-bridge.user.js">西农本科选课 · Web 跨域桥接</a></strong> 脚本（在篡改猴中点击即可安装）。</div></div>
       <div class="step"><div>打开 <strong><a href="app/">网页版</a></strong> 并刷新，弹窗提示消失即表示桥接就绪。</div></div>
     </div>
-    <p style="margin-top:20px; color:var(--muted)">网页版仍只能在校园网内使用；系统通知等能力仅原生端可用。对凭据敏感的用户建议使用桌面/移动端。</p>
+    <p style="margin-top:20px; color:var(--muted)">网页版仍只能在校园网内使用（校外需学校 VPN）；浏览器通知需要授权，关闭标签页会停止监控，后台标签页也可能被限速。iOS 需保持应用在前台。</p>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
     <p>西农本科选课 · 开源于 <a href="https://github.com/majianyu2007/nwafu-bksxk">GitHub</a></p>
-    <p style="margin-top:8px">仅与 <code>bksxk.nwafu.edu.cn</code> 通信 · 登录密码使用与官网一致的加密方式 · 不上传任何账号数据</p>
+    <p style="margin-top:8px">选课请求发往配置的学校服务器 · 更新检查访问 GitHub 与 mjy.js.org，不携带学校凭据 · 可选 OCR 服务接收验证码图片</p>
   </div>
 </footer>
 </body>
