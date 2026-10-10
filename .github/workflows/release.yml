@@ -1,168 +1,320 @@
 name: Release
 
-# Every main push deploys the web app to the `web` branch (cheap). Native
-# platform builds run only on a version tag (v*) or a manual dispatch, because
-# four platform builds per push exhausted the monthly Actions minutes; on a tag
-# their artifacts are published as a GitHub Release. Assets uploaded by hand to
-# the same tag beforehand (local builds) are overwritten by name, not duplicated.
-#
-# Trigger a full release: git tag v1.0.0 && git push origin v1.0.0
-#
-# GitHub Pages: enable Settings → Pages → Source = branch `web` (root). With the
-# repo served at majianyu2007.github.io/nwafu-bksxk/ (and the js.org custom domain
-# on the user's Pages site), the landing page is at
-# https://mjy.js.org/nwafu-bksxk/ and the web app at .../nwafu-bksxk/app/.
 on:
   push:
     branches: [main]
     tags: ["v*"]
+  pull_request:
+    branches: [main]
   workflow_dispatch: {}
 
 permissions:
-  contents: write # create releases + push to the web branch
+  contents: read
 
 env:
   FLUTTER_VERSION: "3.44.6"
-  IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
-  # ---- Native platform builds --------------------------------------------------
-  build-android:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+  validate:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-      - run: flutter pub get
-      - run: flutter build apk --release
-      - run: |
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze
+      - run: flutter test
+      - run: python3 tool/check-release.py
+      - run: python3 -m unittest discover -s tool -p 'test_*.py'
+
+  build-android:
+    needs: validate
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: Configure persistent Android signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          python3 - <<'PY'
+          import base64, os
+          from pathlib import Path
+          keys = ['KEYSTORE_BASE64', 'STORE_PASSWORD', 'KEY_PASSWORD', 'KEY_ALIAS']
+          present = [bool(os.environ.get(k)) for k in keys]
+          if any(present) and not all(present):
+              raise SystemExit('All four Android signing secrets must be configured')
+          if not all(present):
+              if os.environ['GITHUB_REF'].startswith('refs/tags/'):
+                  raise SystemExit('Tag releases require a persistent Android signing key')
+              print('Preview only: APKs use an ephemeral debug certificate')
+              with open(os.environ['GITHUB_ENV'], 'a') as f:
+                  f.write('APK_SUFFIX=-debug-signed\n')
+          else:
+              Path('android/release.jks').write_bytes(base64.b64decode(os.environ['KEYSTORE_BASE64'], validate=True))
+              def escape(value):
+                  return ''.join('\\u%04x' % ord(c) for c in value)
+              props = {'storeFile': 'release.jks', 'storePassword': os.environ['STORE_PASSWORD'],
+                       'keyPassword': os.environ['KEY_PASSWORD'], 'keyAlias': os.environ['KEY_ALIAS']}
+              Path('android/key.properties').write_text('\n'.join(k+'='+escape(v) for k,v in props.items()))
+              with open('android/gradle.properties', 'a') as f:
+                  f.write('\nrequireReleaseSigning=true\n')
+          PY
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64,android-x64
+      - run: flutter build appbundle --release --target-platform android-arm,android-arm64,android-x64
+      - name: Package and inspect APKs
+        run: |
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/nwafu-bksxk-android.apk
+          for abi in armeabi-v7a arm64-v8a x86_64; do
+            cp "build/app/outputs/flutter-apk/app-$abi-release.apk" "dist/nwafu-bksxk-android-$abi${APK_SUFFIX:-}.apk"
+          done
+          cp build/app/outputs/bundle/release/app-release.aab "dist/nwafu-bksxk-android${APK_SUFFIX:-}.aab"
+          python3 tool/verify-apks.py dist
+          du -h dist/* >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
-        with: { name: android, path: dist/* }
+        with:
+          name: android
+          path: dist/*
+          if-no-files-found: error
+      - name: Remove signing material
+        if: always()
+        run: rm -f android/key.properties android/release.jks
 
   build-macos:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: macos-latest
+    needs: validate
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      # Stable Xcode keeps Intel builds independent of Xcode 27's lipo change.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.4'
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       - run: flutter build macos --release
-      - name: Package .dmg (fallback to zip)
+      - name: Verify universal bundle and package
         run: |
           mkdir -p dist
-          APP=$(find build/macos/Build/Products/Release -maxdepth 1 -name "*.app" | head -1)
-          hdiutil create -volname "西农本科选课" -srcfolder "$APP" -ov -format UDZO dist/nwafu-bksxk-macos.dmg || \
-            (cd "$(dirname "$APP")" && zip -r -y "$GITHUB_WORKSPACE/dist/nwafu-bksxk-macos.zip" "$(basename "$APP")")
+          APP=$(find build/macos/Build/Products/Release -maxdepth 1 -name '*.app' -print -quit)
+          test -n "$APP"
+          python3 tool/verify-native.py "$APP" arm64 x86_64
+          hdiutil create -volname "西农本科选课" -srcfolder "$APP" -ov -format UDZO dist/nwafu-bksxk-macos-universal.dmg
       - uses: actions/upload-artifact@v4
-        with: { name: macos, path: dist/* }
+        with:
+          name: macos-universal
+          path: dist/*
+          if-no-files-found: error
 
   build-windows:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
+    needs: validate
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2022
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
+        if: matrix.arch == 'x64'
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-      - run: flutter pub get
-      - run: flutter build windows --release
-      - run: |
-          mkdir dist
-          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath dist/nwafu-bksxk-windows.zip
+      - name: Bootstrap native ARM64 Flutter SDK
+        if: matrix.arch == 'arm64'
         shell: pwsh
+        run: |
+          if ($env:PROCESSOR_ARCHITECTURE -ne 'ARM64') { throw 'Native ARM64 shell required' }
+          git clone --depth 1 --branch $env:FLUTTER_VERSION https://github.com/flutter/flutter.git "$env:RUNNER_TEMP/flutter"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "$env:RUNNER_TEMP/flutter/bin" >> $env:GITHUB_PATH
+          & "$env:RUNNER_TEMP/flutter/bin/flutter.bat" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build windows --release
+      - name: Verify architecture and package
+        shell: pwsh
+        run: |
+          python tool/verify-native.py build/windows/${{ matrix.arch }}/runner/Release ${{ matrix.arch }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force dist
+          Compress-Archive -Path build/windows/${{ matrix.arch }}/runner/Release/* -DestinationPath dist/nwafu-bksxk-windows-${{ matrix.arch }}.zip
       - uses: actions/upload-artifact@v4
-        with: { name: windows, path: dist/* }
+        with:
+          name: windows-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
 
   build-linux:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    needs: validate
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install Linux build deps
+      - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            clang \
-            cmake \
-            ninja-build \
-            pkg-config \
-            libgtk-3-dev \
-            liblzma-dev \
-            libsecret-1-dev \
-            libayatana-appindicator3-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsecret-1-dev libayatana-appindicator3-dev
+      # Flutter 3.44.6 has no official Linux ARM64 SDK archive. Bootstrap that
+      # pinned source on the ARM runner instead of requesting a nonexistent ZIP.
+      - uses: subosito/flutter-action@v2
+        if: matrix.arch == 'x64'
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - name: Bootstrap Flutter on ARM64
+        if: matrix.arch == 'arm64'
+        run: |
+          git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build linux --release --target-platform linux-${{ matrix.arch }}
+      - name: Verify architecture and package
+        run: |
+          python3 tool/verify-native.py build/linux/${{ matrix.arch }}/release/bundle ${{ matrix.arch }}
+          mkdir -p dist
+          tar -C build/linux/${{ matrix.arch }}/release/bundle -czf dist/nwafu-bksxk-linux-${{ matrix.arch }}.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  build-ios:
+    needs: validate
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.4'
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-      - run: flutter pub get
-      - run: flutter build linux --release
-      - run: |
-          mkdir -p dist
-          tar -C build/linux/x64/release/bundle -czf dist/nwafu-bksxk-linux.tar.gz .
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build ios --release --no-codesign
+      - name: Package unsigned IPA for user signing (not directly installable)
+        run: |
+          mkdir -p dist Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          python3 tool/verify-native.py Payload arm64
+          zip -r -y dist/nwafu-bksxk-ios-arm64-unsigned.ipa Payload
       - uses: actions/upload-artifact@v4
-        with: { name: linux, path: dist/* }
+        with:
+          name: ios-unsigned
+          path: dist/*
+          if-no-files-found: error
 
-  # ---- Release (only on a version tag) ----------------------------------------
+  build-web:
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build web --release --base-href /nwafu-bksxk/app/ --no-web-resources-cdn
+      - name: Assemble download site and app
+        run: |
+          mkdir -p public/app
+          cp -r site/* public/
+          cp -r build/web/* public/app/
+          cp web_bridge/bksxk-web-bridge.user.js public/bksxk-web-bridge.user.js
+          cp public/index.html public/404.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-site
+          path: public/
+          if-no-files-found: error
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-android, build-macos, build-windows, build-linux]
-    runs-on: ubuntu-latest
+    needs: [build-android, build-macos, build-windows, build-linux, build-ios, build-web]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
-        with: { path: artifacts }
-      - name: Publish Release
-        uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*
+          path: artifacts
+      - name: Flatten packages and checksum
+        run: |
+          mkdir -p dist
+          find artifacts -type f \( -name '*.apk' -o -name '*.aab' -o -name '*.dmg' -o -name '*.zip' -o -name '*.tar.gz' -o -name '*.ipa' \) -exec cp {} dist/ \;
+          tar -C artifacts/web-site -czf dist/nwafu-bksxk-web-site.tar.gz .
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          # Keep the release reviewable until real-device smoke tests pass.
+          draft: true
+          files: dist/*
+          fail_on_unmatched_files: true
           generate_release_notes: true
           name: ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
             西农本科选课 ${{ github.ref_name }}
 
-            下载对应平台的安装包。网页版：https://mjy.js.org/nwafu-bksxk/
-            本系统仅在校园网内可用（校外需 VPN 接入校园网）。
+            Android：手机优先 arm64-v8a；旧款 ARM 设备选 armeabi-v7a；x86_64 供对应设备/模拟器。AAB 不能直接安装。
+            Windows：x64 或原生 ARM64；不提供 32 位版本。
+            macOS：Universal（Intel x86_64 + Apple Silicon arm64），需要 macOS 14+；未进行 Developer ID 公证。
+            Linux：x64 / ARM64，需安装 GTK、libsecret、Ayatana AppIndicator 运行库。
+            iOS：ARM64 未签名 IPA，需要 iOS 16+，必须自行签名后安装；不保证持续后台监控。
+            鸿蒙：支持 APK 的设备可尝试 Android 包；原生 HarmonyOS HAP 的状态以平台说明为准，不将 APK 标成 HAP。
+            校外需连接学校 VPN。发布前请完成各平台登录、OCR、选课查询和后台行为的真机验收。
 
-  # ---- Web build + deploy to the `web` branch (on main push AND tags) ---------
   deploy-web:
-    # Branch and tag pushes can target the same orphan branch simultaneously.
+    needs: build-web
+    # A manual build of a feature branch must not replace the production site.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     concurrency:
       group: deploy-web
       cancel-in-progress: false
-    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - uses: actions/download-artifact@v4
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-      # web/ is committed (custom index.html + bundled onnxruntime-web for OCR).
-      - run: flutter pub get
-      # --no-web-resources-cdn keeps CanvasKit (~3 MB) next to the app instead
-      # of on gstatic.com, which is slow or blocked on the campus network and
-      # was the largest part of the cold-start wait.
-      - run: flutter build web --release --base-href /nwafu-bksxk/app/ --no-web-resources-cdn
-      - name: Assemble site (landing at /, web app under /app/, userscript, 404)
-        run: |
-          mkdir -p public/app
-          cp -r site/* public/
-          # Flutter's generated version.json is the web update source; it is
-          # deployed with the app, independent of native GitHub Releases.
-          cp -r build/web/* public/app/
-          cp web_bridge/bksxk-web-bridge.user.js public/bksxk-web-bridge.user.js
-          # SPA fallback so deep links to the app resolve.
-          cp public/index.html public/404.html
-      - name: Deploy to web branch
-        uses: peaceiris/actions-gh-pages@v4
+          name: web-site
+          path: public
+      - uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public

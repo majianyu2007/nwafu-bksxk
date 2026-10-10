@@ -1,8 +1,8 @@
 # 西农本科选课 · NWAFU Course Grabber
 
 A cross-platform Flutter client for the NWAFU (`bksxk.nwafu.edu.cn`) undergraduate
-course selection system. Built for one thing above all: **being faster than the
-person next to you** at selecting and grabbing courses. (Named 本科 to leave room
+course selection system. Built to make course discovery, selection and explicitly armed seat monitoring
+reliable and convenient. (Named 本科 to leave room
 for a separate graduate system.)
 
 > This app is the client. The reverse-engineering research it is built on lives
@@ -23,10 +23,10 @@ for a separate graduate system.)
 
 - **Full selection workflow in-app** — browse all course kinds (推荐/方案内/方案外/公选/重修/体育/辅修/全校), search, expand teaching classes, view full detail, select, and drop. No browser needed.
 - **Accurate selection structs** — `volunteer.do` is built from the teaching-class flags: a class with `hasTest` must carry a chosen `testTeachingClassID`; a class needing textbook ordering must carry a `needBook` string. The app refuses to submit an incomplete/wrong struct rather than silently failing (enforced + unit-tested).
-- **Background auto-grab monitor, made server-safe** — add any teaching class to a watch list; the engine polls capacity and, the instant a classmate drops and a seat opens, fires a **pre-built** grab request. It backs off on errors, **hard-stops** on captcha/account/maintenance/throttle signals instead of hammering, never double-submits one seat, and only declares success after the server confirms it.
-- **Fast captcha** — the captcha only gates login/re-login (grabbing uses the `token` header alone), so the login screen prefetches the image, autofocuses the field, and auto-submits the moment the code is entered. An OCR solver is pluggable for hands-free re-login.
+- **Background auto-grab monitor, made server-safe** — add any teaching class to a watch list; the engine polls capacity and, the instant a classmate drops and a seat opens, fires a **pre-built** grab request. It backs off on errors, **hard-stops** on captcha/account errors; normal mode also stops on maintenance/throttling, while rush mode backs off on transient throttle/network errors, never double-submits one seat, and only declares success after the server confirms it.
+- **Captcha with manual fallback** — login/re-login prefetches and recognizes the image. A successful OCR result can submit filled credentials automatically; manual entry uses Enter or the login button. Wrong OCR answers retry within a fixed budget; credential errors return to manual entry. Late OCR results never overwrite a manually typed code.
 - **Multiple accounts at once** (optional, off by default) — sign in several accounts as tabs; each keeps its own server session, watch list and monitor, so different accounts grab different courses in parallel.
-- **Runs in the background** — desktop closes to a tray icon and keeps polling; Android runs a foreground service while a monitor is active; results and errors arrive as system notifications on every platform.
+- **Platform-specific background behavior** — desktop can close to a working tray; Android requests a foreground service while monitoring (OS limits and power management still apply). iOS must stay in the foreground. A closed web tab cannot monitor, and hidden tabs may be throttled. Notifications depend on platform support and permission.
 - **Local whole-school catalogue** — first use fills a persistent catalogue in small background pages. Complete snapshots are searched locally without refresh-on-entry; explicit refresh or a changed account/server/campus/round/term scope starts a new fill. Failed refreshes retain the previous complete snapshot. Other course lists retain cache-first/live-refresh behavior.
 - **Calendar-aware timetable** — the teaching week advances from a saved first Monday, not the first course's starting week. The 2026 autumn initial calibration uses the user-reported 2026-09-21 = week 3 (not an official calendar); other terms require calibration. Phone agenda and desktop table both expose overlapping courses.
 - **Update notices** — settings offer manual app and web-bridge version checks; startup checks are throttled to once per day. New versions link to the official download/install page; nothing installs or restarts automatically.
@@ -38,6 +38,19 @@ for a separate graduate system.)
 - **网课 done right** — MOOC classes (智慧树 `ZH…`, 学习通 `ey…`, 知到 `yw…`) are recognised by course-number prefix and labelled with their platform; the 网课 filter and the 通识 credit requirements mirror the official tab.
 - **Offline Chinese** — a bundled Noto Sans SC subset, with no font CDN.
 - **Beautiful, adaptive UI** — Material 3, light/dark/system with a one-tap toggle and accent-color presets, plus platform dynamic color where available.
+
+## Platforms and release status
+
+See [PLATFORMS.md](PLATFORMS.md) for architecture choices, limitations and
+validation status. The release workflow now defines Android ARM32/ARM64/x64,
+Windows x64/ARM64, universal macOS, Linux x64/ARM64 and an unsigned iOS ARM64 IPA.
+**A workflow definition is not a verified release**: successful jobs and device
+smoke tests are required. Windows 32-bit is deliberately excluded.
+
+HarmonyOS devices that support APK installation may use the corresponding Android
+package. **Native HarmonyOS NEXT/5+ support is not implemented yet**: the selected
+route is Flutter native, not ArkWeb. SDK and plugin migration blockers are tracked
+in [docs/HARMONYOS.md](docs/HARMONYOS.md); no HAP is advertised or published.
 
 ## Architecture
 
@@ -93,7 +106,7 @@ response is an error, not a fallback to the public list. Regression coverage:
 
 ## Develop
 
-Requires Flutter (stable). From the repo root:
+Requires Flutter 3.44.6 / Dart 3.12.x (the locked dependencies require at least Flutter 3.44 / Dart 3.12). From the repo root:
 
 ```bash
 flutter pub get
@@ -105,10 +118,10 @@ flutter run           # pick a device (android/ios/macos/windows/linux)
 To build:
 
 ```bash
-flutter build apk         # Android
+flutter build apk --release --split-per-abi  # Android: three smaller APKs
 flutter build ipa         # iOS
 flutter build macos       # macOS
-flutter build windows     # Windows
+flutter build windows --release  # uses native SDK architecture: x64 or ARM64
 flutter build linux       # Linux
 ```
 
@@ -124,5 +137,5 @@ flutter build linux       # Linux
 
 - Write operations (`volunteer.do`, `deleteVolunteer.do`, textbook order/cancel) change real enrollment state. The app performs them only on explicit user action, and drops require a confirmation dialog.
 - Stopping, pausing or removing a watch prevents a late capacity response from submitting. Logging out disposes the account's monitor; pending results cannot start a new confirmation or publish events after disposal. Requests already sent to the server cannot be recalled.
-- Passwords are stored via `flutter_secure_storage` and only ever sent to the school server, encrypted exactly as the official site does.
+- Remembered passwords use `flutter_secure_storage` (native platform key storage; web uses its browser implementation). If secure storage is unavailable, saving the password fails gracefully. Passwords are sent only to the configured school server, encrypted exactly as the official site does.
 - The server address is configurable in Settings in case the deployment moves.

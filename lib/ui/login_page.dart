@@ -17,6 +17,7 @@ import '../core/web_env.dart';
 import '../data/auth_service.dart';
 import '../data/storage.dart';
 import 'diagnostics_page.dart';
+import 'layout.dart';
 import 'settings_page.dart';
 import 'update_widgets.dart';
 
@@ -51,6 +52,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _autoRecognize = true;
   OcrStatus _ocrStatus = OcrStatus.idle;
   int _ocrRetries = 0;
+  int _captchaRequest = 0;
+  int _accountRequest = 0;
   static const _maxOcrRetries = 4;
 
   @override
@@ -58,6 +61,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     super.initState();
     _autoRecognize = ref.read(storageProvider).autoOcr();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _prefillActiveAccount();
       _maybePromptWebBridge();
       _refreshCaptcha();
@@ -84,8 +88,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('知道了')),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('知道了'),
+          ),
           const FilledButton(
             onPressed: openWebBridgeInstaller,
             child: Text('安装脚本'),
@@ -112,28 +117,36 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   Future<void> _refreshCaptcha({bool autoRecognize = true}) async {
+    if (!mounted || _submitting) return;
+    final request = ++_captchaRequest;
     setState(() {
       _loadingCaptcha = true;
       _challenge = null;
       _captchaCtrl.clear();
-      _ocrStatus = _autoRecognize ? OcrStatus.warming : OcrStatus.idle;
+      _ocrStatus = autoRecognize && _autoRecognize
+          ? OcrStatus.warming
+          : OcrStatus.idle;
     });
     try {
       final challenge = await ref.read(anonymousAuthProvider).fetchCaptcha();
-      if (!mounted) return;
-      setState(() => _challenge = challenge);
+      if (!mounted || request != _captchaRequest) return;
+      setState(() {
+        _challenge = challenge;
+        _showCampusHint = false;
+      });
       if (_ocrStatus == OcrStatus.warming) {
         setState(() => _ocrStatus = OcrStatus.recognizing);
       }
       if (autoRecognize && _autoRecognize) {
         final solver = ref.read(captchaSolverProvider);
         final guess = await solver.solve(challenge.imageBytes);
-        if (!mounted) return;
+        if (!mounted || request != _captchaRequest) return;
+        if (!_autoRecognize || _captchaCtrl.text.isNotEmpty) return;
         if (guess != null && guess.isNotEmpty) {
           _captchaCtrl.text = guess;
           setState(() => _ocrStatus = OcrStatus.recognized);
           if (_loginCtrl.text.trim().isNotEmpty && _pwCtrl.text.isNotEmpty) {
-            _submit(fromOcr: true);
+            await _submit(fromOcr: true);
           }
         } else {
           setState(() => _ocrStatus = OcrStatus.failed);
@@ -143,21 +156,24 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         _captchaFocus.requestFocus();
       }
     } on AppError catch (e) {
-      if (!mounted) return;
+      if (!mounted || request != _captchaRequest) return;
       setState(() {
         _error = e.hint != null ? '${e.message}：${e.hint}' : e.message;
-        _showCampusHint = e.kind == AppErrorKind.campusNetwork ||
+        _showCampusHint =
+            e.kind == AppErrorKind.campusNetwork ||
             e.kind == AppErrorKind.timeout;
         _ocrStatus = OcrStatus.idle;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || request != _captchaRequest) return;
       setState(() {
         _error = '验证码加载失败，点击图片重试';
         _ocrStatus = OcrStatus.idle;
       });
     } finally {
-      if (mounted) setState(() => _loadingCaptcha = false);
+      if (mounted && request == _captchaRequest) {
+        setState(() => _loadingCaptcha = false);
+      }
     }
   }
 
@@ -197,8 +213,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       _submitting = true;
       _error = null;
     });
+    bool? refreshWithOcr;
     try {
-      await ref.read(sessionControllerProvider(loginName).notifier).login(
+      await ref
+          .read(sessionControllerProvider(loginName).notifier)
+          .login(
             loginName: loginName,
             password: password,
             verifyCode: code,
@@ -211,31 +230,31 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       if (widget.addingAccount) Navigator.of(context).pop();
     } on LoginException catch (e) {
       if (!mounted) return;
-      if (e.code == '3') {
-        // Wrong captcha, usually an OCR misread: fetch another and retry
-        // hands-free a few times before asking the user to type it.
+      if (e.code == '3' && fromOcr && _ocrRetries < _maxOcrRetries) {
         _ocrRetries++;
-        if (_ocrRetries <= _maxOcrRetries) {
-          setState(() => _error = null);
-          await _refreshCaptcha();
-          return;
-        }
-        setState(() => _error = '验证码多次识别失败，请手动输入');
-        _ocrRetries = 0;
-        await _refreshCaptcha(autoRecognize: false);
+        refreshWithOcr = true;
       } else {
-        setState(() => _error = e.message);
+        setState(
+          () =>
+              _error = e.code == '3' && fromOcr ? '验证码多次识别失败，请手动输入' : e.message,
+        );
         _ocrRetries = 0;
-        await _refreshCaptcha(autoRecognize: false);
+        refreshWithOcr = false;
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e is AppError
-          ? (e.hint != null ? '${e.message}：${e.hint}' : e.message)
-          : '$e');
-      await _refreshCaptcha(autoRecognize: false);
+      setState(
+        () => _error = e is AppError
+            ? (e.hint != null ? '${e.message}：${e.hint}' : e.message)
+            : '$e',
+      );
+      refreshWithOcr = false;
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+    // Release the submission guard before a new OCR result can retry login.
+    if (mounted && refreshWithOcr != null) {
+      await _refreshCaptcha(autoRecognize: refreshWithOcr);
     }
   }
 
@@ -246,9 +265,16 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   Future<void> _useSavedAccount(Account account) async {
+    if (_submitting) return;
+    final request = ++_accountRequest;
+    _pwCtrl.clear();
     _loginCtrl.text = account.loginName;
     final pw = await ref.read(storageProvider).passwordFor(account.id);
-    if (!mounted) return;
+    if (!mounted ||
+        request != _accountRequest ||
+        _loginCtrl.text != account.loginName) {
+      return;
+    }
     if (pw != null) {
       _pwCtrl.text = pw;
       // A recognised captcha may be waiting for credentials.
@@ -299,6 +325,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   ],
                   TextField(
                     controller: _loginCtrl,
+                    enabled: !busy,
+                    autocorrect: false,
+                    enableSuggestions: false,
                     keyboardType: TextInputType.text,
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
@@ -309,6 +338,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _pwCtrl,
+                    enabled: !busy,
+                    autocorrect: false,
+                    enableSuggestions: false,
                     obscureText: _obscure,
                     textInputAction: TextInputAction.next,
                     onSubmitted: (_) => _submit(),
@@ -317,9 +349,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       prefixIcon: const Icon(Icons.lock_outline),
                       suffixIcon: IconButton(
                         tooltip: _obscure ? '显示密码' : '隐藏密码',
-                        icon: Icon(_obscure
-                            ? Icons.visibility_off_outlined
-                            : Icons.visibility_outlined),
+                        icon: Icon(
+                          _obscure
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                        ),
                         onPressed: () => setState(() => _obscure = !_obscure),
                       ),
                     ),
@@ -327,7 +361,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   const SizedBox(height: 12),
                   CaptchaRow(
                     challenge: _challenge,
-                    loading: _loadingCaptcha,
+                    loading: _loadingCaptcha || busy,
                     controller: _captchaCtrl,
                     focusNode: _captchaFocus,
                     ocrStatus: _ocrStatus,
@@ -336,22 +370,41 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     onSubmit: (_) => _submit(),
                   ),
                   const SizedBox(height: 8),
-                  Row(
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
                     children: [
-                      Checkbox(
-                        value: _remember,
-                        onChanged: (v) => setState(() => _remember = v ?? true),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Checkbox(
+                            value: _remember,
+                            onChanged: busy
+                                ? null
+                                : (v) => setState(() => _remember = v ?? true),
+                          ),
+                          const Text('记住账号'),
+                        ],
                       ),
-                      const Text('记住账号'),
-                      const Spacer(),
-                      const Text('自动识别验证码', style: TextStyle(fontSize: 13)),
-                      Switch(
-                        value: _autoRecognize,
-                        onChanged: (v) {
-                          setState(() => _autoRecognize = v);
-                          ref.read(storageProvider).setAutoOcr(v);
-                          if (v) _refreshCaptcha();
-                        },
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('自动识别验证码', style: TextStyle(fontSize: 13)),
+                          Switch(
+                            value: _autoRecognize,
+                            onChanged: busy
+                                ? null
+                                : (v) {
+                                    setState(() {
+                                      _autoRecognize = v;
+                                      if (!v) _ocrStatus = OcrStatus.idle;
+                                    });
+                                    ref.read(storageProvider).setAutoOcr(v);
+                                    if (v) _refreshCaptcha();
+                                  },
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -373,8 +426,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('连不上选课服务器',
-                              style: TextStyle(fontWeight: FontWeight.w700)),
+                          const Text(
+                            '连不上选课服务器',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
                           const SizedBox(height: 2),
                           Text(
                             '选课系统只在校园网内可用，校外请先连接学校 VPN。\n当前地址：${ref.read(storageProvider).origin()}',
@@ -412,13 +467,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   const SizedBox(height: 16),
                   FilledButton(
                     onPressed: busy ? null : _submit,
-                    style:
-                        FilledButton.styleFrom(minimumSize: const Size(64, 50)),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(64, 50),
+                    ),
                     child: busy
                         ? const SizedBox(
                             height: 22,
                             width: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2.4))
+                            child: CircularProgressIndicator(strokeWidth: 2.4),
+                          )
                         : const Text('登录'),
                   ),
                   if (!widget.addingAccount) ...[
@@ -518,19 +575,23 @@ class _Brand extends StatelessWidget {
           child: Icon(Icons.school_outlined, color: scheme.onPrimary, size: 36),
         ),
         const SizedBox(height: 14),
-        Text('西农本科选课',
-            style: Theme.of(context)
-                .textTheme
-                .headlineSmall
-                ?.copyWith(fontWeight: FontWeight.w800)),
+        Text(
+          '西农本科选课',
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
       ],
     );
   }
 }
 
 class _SavedAccounts extends StatelessWidget {
-  const _SavedAccounts(
-      {required this.accounts, required this.onPick, required this.onRemove});
+  const _SavedAccounts({
+    required this.accounts,
+    required this.onPick,
+    required this.onRemove,
+  });
   final List<Account> accounts;
   final void Function(Account) onPick;
   final void Function(Account) onRemove;
@@ -582,66 +643,76 @@ class CaptchaRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Expanded(
-          child: TextField(
-            controller: controller,
-            focusNode: focusNode,
-            keyboardType: TextInputType.text,
-            textInputAction: TextInputAction.done,
-            autocorrect: false,
-            enableSuggestions: false,
-            inputFormatters: [
-              LengthLimitingTextInputFormatter(6),
-              FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
-            ],
-            decoration: InputDecoration(
-              labelText: '验证码',
-              prefixIcon: const Icon(Icons.pin_outlined),
-              suffixIcon: _ocrIndicator(scheme),
-            ),
-            onChanged: onChanged,
-            onSubmitted: onSubmit,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Tooltip(
-          message: '点击换一张',
-          child: InkWell(
-            onTap: loading ? null : onRefresh,
+    final field = TextField(
+      controller: controller,
+      focusNode: focusNode,
+      keyboardType: TextInputType.text,
+      textInputAction: TextInputAction.done,
+      autocorrect: false,
+      enableSuggestions: false,
+      inputFormatters: [
+        LengthLimitingTextInputFormatter(6),
+        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
+      ],
+      decoration: InputDecoration(
+        labelText: '验证码',
+        prefixIcon: const Icon(Icons.pin_outlined),
+        suffixIcon: _ocrIndicator(scheme),
+      ),
+      onChanged: onChanged,
+      onSubmitted: onSubmit,
+    );
+    final picture = Tooltip(
+      message: '点击换一张',
+      child: InkWell(
+        onTap: loading ? null : onRefresh,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          height: 48,
+          width: 112,
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
-            child: Container(
-              height: 48,
-              width: 112,
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: scheme.outlineVariant),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: loading
-                  ? const Center(
-                      child: SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : challenge != null && challenge!.imageBytes.isNotEmpty
-                      ? Image.memory(
-                          Uint8List.fromList(challenge!.imageBytes),
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
-                        )
-                      : Center(
-                          child: Icon(Icons.refresh,
-                              color: scheme.onSurfaceVariant),
-                        ),
-            ),
+            border: Border.all(color: scheme.outlineVariant),
           ),
+          clipBehavior: Clip.antiAlias,
+          child: loading
+              ? const Center(
+                  child: SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              : challenge != null && challenge!.imageBytes.isNotEmpty
+              ? Image.memory(
+                  Uint8List.fromList(challenge!.imageBytes),
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                )
+              : Center(
+                  child: Icon(Icons.refresh, color: scheme.onSurfaceVariant),
+                ),
         ),
+      ),
+    );
+    // Screen width, not LayoutBuilder: AlertDialog (relogin) measures its
+    // content's intrinsic size, which LayoutBuilder cannot report.
+    if (MediaQuery.sizeOf(context).width < 400 * layoutTextScale(context)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          field,
+          const SizedBox(height: 8),
+          Align(alignment: Alignment.centerRight, child: picture),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(child: field),
+        const SizedBox(width: 12),
+        picture,
       ],
     );
   }
@@ -653,15 +724,19 @@ class CaptchaRow extends StatelessWidget {
         return const Padding(
           padding: EdgeInsets.all(12),
           child: SizedBox(
-              height: 16,
-              width: 16,
-              child: CircularProgressIndicator(strokeWidth: 2)),
+            height: 16,
+            width: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
         );
       case OcrStatus.recognized:
         return const Icon(Icons.auto_awesome, color: Colors.green, size: 20);
       case OcrStatus.failed:
-        return Icon(Icons.edit_outlined,
-            color: scheme.onSurfaceVariant, size: 20);
+        return Icon(
+          Icons.edit_outlined,
+          color: scheme.onSurfaceVariant,
+          size: 20,
+        );
       case OcrStatus.idle:
         return null;
     }

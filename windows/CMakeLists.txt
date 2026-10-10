@@ -55,7 +55,9 @@ add_subdirectory("runner")
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+include(onnxruntime.cmake)
 include(flutter/generated_plugins.cmake)
+list(APPEND PLUGIN_BUNDLED_LIBRARIES ${NWAFU_ORT_DLLS})
 
 
 # === Installation ===

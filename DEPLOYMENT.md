@@ -1,186 +1,139 @@
-# 部署与构建指南 · Deployment Guide
+# 构建与发布
 
-本文档说明如何构建、运行和部署「西农本科选课」客户端。选课请求仅发往配置的学校服务器，该系统仅在校园网内可用（校外需 VPN 接入校园网）。版本检查另行访问 GitHub Releases API 和 `mjy.js.org` 的网页版版本文件、桥接脚本；不携带学校账号、token 或 Cookie，仅提示用户自行下载，不自动安装。
+选课系统需要校园网（校外用学校 VPN）。学校凭据不会附加到 GitHub 或
+`mjy.js.org` 更新检查；主动设置的 OCR 服务会接收验证码图片。
 
-## 目录
+## 工具链与验证
 
-- [环境要求](#环境要求)
-- [通用步骤](#通用步骤)
-- [macOS 原生应用](#macos-原生应用)
-- [Windows / Linux 桌面](#windows--linux-桌面)
-- [Android / iOS](#android--ios)
-- [Web 网页版（静态部署 + 跨域桥接脚本）](#web-网页版静态部署--跨域桥接脚本)
-- [字体与离线性](#字体与离线性)
-
----
-
-## 环境要求
-
-- Flutter stable ≥ 3.19（开发使用 3.44.6 / Dart 3.12.2 验证）。
-- 各目标平台的原生工具链见下文分节。
+使用 Flutter **3.44.6 / Dart 3.12.x**，最低约束已与当前锁定依赖对齐为
+Flutter 3.44 / Dart 3.12。不要按旧文档的 Flutter 3.19 安装。
 
 ```bash
-# (仓库根目录就是 Flutter 工程)
-flutter pub get
-flutter analyze      # 应为 No issues found
-flutter test         # 全部离线测试应通过
+flutter pub get --enforce-lockfile
+flutter analyze
+flutter test
+python3 -m unittest discover -s tool -p 'test_*.py'
 ```
 
----
+各架构与能力限制见 [PLATFORMS.md](PLATFORMS.md)。以下命令都是构建方式，
+不是已经通过真机验证的声明。仓库已提交各平台脚手架，不必重新 `flutter create .`。
 
-## 通用步骤
-
-所有平台共用同一套 Dart 代码。构建前先 `flutter pub get`。若切换过分支或改过包名，遇到奇怪的缓存报错时先 `flutter clean` 再 `flutter pub get`。
-
----
-
-## macOS 原生应用
-
-> **前置条件：必须安装完整版 Xcode**（App Store 安装），仅有 Command Line Tools 无法编译 macOS/iOS —— 会报 `xcrun: error: unable to find utility "xcodebuild"`。
-
-安装完整 Xcode 后一次性配置：
+## Android：拆 ABI 与长期签名
 
 ```bash
-sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
-sudo xcodebuild -runFirstLaunch
+flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64,android-x64
+flutter build appbundle --release --target-platform android-arm,android-arm64,android-x64
 ```
 
-然后构建 / 运行：
+APK 输出在 `build/app/outputs/flutter-apk/`，分别为 `app-armeabi-v7a-release.apk`、
+`app-arm64-v8a-release.apk`、`app-x86_64-release.apk`。手机通常选 arm64-v8a；
+需要通用包时可自行执行不含 `--split-per-abi` 的构建命令。AAB 供商店分发，不能直接安装。
+
+拆包去掉不属于本机的 Flutter/ONNX 原生库；所有包仍含约 13 MiB 的 OCR 模型和
+约 4.4 MiB 的中文字库。保留离线识别，不以删除模型冒充优化。CI 输出实际包体积；
+在真实构建前不承诺压缩比例。R8 和资源收缩已显式开启，ONNX JNI 保留规则不可删除。
+
+本地在 `android/key.properties` 填写（文件与密钥均被忽略）：
+
+```properties
+storeFile=release.jks
+storePassword=你的密钥库密码
+keyAlias=你的别名
+keyPassword=你的密钥密码
+```
+
+路径相对 `android/`。发布必须使用一份长期保存的密钥；不要每次重新生成。
+未配置时仅本地/非 tag 预览允许 debug 签名。CI tag 发布要求四个仓库 Secrets：
+`ANDROID_KEYSTORE_BASE64`、`ANDROID_STORE_PASSWORD`、`ANDROID_KEY_PASSWORD`、
+`ANDROID_KEY_ALIAS`；缺失或不完整会失败，不会静默发布临时签名包。
+
+旧版本使用 debug 证书，新证书可能无法覆盖安装。先备份需要的配置，确认迁移方式；
+不要直接指导用户卸载导致数据丢失。使用 `apksigner verify --print-certs` 比较证书。
+
+## macOS：Intel 与 Apple Silicon
+
+需要完整 Xcode 与 CocoaPods，最低运行系统 macOS 14（ONNX 插件要求）。
+CI 固定 `macos-15` + Xcode 16.4，避免 Xcode 27 的 Intel/lipo 行为差异。
 
 ```bash
-# (仓库根目录就是 Flutter 工程)
-flutter run -d macos          # 调试运行
-flutter build macos           # Release 产物: build/macos/Build/Products/Release/nwafu_bksxk.app
+flutter build macos --release
+python3 tool/verify-native.py build/macos/Build/Products/Release arm64 x86_64
 ```
 
-若本机只安装了 `/Applications/Xcode-beta.app`，可在命令前临时指定工具链，
-无需修改全局 `xcode-select`：
+Release 构建应为 Universal；校验扫描整个包，包含 Flutter、App、插件及 OCR 框架。
+任何文件缺少 Intel 或 ARM64 切片都失败。`ARCHS=arm64` 的本地变通构建不等于通用版。
+产物为 DMG，目前未做 Developer ID 签名与公证。
+
+网络 entitlement 已配置；未签名构建的密码存储使用传统 Keychain，失败时回退为不保存密码，
+不将密码写入普通偏好设置。不要添加未配套签名的 Keychain access group。
+
+## Windows：x64 与 ARM64
+
+需要 Visual Studio C++ 工具链。ARM64 需原生 ARM64 Windows、原生 ARM64 Dart/Flutter SDK、ARM64 C++ 编译器和 ATL。Flutter 3.44.6 的 Windows 构建根据运行 SDK 的宿主架构选择目标，没有 `--target-platform` 参数。CI 使用 `windows-2022` 和 `windows-11-arm` 分别构建，后者从固定 Flutter tag 引导原生 SDK。
 
 ```bash
-export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
-flutter build macos --debug
+# 分别在 x64 / ARM64 Windows 的对应原生 SDK 下执行：
+flutter build windows --release
+python tool/verify-native.py build/windows/arm64/runner/Release arm64
 ```
 
-Flutter 3.44.6 配合 Xcode 27 beta 构建 universal Release 时，Xcode 27 的
-`lipo -verify_arch` 参数行为变化会导致 Flutter 错误报告框架缺少架构，尽管
-框架实际同时包含 `arm64` 和 `x86_64`。当前 Apple Silicon 机器可直接用
-Xcode 构建 arm64 Release：
+`windows/onnxruntime.cmake` 为目标架构下载桌面 ONNX Runtime 1.22.0，通过插件的
+system-library 接口接入，并显式打包 DLL。这修复了上游插件把 64 位 ARM 当成 x64 的判断。
+不是把 x64 包重命名成 ARM64。发布 ZIP 必须包含 Release 整个目录。
+Windows 32 位不在本次范围内。
+
+## Linux：x64 与 ARM64
+
+构建基线 Ubuntu 22.04；安装 `clang cmake ninja-build pkg-config libgtk-3-dev
+liblzma-dev libsecret-1-dev libayatana-appindicator3-dev`。ARM64 在原生 ARM runner 上
+从固定 Flutter tag 引导 SDK，不请求不存在的官方 Linux ARM64 SDK 压缩包。
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
-  xcodebuild \
-  -workspace macos/Runner.xcworkspace \
-  -scheme Runner \
-  -configuration Release \
-  -derivedDataPath build/macos \
-  ARCHS=arm64 \
-  ONLY_ACTIVE_ARCH=YES \
-  CODE_SIGNING_ALLOWED=NO \
-  build
+flutter build linux --release --target-platform linux-x64
+# 在 ARM64 构建机执行：
+flutter build linux --release --target-platform linux-arm64
 ```
 
-该命令已在 Xcode 27 beta 上验证通过；如需同时发布 Intel 版本，请使用
-Flutter 支持的稳定版 Xcode，或升级到已适配 Xcode 27 `lipo` 行为的 Flutter
-版本后再执行普通的 `flutter build macos`。
+打包整个 `build/linux/<arch>/release/bundle/`；使用 `tool/verify-native.py` 检查 ELF 架构。
+运行时需要 GTK 3、libsecret 和 Ayatana AppIndicator；不同发行版包名可能不同。
 
-已为你配置好的 macOS 工程要点：
+## iOS / iPadOS
 
-- **沙盒网络权限**：`macos/Runner/DebugProfile.entitlements` 与 `Release.entitlements` 均已加入 `com.apple.security.network.client`。缺少它时沙盒会静默拦截所有出站请求，应用连不上服务器。
-- Bundle 标识：`cn.edu.nwafu.nwafuBksxk`；显示名：西农本科选课；最低系统 macOS 14.0（`flutter_onnxruntime` 要求）。
-- 通知：`flutter_local_notifications` 走系统通知中心，首次登录后申请权限。
+最低 iOS 16，需完整 Xcode。CI 使用 `flutter build ios --release --no-codesign`，
+把 `Runner.app` 放入 `Payload/` 后生成名称含 `unsigned` 的 IPA。
+**未签名 IPA 不能直接安装**，需维护者/用户配置 Apple 签名和描述文件；商店/TestFlight
+上架还需单独配置。已有 Apple 开发环境可使用 `flutter build ipa` 自行导出签名包。
+iOS 不承诺持续后台抢课；请保持应用前台。
 
----
+## 原生鸿蒙
 
-## Windows / Linux 桌面
+不使用 ArkWeb 套壳，不把 APK 改名成 HAP。当前未完成 Flutter 原生移植，
+SDK/Dart 版本差距及原生插件移植表见 [docs/HARMONYOS.md](docs/HARMONYOS.md)。
+因此主发布流水线不会产生或宣传 HAP；支持 APK 的鸿蒙设备另按 Android 兼容情况判断。
+
+## Web 与下载页
 
 ```bash
-# Windows（需 Visual Studio + Desktop C++ 工作负载）
-flutter build windows
-
-# Linux（需 clang / cmake / ninja / GTK 开发库，以及托盘图标需要的 libayatana-appindicator3-dev）
-flutter build linux
+flutter build web --release --base-href /nwafu-bksxk/app/ --no-web-resources-cdn
 ```
 
-窗口标题与 Android 标签均为「西农本科选课」。
+流水线把 `site/` 放在站点根目录、`build/web/` 放在 `app/`、桥接脚本放在根目录。
+Pages 选择 `web` 分支根目录，应用地址为 `https://mjy.js.org/nwafu-bksxk/app/`。
+仅 main 分支构建会部署网站，PR、tag 和其他分支的手动构建不覆盖线上站点。
+不要在源码工作区使用旧文档的 `rm -rf *` 切孤儿分支部署。
 
----
+使用者安装 Tampermonkey/ScriptCat 和 `bksxk-web-bridge.user.js` 后刷新页面。
+脚本的 `@match` 必须覆盖托管域名，`@connect` 仅允许学校选课主机；更换服务器
+不会自动扩大脚本权限。页面关闭不能继续监控，隐藏页面也可能被浏览器限速。
+中文字库、OCR 模型和 WASM 本地托管，更新检查仍会访问前述更新源。
 
-## Android / iOS
+## CI 触发规则
 
-```bash
-# Android（需 Android SDK）
-flutter build apk --release          # 或 appbundle
+- main 推送：分析、测试、Web 构建和部署。
+- PR / 手动触发：分析、测试、Web 及全部已列出的原生构建；不发布、不部署生产站点。
+- `v*` tag：必须和 `pubspec.yaml` 版本一致，所有任务成功才汇总产物、生成 SHA256SUMS
+  和 Release 草稿。维护者完成平台验收后再发布草稿。
+- PR/手动构建没有 Android 签名时产物标为 `debug-signed`；tag 严禁此回退。
 
-# iOS（需完整 Xcode，同 macOS 前置条件）
-flutter build ipa
-```
-
-已配置：
-
-- **Android**：`INTERNET` 权限已放入 **主** manifest（`android/app/src/main/AndroidManifest.xml`），并加入 `POST_NOTIFICATIONS`（Android 13+ 运行时通知权限）。注意 Flutter 默认只在 debug/profile manifest 里加 `INTERNET`，release 必须在主 manifest 显式声明，否则联网失败——本项目已处理。
-- **Android release 混淆**：`android/app/proguard-rules.pro` 必须保留 `ai.onnxruntime.**` 的类名及成员，并由 release 构建加载。ONNX Runtime 的 JNI 按名称查找这些类；缺失规则会在验证码推理时触发 `JNI DETECTED ERROR: java_class == null` / `SIGABRT`，Dart 的异常捕获无法拦截。2026-09-20 在 Android 15 arm64 模拟器上复现旧 APK 闪退；仅加入 ONNX 保留规则后，release APK 连续 3 次冷启动及验证码刷新均未崩溃。修改此规则或升级运行库后，应重新安装 release APK 验证，debug 构建和 Dart 单元测试不能覆盖 R8 引起的问题。
-- **iOS**：显示名西农本科选课。
-
----
-
-## Web 网页版（静态部署 + 跨域桥接脚本）
-
-学校后端不返回 CORS 头，浏览器**直连会被拦截**，且浏览器禁止页面 JS 设置 `Cookie`/`User-Agent`。因此网页版需要一个配套的浏览器脚本来桥接。整套方案是**纯静态**的，可部署到 GitHub Pages 等。
-
-### 1. 构建静态站点
-
-```bash
-# (仓库根目录就是 Flutter 工程)
-flutter create . --platforms web --project-name nwafu_bksxk   # 首次生成 web/ 脚手架
-flutter build web --release --no-web-resources-cdn
-# 产物在 build/web/，是纯静态文件；--no-web-resources-cdn 让 CanvasKit 随站点一起托管，校园网访问 gstatic.com 很慢
-```
-
-### 2. 部署到 web 分支 / 静态托管
-
-把 `build/web/` 的内容发布到任意静态托管（GitHub Pages、Cloudflare Pages、Vercel、Netlify 或校内静态服务器）。例如用 `web` 分支托管 GitHub Pages：
-
-```bash
-# 在仓库根目录
-git switch --orphan web
-rm -rf *                       # 清空工作区（web 分支只放构建产物）
-cp -r build/web/* .
-git add .
-git commit -m "Publish web build"
-git push -u origin web
-# 然后在 GitHub 仓库 Settings → Pages 选择 web 分支根目录
-```
-
-> 该 Flutter 应用是**静态**的（无服务端逻辑），因此适合 web 分支静态托管。它不需要任何后端服务器；所有业务请求由用户浏览器直接发往校园网选课服务器。
-
-### 3. 安装跨域桥接脚本
-
-网页首次打开会弹窗提示安装脚本。用户需：
-
-1. 安装 **篡改猴 (Tampermonkey)** 或 **脚本猫 (ScriptCat)** 浏览器扩展；
-2. 在弹窗中点击 **一键安装脚本**；也可直接打开部署后的 [`bksxk-web-bridge.user.js`](https://mjy.js.org/nwafu-bksxk/bksxk-web-bridge.user.js)，或查看仓库源文件 [`web_bridge/bksxk-web-bridge.user.js`](web_bridge/bksxk-web-bridge.user.js)；
-3. **确认脚本的 `@match` 覆盖你的部署域名**（脚本默认匹配 `localhost`、`*.github.io`、`*.pages.dev`、`*.vercel.app`、`*.netlify.app`；自定义域名需自行添加一条 `@match`）；
-4. 刷新页面。
-
-脚本原理：它把 `window.XMLHttpRequest` 替换为一个转发器——发往 `bksxk.nwafu.edu.cn` 的请求改走 `GM_xmlhttpRequest`（不受 CORS 限制、自动携带浏览器里的选课站 Cookie、可设置被禁止的请求头），其余请求（字体、同源资源等）仍走原生 XHR。安装后应用无需改动即可工作。`@connect` 仅限 `bksxk.nwafu.edu.cn`，脚本只能访问选课主机。
-
-安装后应用会同时检查 `window.__bksxkBridgeReady` 与跨扩展隔离域可见的
-`data-bksxk-bridge-ready` DOM 标记，刷新后不再弹出安装提示。
-
-### Web 限制说明
-
-- 仍然只能在**校园网**内使用（脚本绕过的是 CORS，不是网络可达性）。
-- **验证码自动识别在 web 端同样可用**：网页版打包了 onnxruntime-web + 同一个模型（`web/ort/`，单线程 SIMD，无需 COOP/COEP 头，可部署到 GitHub Pages 等静态托管），与桌面/移动端识别效果一致，全程离线。
-- 系统通知在 web 上不可用（原生端可用）。
-- 安全存储在 web 上退化为浏览器本地存储，隐私性弱于桌面/移动端的系统钥匙串；对凭据敏感的用户建议使用原生端。
-
----
-
-## 字体与离线性
-
-应用打包了 **Noto Sans SC 的 GB2312/GBK 子集**（OFL 1.1，见 `assets/fonts/OFL_NOTICE.txt`），因此：
-
-- 中文（含任意课程名/教师名）离线即可正确显示；
-- **运行时不访问任何字体 CDN**，符合「只连接 bksxk.nwafu.edu.cn」的要求。
-
-若需覆盖更多生僻字，可用 `fonttools` 的 `pyftsubset` 扩大子集字符集后替换 `assets/fonts/` 下的两个 ttf（Regular/Medium）。
+更新版本号后再创建对应 tag，禁止覆盖已发布 tag。配置签名不等于验证了设备安装；
+完整验收记录见平台说明。任何尚未完成的构建应保持“待验证”，不要写成“全部平台通过”。

@@ -530,14 +530,14 @@ class _BackgroundSettings extends ConsumerWidget {
       return const ListTile(
         leading: Icon(Icons.web_outlined),
         title: Text('网页版关闭标签页后监控会停止'),
-        subtitle: Text('需要后台监控请使用桌面或手机应用'),
+        subtitle: Text('隐藏标签页可能被限速；持续监控优先使用桌面端'),
       );
     }
     final bg = AppBackground.instance;
     final subtitle = bg.supportsTray
         ? '关闭窗口后缩到托盘继续监控，从托盘图标恢复或退出'
         : bg.supportsForegroundService
-            ? '监控运行时显示常驻通知，系统不会清理后台'
+            ? '监控时申请前台服务；省电策略和系统时限仍可能中断监控'
             : '系统限制，请保持应用在前台';
     return Column(
       children: [
@@ -546,7 +546,9 @@ class _BackgroundSettings extends ConsumerWidget {
           title: const Text('后台运行'),
           subtitle: Text(subtitle),
           value: ref.watch(runInBackgroundProvider),
-          onChanged: (v) => ref.read(runInBackgroundProvider.notifier).set(v),
+          onChanged: bg.supportsTray || bg.supportsForegroundService
+              ? (v) => ref.read(runInBackgroundProvider.notifier).set(v)
+              : null,
         ),
         SwitchListTile(
           secondary: const Icon(Icons.bedtime_off_outlined),

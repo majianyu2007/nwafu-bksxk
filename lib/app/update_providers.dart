@@ -52,19 +52,14 @@ class UpdatesState {
 
 class UpdatesController extends StateNotifier<UpdatesState> {
   UpdatesController({
-    required UpdateService service,
-    required Storage storage,
-    required bool isWeb,
-    required bool Function() bridgeInstalled,
-    required String? Function() bridgeVersion,
+    required this._service,
+    required this._storage,
+    required this._isWeb,
+    required this._bridgeInstalled,
+    required this._bridgeVersion,
     Future<PackageInfo> Function()? packageInfo,
     DateTime Function()? now,
-  })  : _service = service,
-        _storage = storage,
-        _isWeb = isWeb,
-        _bridgeInstalled = bridgeInstalled,
-        _bridgeVersion = bridgeVersion,
-        _packageInfo = packageInfo ?? PackageInfo.fromPlatform,
+  })  : _packageInfo = packageInfo ?? PackageInfo.fromPlatform,
         _now = now ?? DateTime.now,
         super(const UpdatesState());
 

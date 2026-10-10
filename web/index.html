@@ -33,11 +33,11 @@
 <body>
   <div id="boot">
     <div class="logo"></div>
-    <div id="boot-text">正在加载，首次打开需要下载约 5 MB</div>
+    <div id="boot-text">正在加载，首次打开可能需要较长时间</div>
     <div class="bar"><i></i></div>
   </div>
   <!-- onnxruntime-web for on-device captcha OCR (same model as the desktop app).
-       Bundled locally (no CDN) so the web app only connects to bksxk.nwafu.edu.cn.
+       Bundled locally (no OCR/font CDN); update checks also contact the release sources.
        Loaded deferred: it is only needed once the login screen asks for it. -->
   <script defer src="ort/ort.min.js" onload="if(window.ort){ort.env.wasm.numThreads=1;ort.env.wasm.simd=true;ort.env.wasm.wasmPaths='ort/';}"></script>
   <script>
