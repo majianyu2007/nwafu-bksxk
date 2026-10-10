@@ -696,26 +696,24 @@ class CaptchaRow extends StatelessWidget {
         ),
       ),
     );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 340 * layoutTextScale(context)) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              field,
-              const SizedBox(height: 8),
-              Align(alignment: Alignment.centerRight, child: picture),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            Expanded(child: field),
-            const SizedBox(width: 12),
-            picture,
-          ],
-        );
-      },
+    // Screen width, not LayoutBuilder: AlertDialog (relogin) measures its
+    // content's intrinsic size, which LayoutBuilder cannot report.
+    if (MediaQuery.sizeOf(context).width < 400 * layoutTextScale(context)) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          field,
+          const SizedBox(height: 8),
+          Align(alignment: Alignment.centerRight, child: picture),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(child: field),
+        const SizedBox(width: 12),
+        picture,
+      ],
     );
   }
 
