@@ -435,8 +435,9 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
           bookSelection: book,
           volunteerGrade: grade);
       if (!mounted) return;
-      if (outcome.success) {
-        showToast(context, outcome.message, success: true);
+      if (outcome.success || outcome.pending) {
+        showToast(context, outcome.message,
+            success: outcome.success ? true : null);
       } else {
         final err = AppError.fromBusiness(outcome.code, outcome.message);
         showToast(

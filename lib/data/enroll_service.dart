@@ -19,9 +19,13 @@ class EnrollOutcome {
     required this.code,
     required this.message,
     this.shape,
+    this.pending = false,
   });
 
   final bool success;
+
+  /// Submitted but the server had not decided yet when polling gave up.
+  final bool pending;
   final String code;
   final String message;
 
@@ -50,8 +54,8 @@ class EnrollService {
     );
   }
 
-  /// Convenience: resolve + submit in one call (used for manual, non-monitored
-  /// selection where the user already picked test class / textbook).
+  /// Manual selection: resolve, submit, then wait for studentstatus.do like
+  /// the official page, so the user is never told a rejected add succeeded.
   Future<EnrollOutcome> addCourse({
     required TeachingClass tc,
     required String studentCode,
@@ -74,7 +78,26 @@ class EnrollService {
       textbookOrderingOpen: textbookOrderingOpen,
       volunteerGrade: volunteerGrade,
     );
-    return submitAdd(plan);
+    final outcome = await submitAdd(plan);
+    if (!outcome.success) return outcome;
+    // volunteer.do only queues the add; the seat is decided afterwards.
+    final status = await confirmStatus(studentCode);
+    if (status.code == '1') {
+      return EnrollOutcome(
+          success: true,
+          code: status.code,
+          message: status.msg.isEmpty ? '选课成功' : status.msg,
+          shape: plan.shape);
+    }
+    return EnrollOutcome(
+      success: false,
+      code: status.code,
+      message: status.code == '-1'
+          ? (status.msg.isEmpty ? '选课未成功' : status.msg)
+          : '已提交，服务器还在处理，稍后到「我的」查看结果',
+      shape: plan.shape,
+      pending: status.code != '-1',
+    );
   }
 
   /// Drops a selected class.

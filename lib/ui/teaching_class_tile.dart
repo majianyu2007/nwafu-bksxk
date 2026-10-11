@@ -258,7 +258,8 @@ class TeachingClassTile extends StatelessWidget {
         ],
       );
     }
-    if (tc.remaining > 0) {
+    // No counts from the server is not the same as full.
+    if (tc.remaining > 0 || !tc.hasCapacityInfo) {
       return Row(
         children: [
           monitorButton,
@@ -328,6 +329,10 @@ class _RefreshButtonState extends State<_RefreshButton> {
               setState(() => _busy = true);
               try {
                 await widget.onRefresh();
+              } catch (e) {
+                if (context.mounted) {
+                  showToast(context, '刷新失败：$e', success: false);
+                }
               } finally {
                 if (mounted) setState(() => _busy = false);
               }

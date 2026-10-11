@@ -457,7 +457,9 @@ class CoursesController extends StateNotifier<CoursesState> {
       textbookOrderingOpen: batch.canSelectBook,
       volunteerGrade: volunteerGrade,
     );
-    if (outcome.success) bumpSelectionRevision(_ref, accountId);
+    if (outcome.success || outcome.pending) {
+      bumpSelectionRevision(_ref, accountId);
+    }
     return outcome;
   }
 
