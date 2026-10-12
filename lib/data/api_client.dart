@@ -22,6 +22,7 @@ import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import '../core/constants.dart';
 import '../core/errors.dart';
 import 'models.dart';
+import 'vpn/campus_proxy.dart';
 
 /// Result of a lightweight reachability probe (for the diagnostics page).
 class ReachabilityResult {
@@ -58,7 +59,10 @@ class ApiClient {
             'X-Requested-With': 'XMLHttpRequest',
           },
         ));
-    if (!kIsWeb) _dio.interceptors.add(CookieManager(_cookieJar));
+    if (!kIsWeb) {
+      _dio.interceptors.add(CookieManager(_cookieJar));
+      if (dio == null) CampusProxy.instance.attach(_dio);
+    }
   }
 
   late final Dio _dio;

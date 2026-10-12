@@ -1,0 +1,11 @@
+group 'cn.edu.nwafu.nwafu_connect_ffi'
+version '0.1.0'
+apply plugin: 'com.android.library'
+android {
+    namespace 'cn.edu.nwafu.nwafu_connect_ffi'
+    compileSdk 35
+    defaultConfig { minSdk 24 }
+    sourceSets {
+        main.jniLibs.srcDirs = ['../prebuilt/android']
+    }
+}

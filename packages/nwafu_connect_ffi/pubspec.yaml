@@ -1,0 +1,23 @@
+name: nwafu_connect_ffi
+description: Bundles the prebuilt nwafu-connect (aTrust) library for the app's off-campus access.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.12.0
+  flutter: ">=3.44.0"
+dependencies:
+  flutter:
+    sdk: flutter
+flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true
+      ios:
+        ffiPlugin: true
+      macos:
+        ffiPlugin: true
+      linux:
+        ffiPlugin: true
+      windows:
+        ffiPlugin: true

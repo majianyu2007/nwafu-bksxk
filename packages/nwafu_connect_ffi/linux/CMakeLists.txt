@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.10)
+project(nwafu_connect_ffi LANGUAGES C)
+set(LIB "${CMAKE_CURRENT_SOURCE_DIR}/../prebuilt/linux/libnwafuconnect.so")
+if(EXISTS "${LIB}")
+  set(nwafu_connect_ffi_bundled_libraries "${LIB}" PARENT_SCOPE)
+else()
+  set(nwafu_connect_ffi_bundled_libraries "" PARENT_SCOPE)
+endif()

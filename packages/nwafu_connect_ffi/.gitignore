@@ -1,0 +1,3 @@
+prebuilt/*/
+macos/libnwafuconnect.dylib
+ios/NwafuConnect.xcframework
