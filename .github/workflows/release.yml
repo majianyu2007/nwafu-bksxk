@@ -43,6 +43,22 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+      - name: Check out nwafu-connect (off-campus access library)
+        uses: actions/checkout@v4
+        with:
+          repository: majianyu2007/nwafu-connect
+          ref: embed-lib
+          path: nwafu-connect
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: nwafu-connect/go.mod
+          cache-dependency-path: nwafu-connect/go.sum
+      - name: Build VPN library (Android)
+        env:
+          NWAFU_CONNECT_DIR: ${{ github.workspace }}/nwafu-connect
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          tool/build-vpn-lib.sh android
       - name: Configure persistent Android signing
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -108,6 +124,20 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+      - name: Check out nwafu-connect (off-campus access library)
+        uses: actions/checkout@v4
+        with:
+          repository: majianyu2007/nwafu-connect
+          ref: embed-lib
+          path: nwafu-connect
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: nwafu-connect/go.mod
+          cache-dependency-path: nwafu-connect/go.sum
+      - name: Build VPN library (macOS universal)
+        env:
+          NWAFU_CONNECT_DIR: ${{ github.workspace }}/nwafu-connect
+        run: tool/build-vpn-lib.sh macos
       - run: flutter pub get --enforce-lockfile
       - run: flutter build macos --release
       - name: Verify universal bundle and package
@@ -116,7 +146,7 @@ jobs:
           APP=$(find build/macos/Build/Products/Release -maxdepth 1 -name '*.app' -print -quit)
           test -n "$APP"
           python3 tool/verify-native.py "$APP" arm64 x86_64
-          hdiutil create -volname "西农本科选课" -srcfolder "$APP" -ov -format UDZO dist/nwafu-bksxk-macos-universal.dmg
+          hdiutil create -volname "西农教务助手" -srcfolder "$APP" -ov -format UDZO dist/nwafu-bksxk-macos-universal.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos-universal
@@ -152,6 +182,26 @@ jobs:
           "$env:RUNNER_TEMP/flutter/bin" >> $env:GITHUB_PATH
           & "$env:RUNNER_TEMP/flutter/bin/flutter.bat" --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check out nwafu-connect (off-campus access library)
+        uses: actions/checkout@v4
+        with:
+          repository: majianyu2007/nwafu-connect
+          ref: embed-lib
+          path: nwafu-connect
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: nwafu-connect/go.mod
+          cache-dependency-path: nwafu-connect/go.sum
+      - name: Build VPN library (Windows)
+        # The ARM64 image may lack a C toolchain for cgo; the app then ships
+        # without built-in off-campus access instead of failing the build.
+        continue-on-error: ${{ matrix.arch == 'arm64' }}
+        working-directory: nwafu-connect
+        shell: bash
+        run: |
+          mkdir -p ../packages/nwafu_connect_ffi/prebuilt/windows
+          CGO_ENABLED=1 go build -buildmode=c-shared -trimpath -ldflags "-s -w" \
+            -o ../packages/nwafu_connect_ffi/prebuilt/windows/nwafuconnect.dll ./cmd/libnwafuconnect
       - run: flutter pub get --enforce-lockfile
       - run: flutter build windows --release
       - name: Verify architecture and package
@@ -198,6 +248,22 @@ jobs:
           git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/flutter/bin/flutter" --version
+      - name: Check out nwafu-connect (off-campus access library)
+        uses: actions/checkout@v4
+        with:
+          repository: majianyu2007/nwafu-connect
+          ref: embed-lib
+          path: nwafu-connect
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: nwafu-connect/go.mod
+          cache-dependency-path: nwafu-connect/go.sum
+      - name: Build VPN library (Linux)
+        working-directory: nwafu-connect
+        run: |
+          mkdir -p ../packages/nwafu_connect_ffi/prebuilt/linux
+          CGO_ENABLED=1 go build -buildmode=c-shared -trimpath -ldflags "-s -w" \
+            -o ../packages/nwafu_connect_ffi/prebuilt/linux/libnwafuconnect.so ./cmd/libnwafuconnect
       - run: flutter pub get --enforce-lockfile
       - run: flutter build linux --release --target-platform linux-${{ matrix.arch }}
       - name: Verify architecture and package
@@ -224,6 +290,20 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+      - name: Check out nwafu-connect (off-campus access library)
+        uses: actions/checkout@v4
+        with:
+          repository: majianyu2007/nwafu-connect
+          ref: embed-lib
+          path: nwafu-connect
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: nwafu-connect/go.mod
+          cache-dependency-path: nwafu-connect/go.sum
+      - name: Build VPN library (iOS)
+        env:
+          NWAFU_CONNECT_DIR: ${{ github.workspace }}/nwafu-connect
+        run: tool/build-vpn-lib.sh ios
       - run: flutter pub get --enforce-lockfile
       - run: flutter build ios --release --no-codesign
       - name: Package unsigned IPA for user signing (not directly installable)
@@ -289,7 +369,7 @@ jobs:
           name: ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
-            西农本科选课 ${{ github.ref_name }}
+            西农教务助手 ${{ github.ref_name }}
 
             Android：手机优先 arm64-v8a；旧款 ARM 设备选 armeabi-v7a；x86_64 供对应设备/模拟器。AAB 不能直接安装。
             Windows：x64 或原生 ARM64；不提供 32 位版本。

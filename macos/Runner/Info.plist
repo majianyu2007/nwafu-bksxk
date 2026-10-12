@@ -15,7 +15,7 @@
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleDisplayName</key>
-	<string>西农本科选课</string>
+	<string>西农教务助手</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -31,6 +31,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>将课表和考试同步到单独的「西农课表」日历，并在课表变化时更新这些日程</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>将课表和考试同步到单独的「西农课表」日历，并在课表变化时更新这些日程</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>

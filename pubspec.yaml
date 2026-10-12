@@ -1,9 +1,9 @@
 name: nwafu_bksxk
 description: >-
-  西农本科选课 · A fast, cross-platform NWAFU (bksxk.nwafu.edu.cn) course
-  selection and auto-grab client.
+  西农教务助手 · Offline timetables, academic grades and course selection
+  for Northwest A&F University.
 publish_to: "none"
-version: 1.3.1+5
+version: 2.0.0+6
 
 environment:
   sdk: ">=3.12.0 <4.0.0"
@@ -41,6 +41,18 @@ dependencies:
   package_info_plus: ^9.0.0
   url_launcher: ^6.3.2
   pub_semver: ^2.2.0
+  pointycastle: ^4.0.0
+  timezone: ^0.11.1
+  crypto: ^3.0.7
+  local_auth: ^3.0.2
+  nwafu_connect_ffi:
+    path: packages/nwafu_connect_ffi
+  ffi: ^2.2.0
+  workmanager: ^0.10.10
+  device_calendar_plus: ^0.10.1
+  share_plus: ^12.0.2
+  file_selector: ^1.1.0
+  home_widget: ^0.10.0
 
 dev_dependencies:
   flutter_test:
@@ -49,6 +61,10 @@ dev_dependencies:
   test: ^1.25.0
 
 flutter:
+  # Keep native plugins on one dependency graph; the current ONNX plugin's
+  # Swift module dependencies are not resolved by the generated SPM package.
+  config:
+    enable-swift-package-manager: false
   uses-material-design: true
 
   # Bundled captcha OCR model (ONNX) + its charset, loaded on-device.

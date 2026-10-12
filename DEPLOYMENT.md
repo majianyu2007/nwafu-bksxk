@@ -55,6 +55,12 @@ keyPassword=你的密钥密码
 需要完整 Xcode 与 CocoaPods，最低运行系统 macOS 14（ONNX 插件要求）。
 CI 固定 `macos-15` + Xcode 16.4，避免 Xcode 27 的 Intel/lipo 行为差异。
 
+项目通过 `pubspec.yaml` 的 `flutter.config.enable-swift-package-manager: false`
+统一使用 CocoaPods；macOS `Podfile` 使用静态 framework 链接，因为 ONNX
+依赖包含静态二进制。由 SPM 切换后的首次构建先运行 `flutter clean`，
+清除引用 `OnnxRuntimeBindings` 的旧 Swift 模块，再运行 `flutter pub get`。
+不要混用旧 SPM 编译产物与新 Pods。
+
 ```bash
 flutter build macos --release
 python3 tool/verify-native.py build/macos/Build/Products/Release arm64 x86_64

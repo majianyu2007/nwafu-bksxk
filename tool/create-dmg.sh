@@ -7,7 +7,7 @@ set -euo pipefail
 # Defaults assume `flutter build macos --release` has just completed.
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="西农本科选课"
+APP_NAME="西农教务助手"
 DEFAULT_APP="$ROOT_DIR/build/macos/Build/Products/Release/$APP_NAME.app"
 DEFAULT_DMG="$ROOT_DIR/build/macos/$APP_NAME.dmg"
 APP_PATH="${1:-$DEFAULT_APP}"

@@ -119,7 +119,7 @@ Future<void> _applyMonitoring(
         }
         final res = await FlutterForegroundTask.startService(
           serviceTypes: [ForegroundServiceTypes.dataSync],
-          notificationTitle: '西农本科选课',
+          notificationTitle: '西农教务助手',
           notificationText: _host?.statusLine ?? '监控运行中',
           notificationIcon: const NotificationIcon(
             metaDataName: 'cn.edu.nwafu.nwafu_bksxk.NOTIFICATION_ICON',
@@ -147,13 +147,13 @@ Future<void> _applyMonitoring(
 Future<void> updateStatus(String text) async {
   if (_trayShown) {
     try {
-      await trayManager.setToolTip(text.isEmpty ? '西农本科选课' : '西农本科选课：$text');
+      await trayManager.setToolTip(text.isEmpty ? '西农教务助手' : '西农教务助手：$text');
     } catch (_) {}
   }
   if (_serviceRunning) {
     try {
       await FlutterForegroundTask.updateService(
-        notificationTitle: '西农本科选课',
+        notificationTitle: '西农教务助手',
         notificationText: text,
       );
     } catch (_) {}
@@ -173,7 +173,7 @@ Future<void> _ensureTray() async {
     } else {
       await trayManager.setIcon('assets/icons/tray_color.png');
     }
-    await trayManager.setToolTip('西农本科选课');
+    await trayManager.setToolTip('西农教务助手');
     await trayManager.setContextMenu(
       Menu(
         items: [

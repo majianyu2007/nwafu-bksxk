@@ -1,6 +1,6 @@
 {
-    "name": "西农本科选课",
-    "short_name": "西农选课",
+    "name": "西农教务助手",
+    "short_name": "西农教务",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#f6f7fb",

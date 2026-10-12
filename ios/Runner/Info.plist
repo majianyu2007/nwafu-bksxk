@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>西农本科选课</string>
+	<string>西农教务助手</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -26,6 +26,22 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>cn.edu.nwafu.nwafuBksxk.eduRefresh</string>
+	</array>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>将课表和考试同步到单独的「西农课表」日历，并在课表变化时更新这些日程</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>将课表和考试同步到单独的「西农课表」日历，并在课表变化时更新这些日程</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>将课表和考试写入「西农课表」日历</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>使用面容 ID 快速登录统一身份认证</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

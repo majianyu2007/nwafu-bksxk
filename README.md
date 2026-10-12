@@ -1,25 +1,50 @@
-# 西农本科选课 · NWAFU Course Grabber
+# 西农教务助手 · NWAFU Academic Assistant
 
-A cross-platform Flutter client for the NWAFU (`bksxk.nwafu.edu.cn`) undergraduate
-course selection system. Built to make course discovery, selection and explicitly armed seat monitoring
-reliable and convenient. (Named 本科 to leave room
-for a separate graduate system.)
+A cross-platform Flutter client for everyday academic life at NWAFU:
+timetable, grades, exams, free classrooms and course selection. Five tabs:
+**课表 / 课程 / 抢课 / 成绩 / 我的**. One student ID and password work for the
+unified identity (`authserver` / `ehall`), the selection system (`bksxk`) and
+off-campus access (`vpn.nwafu.edu.cn`).
 
 > This app is the client. The reverse-engineering research it is built on lives
 > on the **`api` branch** of this repository (`docs/api.notes.md`,
-> `docs/api.runtime.md`, `static-snapshot/`, etc.). The app faithfully ports the
-> site's request construction — most importantly the login password cipher and
-> the course-selection request structs — and verifies them against ground-truth
-> vectors captured from the real site JS.
+> `docs/api.runtime.md`, `static-snapshot/`, etc.).
 >
-> **Build & deploy:** see [DEPLOYMENT.md](DEPLOYMENT.md) (macOS needs full Xcode;
-> web needs a companion Tampermonkey bridge for CORS).
+> **Build & deploy:** see [DEPLOYMENT.md](DEPLOYMENT.md). The web app needs the
+> companion userscript in `web_bridge/` (v1.3.0+).
 >
-> **Network:** enrollment requests go only to the configured school server,
-> reachable **only on the campus network** (use the school VPN off-campus).
-> Update checks separately contact GitHub and `mjy.js.org` without school credentials.
+> **Network:** school traffic goes only to `*.nwafu.edu.cn`. Off campus the app
+> can connect through the school VPN itself (built-in nwafu-connect, native
+> platforms). Update checks contact GitHub and `mjy.js.org` without credentials.
 
-## Feature highlights
+## What's in 2.0
+
+- **Fingerprint / Face ID sign-in** — after one password login the app registers
+  its own passkey as a 生物识别 device on the unified identity (个人中心 →
+  生物识别 shows it). Later logins use that key after a fingerprint / Face ID /
+  device-passcode check: no password, no SMS code. Unbind in Settings or 个人中心.
+- **One account** — the selection login is pre-filled from the unified account,
+  and the remembered password is shared.
+- **Off-campus access** — [nwafu-connect](https://github.com/majianyu2007/nwafu-connect)
+  (branch `embed-lib`) is bundled as a native library. When the school's hosts are
+  unreachable directly, the app logs in to the school VPN with the same password
+  and routes `*.nwafu.edu.cn` through its local proxy; on campus it connects
+  directly. Built in CI per platform (`tool/build-vpn-lib.sh` locally).
+- **Timetable** — week grid and day view; full course names, room and teacher;
+  stable per-course colours; current-time line; dimmed hatched classes from other
+  weeks; custom courses (`1-16周(单)` syntax); exams on their day. Periods follow
+  the school's 冬令/夏令 作息 (switching at 00:00 Beijing time on Oct 1 and May 1),
+  with 午休 and 晚饭 bands like the printed timetable.
+- **Updates and alerts** — the timetable and grades refresh automatically
+  (Android in the background via WorkManager); changes such as a moved class or a
+  new grade send a notification. Class and exam reminders.
+- **Calendar** — sync to a dedicated 「西农课表」 system calendar (Android/iOS) or
+  export `.ics` (all platforms), with configurable alarms.
+- **More** — free classrooms (空教室) by day and period, grade CSV export, GPA
+  trend, hide-scores toggle, Android home-screen widget for the current/next class,
+  liquid-glass interface (can be turned off).
+
+## Course selection
 
 - **Full selection workflow in-app** — browse all course kinds (推荐/方案内/方案外/公选/重修/体育/辅修/全校), search, expand teaching classes, view full detail, select, and drop. No browser needed.
 - **Accurate selection structs** — `volunteer.do` is built from the teaching-class flags: a class with `hasTest` must carry a chosen `testTeachingClassID`; a class needing textbook ordering must carry a `needBook` string. The app refuses to submit an incomplete/wrong struct rather than silently failing (enforced + unit-tested).
@@ -28,7 +53,7 @@ for a separate graduate system.)
 - **Multiple accounts at once** (optional, off by default) — sign in several accounts as tabs; each keeps its own server session, watch list and monitor, so different accounts grab different courses in parallel.
 - **Platform-specific background behavior** — desktop can close to a working tray; Android requests a foreground service while monitoring (OS limits and power management still apply). iOS must stay in the foreground. A closed web tab cannot monitor, and hidden tabs may be throttled. Notifications depend on platform support and permission.
 - **Local whole-school catalogue** — first use fills a persistent catalogue in small background pages. Complete snapshots are searched locally without refresh-on-entry; explicit refresh or a changed account/server/campus/round/term scope starts a new fill. Failed refreshes retain the previous complete snapshot. Other course lists retain cache-first/live-refresh behavior.
-- **Calendar-aware timetable** — the teaching week advances from a saved first Monday, not the first course's starting week. The 2026 autumn initial calibration uses the user-reported 2026-09-21 = week 3 (not an official calendar); other terms require calibration. Phone agenda and desktop table both expose overlapping courses.
+- **Selection timetable retained** — the original selection-round overview remains under 课程 → 选课概览; it is separate from the everyday EMAP timetable.
 - **Update notices** — settings offer manual app and web-bridge version checks; startup checks are throttled to once per day. New versions link to the official download/install page; nothing installs or restarts automatically.
 - **Sessions that stay alive** — every account is pinged every 45 s; a dropped session can be re-authenticated with on-device OCR (enabled by default, up to 3 captcha attempts). Optional “被踢下线时让步” protection avoids repeated session contention with another device; it is off by default.
 - **落选 popup** — courses lost in a lottery are shown once after login, exactly like the official site, and acknowledged to the server so they do not come back.
@@ -64,6 +89,10 @@ lib/
 │   ├── param_builders.dart     # querySetting / addParam / deleteParam — byte-identical to the site
 │   ├── api_client.dart         # Dio + cookies + token header + silent-relogin interceptor
 │   ├── auth_service.dart       # login sequence + SessionManager (owns token, re-login)
+│   ├── cas_client.dart         # unified identity, password/passkey and MFA
+│   ├── ehall_service.dart      # read-only EMAP timetable/grades/exams
+│   ├── edu_models.dart         # academic payload and cache models
+│   ├── timetable_logic.dart    # school-time occurrences and reminder planning
 │   ├── captcha.dart            # CaptchaSolver abstraction
 │   ├── course_service.dart     # queries, catalogue paging, capacity refresh, textbooks, 落选
 │   ├── enroll_service.dart     # add/drop + status polling (resolve → submit split)
@@ -74,6 +103,7 @@ lib/
 │   └── monitor_engine.dart     # the auto-grab engine (per-watch poll loops, rush mode, gate)
 ├── app/
 │   ├── providers.dart          # per-account SessionScope family, theme, settings
+│   ├── edu_providers.dart      # independent identity, scoped offline data and reminder lifecycle
 │   ├── monitor_providers.dart  # per-account engine → UI bridge, plan mode
 │   └── theme.dart              # Material 3 theme (light/dark, seed color)
 └── ui/                         # login, home, courses, monitor, selected, settings pages
