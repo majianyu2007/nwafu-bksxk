@@ -36,30 +36,29 @@ class Account {
     String? displayName,
     String? studentCode,
     String? lastBatchCode,
-  }) =>
-      Account(
-        id: id,
-        loginName: loginName,
-        displayName: displayName ?? this.displayName,
-        studentCode: studentCode ?? this.studentCode,
-        lastBatchCode: lastBatchCode ?? this.lastBatchCode,
-      );
+  }) => Account(
+    id: id,
+    loginName: loginName,
+    displayName: displayName ?? this.displayName,
+    studentCode: studentCode ?? this.studentCode,
+    lastBatchCode: lastBatchCode ?? this.lastBatchCode,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'loginName': loginName,
-        'displayName': displayName,
-        'studentCode': studentCode,
-        'lastBatchCode': lastBatchCode,
-      };
+    'id': id,
+    'loginName': loginName,
+    'displayName': displayName,
+    'studentCode': studentCode,
+    'lastBatchCode': lastBatchCode,
+  };
 
   factory Account.fromJson(Map<String, dynamic> j) => Account(
-        id: j['id'] as String,
-        loginName: j['loginName'] as String,
-        displayName: (j['displayName'] as String?) ?? j['loginName'] as String,
-        studentCode: (j['studentCode'] as String?) ?? '',
-        lastBatchCode: (j['lastBatchCode'] as String?) ?? '',
-      );
+    id: j['id'] as String,
+    loginName: j['loginName'] as String,
+    displayName: (j['displayName'] as String?) ?? j['loginName'] as String,
+    studentCode: (j['studentCode'] as String?) ?? '',
+    lastBatchCode: (j['lastBatchCode'] as String?) ?? '',
+  );
 }
 
 class Storage {
@@ -114,7 +113,9 @@ class Storage {
 
   Future<void> _saveAccounts(List<Account> list) async {
     await _prefs.setString(
-        _kAccounts, jsonEncode(list.map((e) => e.toJson()).toList()));
+      _kAccounts,
+      jsonEncode(list.map((e) => e.toJson()).toList()),
+    );
   }
 
   /// Set false when a secure-storage operation throws (e.g. missing keychain
@@ -213,10 +214,14 @@ class Storage {
           .toSet();
 
   Future<void> addAcknowledgedUnsuccessful(
-      String accountId, Iterable<String> wids) async {
+    String accountId,
+    Iterable<String> wids,
+  ) async {
     final all = {...acknowledgedUnsuccessful(accountId), ...wids};
     await _prefs.setStringList(
-        '$_kAckedUnsuccessful::$accountId', all.toList());
+      '$_kAckedUnsuccessful::$accountId',
+      all.toList(),
+    );
   }
 
   // ---- Preferences ----
@@ -318,6 +323,203 @@ class Storage {
   int? updateLastCheckMillis() => _prefs.getInt('updates.last_check.v1');
   Future<void> setUpdateLastCheckMillis(int value) =>
       _prefs.setInt('updates.last_check.v1', value);
+
+  // ---- 教务 (ehall / unified identity) ----
+  // One school identity per install. The password and passkey are secret and
+  // live in secure storage; the CAS cookie jar (login + trusted-device mark)
+  // is secure too because CASTGC is a bearer credential.
+
+  String? eduAccount() => _prefs.getString('edu.account.v1');
+  Future<void> setEduAccount(String? json) async => json == null
+      ? _prefs.remove('edu.account.v1')
+      : _prefs.setString('edu.account.v1', json);
+
+  static String _eduKey(String accountId, String field) =>
+      'edu.v2::${Uri.encodeComponent(accountId)}::$field';
+
+  Future<String?> eduPassword(String accountId) =>
+      _secureRead(_eduKey(accountId, 'pw'));
+  Future<void> setEduPassword(String accountId, String? v) => v == null
+      ? _secureDelete(_eduKey(accountId, 'pw'))
+      : _secureWrite(_eduKey(accountId, 'pw'), v);
+
+  Future<String?> eduPasskey(String accountId) =>
+      _secureRead(_eduKey(accountId, 'passkey'));
+  Future<void> setEduPasskey(String accountId, String? v) => v == null
+      ? _secureDelete(_eduKey(accountId, 'passkey'))
+      : _secureWrite(_eduKey(accountId, 'passkey'), v);
+
+  /// The passkey this app generated and bound to the account (个人中心 →
+  /// 生物识别). Used only after a fingerprint / Face ID confirmation.
+  Future<String?> eduDeviceKey(String accountId) =>
+      _secureRead(_eduKey(accountId, 'devicekey'));
+  Future<void> setEduDeviceKey(String accountId, String? v) => v == null
+      ? _secureDelete(_eduKey(accountId, 'devicekey'))
+      : _secureWrite(_eduKey(accountId, 'devicekey'), v);
+
+  Future<String?> eduCookie(String accountId, String key) =>
+      _secureRead(_eduKey(accountId, 'cookie::$key'));
+  Future<void> setEduCookie(String accountId, String key, String value) =>
+      _secureWrite(_eduKey(accountId, 'cookie::$key'), value);
+  Future<void> deleteEduCookie(String accountId, String key) =>
+      _secureDelete(_eduKey(accountId, 'cookie::$key'));
+
+  String? eduTimetable(String accountId, String termCode) =>
+      _prefs.getString(_eduKey(accountId, 'timetable::$termCode'));
+  Future<void> setEduTimetable(
+    String accountId,
+    String termCode,
+    String json,
+  ) => _prefs.setString(_eduKey(accountId, 'timetable::$termCode'), json);
+  String? eduCurrentTerm(String accountId) =>
+      _prefs.getString(_eduKey(accountId, 'term'));
+  Future<void> setEduCurrentTerm(String accountId, String json) =>
+      _prefs.setString(_eduKey(accountId, 'term'), json);
+  String? eduGrades(String accountId) =>
+      _prefs.getString(_eduKey(accountId, 'grades'));
+  Future<void> setEduGrades(String accountId, String json) =>
+      _prefs.setString(_eduKey(accountId, 'grades'), json);
+  String? eduExams(String accountId, String termCode) =>
+      _prefs.getString(_eduKey(accountId, 'exams::$termCode'));
+  Future<void> setEduExams(String accountId, String termCode, String json) =>
+      _prefs.setString(_eduKey(accountId, 'exams::$termCode'), json);
+
+  /// Drops cached rows for one identity. Old unscoped caches are never read.
+  Future<void> clearEduData(String accountId) async {
+    final prefix = _eduKey(accountId, '');
+    for (final k in _prefs.getKeys().where((k) => k.startsWith(prefix))) {
+      await _prefs.remove(k);
+    }
+  }
+
+  /// Off-campus access through the embedded VPN: try it automatically when
+  /// the school's hosts are unreachable directly.
+  bool campusVpnAuto() => _prefs.getBool('campus_vpn.auto.v1') ?? true;
+  Future<void> setCampusVpnAuto(bool v) =>
+      _prefs.setBool('campus_vpn.auto.v1', v);
+
+  /// Optional TOTP secret for the VPN's second factor (secure storage).
+  Future<String?> campusVpnTotp(String accountId) =>
+      _secureRead(_eduKey(accountId, 'vpn_totp'));
+  Future<void> setCampusVpnTotp(String accountId, String? v) => v == null
+      ? _secureDelete(_eduKey(accountId, 'vpn_totp'))
+      : _secureWrite(_eduKey(accountId, 'vpn_totp'), v);
+
+  /// Minutes before class to remind; 0 = reminders off.
+  int classReminderMinutes() => _prefs.getInt('reminder.lead.v1') ?? 0;
+  Future<void> setClassReminderMinutes(int v) =>
+      _prefs.setInt('reminder.lead.v1', v);
+
+  bool timetableShowWeekend() => _prefs.getBool('timetable.weekend.v1') ?? true;
+  Future<void> setTimetableShowWeekend(bool v) =>
+      _prefs.setBool('timetable.weekend.v1', v);
+
+  bool timetableShowOtherWeeks() =>
+      _prefs.getBool('timetable.other_weeks.v1') ?? true;
+  Future<void> setTimetableShowOtherWeeks(bool v) =>
+      _prefs.setBool('timetable.other_weeks.v1', v);
+
+  /// User correction of week 1's Monday (ISO date), per identity and term.
+  String? weekOneOverride(String accountId, String termCode) =>
+      _prefs.getString(_eduKey(accountId, 'week1::$termCode'));
+  Future<void> setWeekOneOverride(
+    String accountId,
+    String termCode,
+    String? isoDate,
+  ) => isoDate == null
+      ? _prefs.remove(_eduKey(accountId, 'week1::$termCode'))
+      : _prefs.setString(_eduKey(accountId, 'week1::$termCode'), isoDate);
+
+  /// User-added timetable entries, per identity and term.
+  String? customSessions(String accountId, String termCode) =>
+      _prefs.getString(_eduKey(accountId, 'custom::$termCode'));
+  Future<void> setCustomSessions(
+    String accountId,
+    String termCode,
+    String json,
+  ) => _prefs.setString(_eduKey(accountId, 'custom::$termCode'), json);
+
+  // ---- 教务 auto refresh, change alerts, calendar sync ----
+
+  /// Re-reads values another isolate (the background refresh) wrote.
+  Future<void> reload() => _prefs.reload();
+
+  /// Hours between automatic refreshes: 0 (off), 6, 12 or 24.
+  int eduSyncIntervalHours() => _prefs.getInt('edu.sync.interval.v1') ?? 12;
+  Future<void> setEduSyncIntervalHours(int v) =>
+      _prefs.setInt('edu.sync.interval.v1', v);
+
+  /// Last successful timetable refresh for one identity.
+  DateTime? eduLastSync(String accountId) {
+    final ms = _prefs.getInt(_eduKey(accountId, 'last_sync'));
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+  }
+
+  Future<void> setEduLastSync(String accountId, DateTime at) => _prefs.setInt(
+    _eduKey(accountId, 'last_sync'),
+    at.toUtc().millisecondsSinceEpoch,
+  );
+
+  /// Notify when a refresh finds the timetable changed. On by default.
+  bool timetableChangeAlerts() =>
+      _prefs.getBool('edu.alert.timetable.v1') ?? true;
+  Future<void> setTimetableChangeAlerts(bool v) =>
+      _prefs.setBool('edu.alert.timetable.v1', v);
+
+  /// Notify when a refresh finds new or changed grades. On by default.
+  bool gradeAlerts() => _prefs.getBool('edu.alert.grades.v1') ?? true;
+  Future<void> setGradeAlerts(bool v) =>
+      _prefs.setBool('edu.alert.grades.v1', v);
+
+  /// Exam reminders (evening before + 1 h before), active while class
+  /// reminders are on. On by default.
+  bool examReminders() => _prefs.getBool('edu.reminder.exams.v1') ?? true;
+  Future<void> setExamReminders(bool v) =>
+      _prefs.setBool('edu.reminder.exams.v1', v);
+
+  /// Lets the background refresh sign in with this device's bound passkey
+  /// without a fingerprint / Face ID prompt. Off by default.
+  bool backgroundUseDeviceKey() =>
+      _prefs.getBool('edu.bg.device_key.v1') ?? false;
+  Future<void> setBackgroundUseDeviceKey(bool v) =>
+      _prefs.setBool('edu.bg.device_key.v1', v);
+
+  /// JSON list of recent timetable diffs (newest first).
+  String? timetableChangeLog(String accountId) =>
+      _prefs.getString(_eduKey(accountId, 'changes'));
+  Future<void> setTimetableChangeLog(String accountId, String json) =>
+      _prefs.setString(_eduKey(accountId, 'changes'), json);
+
+  /// System calendar sync. Off by default.
+  bool calendarSyncEnabled() => _prefs.getBool('edu.cal.enabled.v1') ?? false;
+  Future<void> setCalendarSyncEnabled(bool v) =>
+      _prefs.setBool('edu.cal.enabled.v1', v);
+
+  /// Alarm minutes before each synced event; -1 = no alarm.
+  int calendarAlarmMinutes() => _prefs.getInt('edu.cal.alarm.v1') ?? -1;
+  Future<void> setCalendarAlarmMinutes(int v) =>
+      _prefs.setInt('edu.cal.alarm.v1', v);
+
+  bool calendarIncludeExams() => _prefs.getBool('edu.cal.exams.v1') ?? true;
+  Future<void> setCalendarIncludeExams(bool v) =>
+      _prefs.setBool('edu.cal.exams.v1', v);
+
+  /// `term` (whole term) or `4w` (next four weeks).
+  String calendarRange() => _prefs.getString('edu.cal.range.v1') ?? 'term';
+  Future<void> setCalendarRange(String v) =>
+      _prefs.setString('edu.cal.range.v1', v);
+
+  /// The device calendar this app created ("西农课表").
+  String? calendarId() => _prefs.getString('edu.cal.id.v1');
+  Future<void> setCalendarId(String? v) => v == null
+      ? _prefs.remove('edu.cal.id.v1')
+      : _prefs.setString('edu.cal.id.v1', v);
+
+  /// JSON map of event key → device event id, per identity.
+  String? calendarIndex(String accountId) =>
+      _prefs.getString(_eduKey(accountId, 'cal_index'));
+  Future<void> setCalendarIndex(String accountId, String json) =>
+      _prefs.setString(_eduKey(accountId, 'cal_index'), json);
 
   // ---- Course cache (gzip+base64 JSON blobs, see CourseCache) ----
   String? cacheGet(String key) => _prefs.getString('$_kCache::$key');
