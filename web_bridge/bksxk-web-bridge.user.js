@@ -1,17 +1,16 @@
 // ==UserScript==
 // @name         西农本科选课 · Web 跨域桥接 (BKSXK Web Bridge)
 // @namespace    cn.edu.nwafu.bksxk.webbridge
-// @version      1.1.0
-// @description  让「西农本科选课」网页版可以直接访问校园网选课接口：把发往 bksxk.nwafu.edu.cn 的请求改走 GM_xmlhttpRequest，绕过浏览器 CORS 与被禁止的请求头限制。仅在校园网内有效。
+// @version      1.3.0
+// @description  为西农本科选课网页版桥接选课请求，以及已在同一浏览器登录的教务会话。教务登录请在学校官方页面完成；仅在校园网内有效。
 // @author       nwafu-bksxk
 // @match        https://mjy.js.org/nwafu-bksxk/*
 // @match        http://localhost:*/*
 // @match        http://127.0.0.1:*/*
-// @match        https://*.github.io/*
-// @match        https://*.pages.dev/*
-// @match        https://*.vercel.app/*
-// @match        https://*.netlify.app/*
+// @match        https://majianyu2007.github.io/nwafu-bksxk/*
 // @connect      bksxk.nwafu.edu.cn
+// @connect      ehall.nwafu.edu.cn
+// @connect      authserver.nwafu.edu.cn
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @run-at       document-start
@@ -27,25 +26,26 @@
 // blocks those as cross-origin (the school server sends no CORS headers) and
 // also forbids setting Cookie / User-Agent from page JS.
 //
-// This script replaces window.XMLHttpRequest with a shim: requests to the API
-// host are routed through GM_xmlhttpRequest (a privileged, CORS-exempt request
-// that carries the browser's bksxk cookies), while every other request falls
-// through to the native XMLHttpRequest untouched. The app needs no changes.
-//
-// SECURITY: @connect is limited to bksxk.nwafu.edu.cn, so this script can only
-// reach the course-selection host — nothing else.
+// This script replaces window.XMLHttpRequest for selection and HTTPS jwapp
+// requests only. GM follows redirects itself and carries browser cookies.
+// It does NOT expose manual CAS redirects or import passwords/private keys.
+// The user signs in on the official school page, then connects that session.
+// Academic access is restricted to the app's deployment and local development;
+// do not restore wildcard hosting @match rules: they expose browser sessions.
 //
 (function () {
   'use strict';
 
   var API_HOST = 'bksxk.nwafu.edu.cn';
+  var EDU_HOST = 'ehall.nwafu.edu.cn';
   var win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
   var NativeXHR = win.XMLHttpRequest;
 
   // Signal to the app that the bridge is present (used to skip the install prompt).
   try {
     win.__bksxkBridgeReady = true;
-    win.__bksxkBridgeVersion = '1.1.0';
+    win.__bksxkBridgeVersion = '1.3.0';
+    win.__bksxkEduSessionBridgeReady = true;
   } catch (e) { /* ignore */ }
 
   // Browser extension sandboxes can hide JavaScript globals from page code.
@@ -55,7 +55,8 @@
     try {
       if (win.document && win.document.documentElement) {
         win.document.documentElement.setAttribute('data-bksxk-bridge-ready', 'true');
-        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.1.0');
+        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.3.0');
+        win.document.documentElement.setAttribute('data-bksxk-edu-session-bridge-ready', 'true');
       }
     } catch (e) { /* ignore */ }
   }
@@ -70,10 +71,43 @@
       // Absolute URL to the API host, or a protocol-relative/absolute path that
       // resolves to it.
       var u = new URL(url, win.location.href);
-      return u.hostname === API_HOST;
+      return u.hostname === API_HOST || u.hostname === EDU_HOST ||
+        u.hostname === 'authserver.nwafu.edu.cn';
     } catch (e) {
       return false;
     }
+  }
+
+  function isEduUrl(u) {
+    return u.protocol === 'https:' && u.hostname === EDU_HOST &&
+      (!u.port || u.port === '443') && !u.username && !u.password &&
+      u.pathname.indexOf('/jwapp/') === 0;
+  }
+
+  // Explicit read-only EMAP contract. POST here is querying, never a generic
+  // authenticated proxy: no enrollment, application, password or MFA writes.
+  function isEduRead(method, u) {
+    if (!isEduUrl(u)) return false;
+    var path = u.pathname;
+    if (method.toUpperCase() === 'GET') {
+      return /^\/jwapp\/sys\/(wdkbby|cjcx|studentWdksapApp|kxjas)\/\*default\/index\.do$/.test(path) ||
+        /^\/jwapp\/sys\/funauthapp\/api\/getAppConfig\/(wdkbby-5959167891382285|cjcx-4768574631264620|studentWdksapApp-4768687067472349|kxjas-4768402106681759)\.do$/.test(path);
+    }
+    if (method.toUpperCase() !== 'POST' || u.search) return false;
+    return /^\/jwapp\/sys\/wdkbby\/modules\/(jshkcb\/(dqxnxq|xnxqcx|jc)|xskcb\/(cxxljc|cxxszhxqkb|xswpkc|xsdkkc))\.do$/.test(path) ||
+      /^\/jwapp\/sys\/cjcx\/modules\/cjcx\/(xscjcx|cxxscjpm)\.do$/.test(path) ||
+      path === '/jwapp/sys/studentWdksapApp/WdksapController/cxxsksap.do' ||
+      path === '/jwapp/sys/studentWdksapApp/modules/wdksap/cxxsjbxx.do' ||
+      path === '/jwapp/sys/kxjas/modules/kxjscx/cxkxjs.do';
+  }
+
+  function isSafeEduResponse(url) {
+    try {
+      var u = new URL(url);
+      return u.protocol === 'https:' && (!u.port || u.port === '443') &&
+        !u.username && !u.password &&
+        (u.hostname === EDU_HOST || u.hostname === 'authserver.nwafu.edu.cn');
+    } catch (e) { return false; }
   }
 
   // A minimal XMLHttpRequest-compatible shim backed by GM_xmlhttpRequest.
@@ -184,21 +218,43 @@
 
   BridgedXHR.prototype.send = function (body) {
     var self = this;
+    var url = new URL(this._url, win.location.href);
+    var academic = url.hostname !== API_HOST;
+    if (academic && !isEduRead(this._method, url)) {
+      this.status = 0;
+      this.readyState = 4;
+      this._emitReadyState();
+      this._emit('error');
+      this._emit('loadend');
+      return;
+    }
     var details = {
       method: this._method,
       url: new URL(this._url, win.location.href).href,
       headers: this._headers,
       data: normaliseBody(body, this._headers),
       timeout: this.timeout || 0,
-      // Carry the browser's bksxk cookies with the request.
+      // Use the browser's session; no app-side Cookie header or cookie export.
       anonymous: false,
       responseType: this.responseType === 'arraybuffer' ? 'arraybuffer' : undefined,
       onload: function (resp) {
         if (self._aborted) return;
+        if (academic && !isSafeEduResponse(resp.finalUrl)) {
+          details.onerror();
+          return;
+        }
         self.status = resp.status;
         self.statusText = resp.statusText || '';
         self.responseURL = resp.finalUrl || self._url;
         self._responseHeaders = resp.responseHeaders || '';
+        if (academic) {
+          // Dio does not retain XHR.responseURL. Supply a bridge-owned header
+          // so it can distinguish the official login/MFA page from a jwapp app.
+          self._responseHeaders = self._responseHeaders.split(/\r?\n/)
+            .filter(function (line) {
+              return !/^(set-cookie|set-cookie2|x-bksxk-final-url):/i.test(line);
+            }).join('\r\n') + '\r\nx-bksxk-final-url: ' + resp.finalUrl + '\r\n';
+        }
         if (self.responseType === 'arraybuffer') {
           self.response = resp.response;
         } else {

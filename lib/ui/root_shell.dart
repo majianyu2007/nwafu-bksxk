@@ -1,19 +1,19 @@
-/// The signed-in shell: navigation across Home, Courses, Monitor, Selected
-/// and Settings for the shown account, an account switcher, and the
-/// account-wide side effects (notification bridges, re-login dialogs, the
-/// one-time 落选 popup).
+/// Academic shell with an offline timetable and independent selection sessions.
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/monitor_providers.dart';
+import '../app/edu_providers.dart';
 import '../app/providers.dart';
 import '../data/background.dart';
 import '../data/models.dart';
 import '../data/notifications.dart';
 import 'courses_page.dart';
 import 'home_page.dart';
+import 'grades_page.dart';
+import 'timetable_page.dart';
 import 'layout.dart';
 import 'login_page.dart';
 import 'monitor_page.dart';
@@ -22,14 +22,8 @@ import 'selected_page.dart';
 import 'settings_page.dart';
 import 'batch_pick_dialog.dart';
 import 'widgets.dart';
+import 'widgets/glass.dart';
 import 'update_widgets.dart';
-
-@visibleForTesting
-int notificationDestinationIndex(String? payload) => switch (payload) {
-      'selected' => 3,
-      'monitor' => 2,
-      _ => 0,
-    };
 
 class RootShell extends ConsumerStatefulWidget {
   const RootShell({super.key});
@@ -39,8 +33,10 @@ class RootShell extends ConsumerStatefulWidget {
 }
 
 class _RootShellState extends ConsumerState<RootShell>
+    with WidgetsBindingObserver
     implements BackgroundHost {
   int _index = 0;
+  int _courseIndex = 0;
   final _onboarded = <String>{};
   final _unsuccessfulChecked = <String>{};
   final _reloginShowing = <String>{};
@@ -48,9 +44,19 @@ class _RootShellState extends ConsumerState<RootShell>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     NotificationService.instance.init(onTap: _openNotificationTarget);
     AppBackground.instance.attach(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _afterSignIn());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _afterSignIn();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(classReminderProvider.notifier).reschedule();
+    }
   }
 
   @override
@@ -106,15 +112,19 @@ class _RootShellState extends ConsumerState<RootShell>
     List<UnsuccessfulEntry> rows;
     try {
       rows = await scope.course.fetchUnsuccessful(
-          studentCode: student.studentCode, batchCode: batch.code);
+        studentCode: student.studentCode,
+        batchCode: batch.code,
+      );
     } catch (_) {
       return;
     }
     final acked = storage.acknowledgedUnsuccessful(id);
     rows = rows.where((r) => !r.confirmed && !acked.contains(r.wid)).toList();
     if (rows.isEmpty || !mounted) return;
-    NotificationService.instance
-        .unsuccessful(count: rows.length, first: rows.first.displayTitle);
+    NotificationService.instance.unsuccessful(
+      count: rows.length,
+      first: rows.first.displayTitle,
+    );
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -125,7 +135,9 @@ class _RootShellState extends ConsumerState<RootShell>
     await storage.addAcknowledgedUnsuccessful(id, wids);
     try {
       await scope.course.acknowledgeUnsuccessful(
-          studentCode: student.studentCode, wids: wids);
+        studentCode: student.studentCode,
+        wids: wids,
+      );
     } catch (_) {
       // Remembered locally either way; the server copy is best effort.
     }
@@ -147,11 +159,13 @@ class _RootShellState extends ConsumerState<RootShell>
 
   void _openNotificationTarget(String? payload) {
     if (!mounted) return;
+    if (payload == 'selected') setState(() => _courseIndex = 1);
     _selectPage(notificationDestinationIndex(payload));
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     NotificationService.instance.detachTapHandler(_openNotificationTarget);
     super.dispose();
   }
@@ -161,9 +175,11 @@ class _RootShellState extends ConsumerState<RootShell>
   }
 
   Future<void> _addAccount() async {
-    await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => const LoginPage(addingAccount: true),
-    ));
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const LoginPage(addingAccount: true),
+      ),
+    );
     if (mounted) _afterSignIn();
   }
 
@@ -179,33 +195,69 @@ class _RootShellState extends ConsumerState<RootShell>
     final signedIn = ref.watch(signedInAccountsProvider);
     final activeId = ref.watch(activeAccountIdProvider);
     final multi = ref.watch(multiAccountProvider);
+    ref.listen<String?>(activeAccountIdProvider, (previous, next) {
+      if (next != null && next != previous) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _afterSignIn());
+      }
+    });
     ref.watch(backgroundDriverProvider);
+    ref.watch(eduLifecycleProvider);
     for (final id in signedIn) {
       // Keep every account's notification bridge alive, and watch its phase
       // so a dropped session asks for a login even when it is not on screen.
       ref.watch(notificationBridgeProvider(id));
       ref.listen<AuthPhase>(
-          sessionControllerProvider(id).select((s) => s.phase), (_, next) {
-        if (next == AuthPhase.expired) _showRelogin(id);
-      });
+        sessionControllerProvider(id).select((s) => s.phase),
+        (_, next) {
+          if (next == AuthPhase.expired) _showRelogin(id);
+        },
+      );
     }
-    final activeWatches = ref.watch(watchCountProvider);
+    final activeWatches = activeId == null ? 0 : ref.watch(watchCountProvider);
     // Pages are rebuilt from scratch when the shown account changes so no
     // per-page state (loaded lists, selection) leaks between accounts.
     final pages = [
-      const HomePage(),
-      CoursesPage(key: ValueKey('courses-$activeId')),
-      const MonitorPage(),
-      const SelectedPage(),
+      const TimetablePage(),
+      activeId == null
+          ? _SelectionSignIn(onLogin: _addAccount)
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: SegmentedButton<int>(
+                    segments: const [
+                      ButtonSegment(value: 0, label: Text('选课查询')),
+                      ButtonSegment(value: 1, label: Text('已选课程')),
+                      ButtonSegment(value: 2, label: Text('选课概览')),
+                    ],
+                    selected: {_courseIndex},
+                    onSelectionChanged: (value) =>
+                        setState(() => _courseIndex = value.first),
+                  ),
+                ),
+                Expanded(
+                  child: switch (_courseIndex) {
+                    1 => SelectedPage(key: ValueKey('selected-$activeId')),
+                    2 => HomePage(key: ValueKey('overview-$activeId')),
+                    _ => CoursesPage(key: ValueKey('courses-$activeId')),
+                  },
+                ),
+              ],
+            ),
+      activeId == null
+          ? _SelectionSignIn(onLogin: _addAccount)
+          : MonitorPage(key: ValueKey('monitor-$activeId')),
+      const GradesPage(),
       const SettingsPage(),
     ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final textScale = layoutTextScale(context);
-        final useRail = constraints.maxWidth >= kRailBreakpoint &&
+        final useRail =
+            constraints.maxWidth >= kRailBreakpoint &&
             constraints.maxHeight >= 560 * textScale;
-        final tabs = multi
+        final tabs = multi && (_index == 1 || _index == 2)
             ? AccountTabs(
                 signedIn: signedIn,
                 activeId: activeId,
@@ -215,7 +267,7 @@ class _RootShellState extends ConsumerState<RootShell>
               )
             : null;
         final content = SafeArea(
-          bottom: !useRail,
+          bottom: false,
           child: Column(
             children: [
               if (tabs != null) tabs,
@@ -224,10 +276,22 @@ class _RootShellState extends ConsumerState<RootShell>
                 child: Align(
                   alignment: Alignment.topCenter,
                   child: ConstrainedBox(
-                    constraints:
-                        const BoxConstraints(maxWidth: kContentMaxWidth),
+                    constraints: const BoxConstraints(
+                      maxWidth: kContentMaxWidth,
+                    ),
                     child: SizedBox.expand(
-                      child: IndexedStack(index: _index, children: pages),
+                      child: IndexedStack(
+                        index: _index,
+                        children: [
+                          // The timetable and grades pad themselves so they
+                          // scroll behind the floating bar; the rest stop
+                          // above it.
+                          for (var i = 0; i < pages.length; i++)
+                            i == 0 || i == 3
+                                ? pages[i]
+                                : SafeArea(top: false, child: pages[i]),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -235,105 +299,143 @@ class _RootShellState extends ConsumerState<RootShell>
             ],
           ),
         );
+
+        final destinations = [
+          (
+            const Icon(Icons.calendar_view_week_outlined),
+            const Icon(Icons.calendar_view_week),
+            '课表',
+          ),
+          (
+            const Icon(Icons.menu_book_outlined),
+            const Icon(Icons.menu_book),
+            '课程',
+          ),
+          (
+            _MonitorIcon(count: activeWatches, selected: false),
+            _MonitorIcon(count: activeWatches, selected: true),
+            '抢课',
+          ),
+          (const Icon(Icons.school_outlined), const Icon(Icons.school), '成绩'),
+          (const Icon(Icons.person_outline), const Icon(Icons.person), '我的'),
+        ];
 
         if (useRail) {
           final extended =
               constraints.maxWidth >= kExtendedRailBreakpoint * textScale;
-          return Scaffold(
-            body: Row(
-              children: [
-                SafeArea(
-                  child: NavigationRail(
-                    extended: extended,
-                    minExtendedWidth: 196,
-                    selectedIndex: _index,
-                    onDestinationSelected: _selectPage,
-                    labelType: extended
-                        ? NavigationRailLabelType.none
-                        : NavigationRailLabelType.all,
-                    leading: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      child: Image.asset('assets/icons/tray_color_256.png',
-                          width: 36, height: 36),
+          return AuroraBackground(
+            child: Scaffold(
+              backgroundColor: Colors.transparent,
+              body: Row(
+                children: [
+                  SafeArea(
+                    right: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 0, 12),
+                      child: GlassSurface(
+                        shadow: true,
+                        borderRadius: BorderRadius.circular(28),
+                        child: NavigationRail(
+                          backgroundColor: Colors.transparent,
+                          extended: extended,
+                          minExtendedWidth: 196,
+                          selectedIndex: _index,
+                          onDestinationSelected: _selectPage,
+                          labelType: extended
+                              ? NavigationRailLabelType.none
+                              : NavigationRailLabelType.all,
+                          indicatorColor: Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.16),
+                          leading: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: Image.asset(
+                              'assets/icons/tray_color_256.png',
+                              width: 36,
+                              height: 36,
+                            ),
+                          ),
+                          destinations: [
+                            for (final (icon, selected, label) in destinations)
+                              NavigationRailDestination(
+                                icon: icon,
+                                selectedIcon: selected,
+                                label: Text(label),
+                              ),
+                          ],
+                        ),
+                      ),
                     ),
-                    destinations: [
-                      const NavigationRailDestination(
-                        icon: Icon(Icons.home_outlined),
-                        selectedIcon: Icon(Icons.home),
-                        label: Text('首页'),
-                      ),
-                      const NavigationRailDestination(
-                        icon: Icon(Icons.menu_book_outlined),
-                        selectedIcon: Icon(Icons.menu_book),
-                        label: Text('选课'),
-                      ),
-                      NavigationRailDestination(
-                        icon:
-                            _MonitorIcon(count: activeWatches, selected: false),
-                        selectedIcon:
-                            _MonitorIcon(count: activeWatches, selected: true),
-                        label: const Text('监控'),
-                      ),
-                      const NavigationRailDestination(
-                        icon: Icon(Icons.account_circle_outlined),
-                        selectedIcon: Icon(Icons.account_circle),
-                        label: Text('我的'),
-                      ),
-                      const NavigationRailDestination(
-                        icon: Icon(Icons.settings_outlined),
-                        selectedIcon: Icon(Icons.settings),
-                        label: Text('设置'),
-                      ),
-                    ],
                   ),
-                ),
-                const VerticalDivider(width: 1),
-                Expanded(child: content),
-              ],
+                  Expanded(child: content),
+                ],
+              ),
             ),
           );
         }
 
-        return Scaffold(
-          body: content,
-          bottomNavigationBar: NavigationBar(
-            height: 56 + MediaQuery.textScalerOf(context).scale(20),
-            labelBehavior: constraints.maxWidth < 400 || textScale > 1.3
-                ? NavigationDestinationLabelBehavior.onlyShowSelected
-                : NavigationDestinationLabelBehavior.alwaysShow,
-            selectedIndex: _index,
-            onDestinationSelected: _selectPage,
-            destinations: [
-              const NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home),
-                label: '首页',
-              ),
-              const NavigationDestination(
-                icon: Icon(Icons.menu_book_outlined),
-                selectedIcon: Icon(Icons.menu_book),
-                label: '选课',
-              ),
-              NavigationDestination(
-                icon: _MonitorIcon(count: activeWatches, selected: false),
-                selectedIcon:
-                    _MonitorIcon(count: activeWatches, selected: true),
-                label: '监控',
-              ),
-              const NavigationDestination(
-                icon: Icon(Icons.account_circle_outlined),
-                selectedIcon: Icon(Icons.account_circle),
-                label: '我的',
-              ),
-              const NavigationDestination(
-                icon: Icon(Icons.settings_outlined),
-                selectedIcon: Icon(Icons.settings),
-                label: '设置',
-              ),
-            ],
+        return AuroraBackground(
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            extendBody: true,
+            body: content,
+            bottomNavigationBar: GlassCapsuleNavBar(
+              selectedIndex: _index,
+              onSelected: _selectPage,
+              items: [
+                for (final (icon, selected, label) in destinations)
+                  GlassNavItem(
+                    icon: icon,
+                    selectedIcon: selected,
+                    label: label,
+                  ),
+              ],
+            ),
           ),
         );
       },
+    );
+  }
+}
+
+class _SelectionSignIn extends StatelessWidget {
+  const _SelectionSignIn({required this.onLogin});
+  final VoidCallback onLogin;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.menu_book_outlined,
+                size: 56,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(height: 24),
+              Text('选课与抢课', style: theme.textTheme.headlineSmall),
+              const SizedBox(height: 12),
+              const Text(
+                '登录本科选课系统后，即可查询课程、查看已选结果和创建抢课监控。\n'
+                '此登录独立于教务统一身份认证，需要校园网。',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: onLogin,
+                icon: const Icon(Icons.login),
+                label: const Text('登录选课系统'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -391,7 +493,10 @@ class AccountTabs extends ConsumerWidget {
   }
 
   Future<void> _confirmClose(
-      BuildContext context, WidgetRef ref, String id) async {
+    BuildContext context,
+    WidgetRef ref,
+    String id,
+  ) async {
     final s = ref.read(sessionControllerProvider(id));
     final running = ref.read(sessionScopeProvider(id)).engine.isRunning;
     final ok = await showDialog<bool>(
@@ -401,11 +506,13 @@ class AccountTabs extends ConsumerWidget {
         content: Text(running ? '该账号的监控正在运行，退出后会停止。' : '退出该账号的登录？'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消')),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('退出')),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('退出'),
+          ),
         ],
       ),
     );
@@ -414,11 +521,12 @@ class AccountTabs extends ConsumerWidget {
 }
 
 class _AccountTab extends ConsumerWidget {
-  const _AccountTab(
-      {required this.id,
-      required this.selected,
-      required this.onTap,
-      required this.onClose});
+  const _AccountTab({
+    required this.id,
+    required this.selected,
+    required this.onTap,
+    required this.onClose,
+  });
   final String id;
   final bool selected;
   final VoidCallback onTap;
@@ -429,7 +537,8 @@ class _AccountTab extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final s = ref.watch(sessionControllerProvider(id));
     final expired = s.phase == AuthPhase.expired;
-    final running = ref.watch(monitorChangesProvider(id)).hasValue &&
+    final running =
+        ref.watch(monitorChangesProvider(id)).hasValue &&
         ref.read(sessionScopeProvider(id)).engine.isRunning;
     return Padding(
       padding: const EdgeInsets.only(right: 4),
@@ -491,19 +600,22 @@ class _Avatar extends ConsumerWidget {
     final name = s.displayName;
     final initial = name.isEmpty ? '?' : name.characters.first;
     final expired = s.phase == AuthPhase.expired;
-    final running = ref.watch(monitorChangesProvider(id)).hasValue &&
+    final running =
+        ref.watch(monitorChangesProvider(id)).hasValue &&
         ref.read(sessionScopeProvider(id)).engine.isRunning;
     final avatar = CircleAvatar(
       radius: size / 2,
-      backgroundColor:
-          expired ? scheme.errorContainer : scheme.primaryContainer,
-      child: Text(initial,
-          style: TextStyle(
-              fontSize: size * 0.42,
-              fontWeight: FontWeight.w700,
-              color: expired
-                  ? scheme.onErrorContainer
-                  : scheme.onPrimaryContainer)),
+      backgroundColor: expired
+          ? scheme.errorContainer
+          : scheme.primaryContainer,
+      child: Text(
+        initial,
+        style: TextStyle(
+          fontSize: size * 0.42,
+          fontWeight: FontWeight.w700,
+          color: expired ? scheme.onErrorContainer : scheme.onPrimaryContainer,
+        ),
+      ),
     );
     if (!running && !expired) return avatar;
     return Badge(
@@ -554,9 +666,10 @@ class _UnsuccessfulDialog extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(r.displayTitle,
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w600)),
+                        Text(
+                          r.displayTitle,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
                         const SizedBox(height: 2),
                         Text(
                           [
@@ -564,15 +677,18 @@ class _UnsuccessfulDialog extends StatelessWidget {
                             if (r.time.length >= 10) r.time.substring(0, 10),
                           ].join('  '),
                           style: TextStyle(
-                              fontSize: 12, color: scheme.onSurfaceVariant),
+                            fontSize: 12,
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(width: 8),
                   StatusPill(
-                      label: r.reason.isEmpty ? '落选' : r.reason,
-                      color: scheme.error),
+                    label: r.reason.isEmpty ? '落选' : r.reason,
+                    color: scheme.error,
+                  ),
                 ],
               ),
             );
@@ -588,3 +704,11 @@ class _UnsuccessfulDialog extends StatelessWidget {
     );
   }
 }
+
+/// The tab a tapped notification opens: 课表 0, 课程 1, 抢课 2, 成绩 3.
+int notificationDestinationIndex(String? payload) => switch (payload) {
+  'selected' => 1,
+  'monitor' => 2,
+  'grades' => 3,
+  _ => 0,
+};

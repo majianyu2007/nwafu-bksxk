@@ -148,7 +148,7 @@ class DiagnosticsPage extends ConsumerWidget {
         ? '${code.substring(0, 2)}****${code.substring(code.length - 2)}'
         : '****';
     final report = StringBuffer()
-      ..writeln('# 西农本科选课 诊断报告')
+      ..writeln('# 西农教务助手 诊断报告')
       ..writeln('client: $kAppVersion')
       ..writeln('origin: $origin')
       ..writeln('reachable: ${reach?.reachable ?? 'unknown'}')

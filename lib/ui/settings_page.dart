@@ -7,17 +7,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app/edu_providers.dart';
 import '../app/providers.dart';
 import '../app/theme.dart';
+import '../app/ui_prefs.dart';
 import '../data/background.dart';
 import '../data/http_ocr_solver.dart';
 import '../data/notifications.dart';
 import '../data/storage.dart';
 import 'diagnostics_page.dart';
+import 'edu_login_page.dart';
 import 'layout.dart';
 import 'login_page.dart';
 import 'update_widgets.dart';
 import 'widgets.dart';
+import 'account_access_settings.dart';
+import 'sync_settings.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -26,21 +31,33 @@ class SettingsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final side = ((constraints.maxWidth - kReadableMaxWidth) / 2)
-            .clamp(16.0, double.infinity);
+        final side = ((constraints.maxWidth - kReadableMaxWidth) / 2).clamp(
+          16.0,
+          double.infinity,
+        );
         return ListView(
           padding: EdgeInsets.fromLTRB(side, 12, side, 32),
           children: [
-            Text('设置',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.w800)),
+            Text(
+              '设置',
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 16),
+            const _Group(
+              title: '统一账号',
+              children: [
+                _EduSettings(),
+                DeviceSignInSetting(),
+                CampusAccessSetting(),
+              ],
+            ),
+            const _Group(title: '课表更新与日历', children: [SyncSettings()]),
             const _Group(title: '外观', children: [_Appearance()]),
             const _Group(title: '监控', children: [_MonitorSettings()]),
             const _Group(title: '验证码', children: [_OcrSettings()]),
-            const _Group(title: '账号', children: [_Accounts()]),
+            const _Group(title: '选课系统账号', children: [_Accounts()]),
             const _Group(title: '后台运行', children: [_BackgroundSettings()]),
             const _Group(title: '版本与更新', children: [UpdateSettings()]),
             const _Group(
@@ -58,6 +75,112 @@ class SettingsPage extends ConsumerWidget {
   }
 }
 
+class _EduSettings extends ConsumerWidget {
+  const _EduSettings();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(eduSessionProvider);
+    final prefs = ref.watch(timetablePrefsProvider);
+    final reminder = ref.watch(classReminderProvider);
+    return Column(
+      children: [
+        ListTile(
+          leading: const Icon(Icons.school_outlined),
+          title: Text(session.account?.displayName ?? '登录统一身份认证'),
+          subtitle: Text(
+            session.signedIn
+                ? [
+                    session.account!.username,
+                    session.account!.major,
+                  ].where((s) => s.isNotEmpty).join(' · ')
+                : '登录后同步课表、成绩',
+          ),
+          trailing: session.signedIn
+              ? TextButton(
+                  onPressed: () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('退出教务账号？'),
+                        content: const Text(
+                          '会删除本机的课表、成绩和登录信息，并取消课前提醒。',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('取消'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('退出并清除'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true) {
+                      await ref.read(eduSessionProvider.notifier).logout();
+                    }
+                  },
+                  child: const Text('退出'),
+                )
+              : const Icon(Icons.chevron_right),
+          onTap: session.signedIn
+              ? null
+              : () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const EduLoginPage()),
+                ),
+        ),
+        SwitchListTile(
+          title: const Text('显示周末'),
+          value: prefs.showWeekend,
+          onChanged: ref.read(timetablePrefsProvider.notifier).setShowWeekend,
+        ),
+        SwitchListTile(
+          title: const Text('显示非本周课程'),
+          subtitle: const Text('斜纹淡色显示'),
+          value: prefs.showOtherWeeks,
+          onChanged: ref
+              .read(timetablePrefsProvider.notifier)
+              .setShowOtherWeeks,
+        ),
+        ListTile(
+          leading: const Icon(Icons.notifications_active_outlined),
+          title: const Text('课前提醒'),
+          subtitle: Text(
+            NotificationService.instance.canSchedule
+                ? '省电模式可能导致提醒延迟'
+                : '应用打开或在托盘时提醒',
+          ),
+          trailing: DropdownButton<int>(
+            value: [0, 5, 10, 15, 20, 30].contains(reminder) ? reminder : 0,
+            underline: const SizedBox.shrink(),
+            items: [
+              for (final minutes in [0, 5, 10, 15, 20, 30])
+                DropdownMenuItem(
+                  value: minutes,
+                  child: Text(minutes == 0 ? '关闭' : '提前 $minutes 分钟'),
+                ),
+            ],
+            onChanged: (value) async {
+              if (value == null) return;
+              try {
+                await ref.read(classReminderProvider.notifier).setLead(value);
+              } catch (_) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('提醒设置失败，请检查系统通知权限。')),
+                  );
+                }
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _Appearance extends ConsumerWidget {
   const _Appearance();
 
@@ -66,7 +189,8 @@ class _Appearance extends ConsumerWidget {
     final theme = ref.watch(themeControllerProvider);
     final ctrl = ref.read(themeControllerProvider.notifier);
     final scheme = Theme.of(context).colorScheme;
-    final custom = !theme.useDynamic &&
+    final custom =
+        !theme.useDynamic &&
         !kSeedPresets.any((p) => p.$2.toARGB32() == theme.seed.toARGB32());
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -116,6 +240,13 @@ class _Appearance extends ConsumerWidget {
           ),
         ),
         SwitchListTile(
+          secondary: const Icon(Icons.blur_on),
+          title: const Text('玻璃效果'),
+          subtitle: const Text('半透明导航与卡片；关闭后使用纯色表面，更省电'),
+          value: ref.watch(glassEnabledProvider),
+          onChanged: ref.read(uiPrefsProvider.notifier).setGlass,
+        ),
+        SwitchListTile(
           secondary: const Icon(Icons.palette_outlined),
           title: const Text('跟随系统强调色'),
           value: theme.useDynamic,
@@ -138,7 +269,8 @@ class _Appearance extends ConsumerWidget {
                       _Swatch(
                         color: c,
                         tooltip: name,
-                        selected: !theme.useDynamic &&
+                        selected:
+                            !theme.useDynamic &&
                             theme.seed.toARGB32() == c.toARGB32(),
                         onTap: () => ctrl.setSeed(c),
                       ),
@@ -159,7 +291,10 @@ class _Appearance extends ConsumerWidget {
   }
 
   Future<void> _pickCustom(
-      BuildContext context, WidgetRef ref, Color initial) async {
+    BuildContext context,
+    WidgetRef ref,
+    Color initial,
+  ) async {
     final picked = await showDialog<Color>(
       context: context,
       builder: (_) => _HuePickerDialog(initial: initial),
@@ -171,11 +306,12 @@ class _Appearance extends ConsumerWidget {
 }
 
 class _Swatch extends StatelessWidget {
-  const _Swatch(
-      {required this.color,
-      required this.tooltip,
-      required this.selected,
-      required this.onTap});
+  const _Swatch({
+    required this.color,
+    required this.tooltip,
+    required this.selected,
+    required this.onTap,
+  });
   final Color? color;
   final String tooltip;
   final bool selected;
@@ -195,15 +331,17 @@ class _Swatch extends StatelessWidget {
           decoration: BoxDecoration(
             color: color,
             gradient: color == null
-                ? const SweepGradient(colors: [
-                    Colors.red,
-                    Colors.yellow,
-                    Colors.green,
-                    Colors.cyan,
-                    Colors.blue,
-                    Colors.purple,
-                    Colors.red,
-                  ])
+                ? const SweepGradient(
+                    colors: [
+                      Colors.red,
+                      Colors.yellow,
+                      Colors.green,
+                      Colors.cyan,
+                      Colors.blue,
+                      Colors.purple,
+                      Colors.red,
+                    ],
+                  )
                 : null,
             shape: BoxShape.circle,
             border: Border.all(
@@ -214,8 +352,8 @@ class _Swatch extends StatelessWidget {
           child: selected
               ? const Icon(Icons.check, color: Colors.white, size: 18)
               : color == null
-                  ? const Icon(Icons.add, color: Colors.white, size: 18)
-                  : null,
+              ? const Icon(Icons.add, color: Colors.white, size: 18)
+              : null,
         ),
       ),
     );
@@ -238,9 +376,15 @@ class _HuePickerDialogState extends State<_HuePickerDialog> {
   Widget build(BuildContext context) {
     final color = _hsl.toColor();
     final scheme = ColorScheme.fromSeed(
-        seedColor: color, brightness: Theme.of(context).brightness);
-    Widget slider(String label, double value, double max,
-        ValueChanged<double> onChanged) {
+      seedColor: color,
+      brightness: Theme.of(context).brightness,
+    );
+    Widget slider(
+      String label,
+      double value,
+      double max,
+      ValueChanged<double> onChanged,
+    ) {
       return Row(
         children: [
           SizedBox(width: 40, child: Text(label)),
@@ -268,25 +412,42 @@ class _HuePickerDialogState extends State<_HuePickerDialog> {
               child: Text(
                 '#${color.toARGB32().toRadixString(16).substring(2).toUpperCase()}',
                 style: TextStyle(
-                    color: scheme.onPrimary, fontWeight: FontWeight.w700),
+                  color: scheme.onPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
             const SizedBox(height: 12),
-            slider('色相', _hsl.hue, 360,
-                (v) => setState(() => _hsl = _hsl.withHue(v))),
-            slider('饱和度', _hsl.saturation, 1,
-                (v) => setState(() => _hsl = _hsl.withSaturation(v))),
-            slider('明度', _hsl.lightness, 1,
-                (v) => setState(() => _hsl = _hsl.withLightness(v))),
+            slider(
+              '色相',
+              _hsl.hue,
+              360,
+              (v) => setState(() => _hsl = _hsl.withHue(v)),
+            ),
+            slider(
+              '饱和度',
+              _hsl.saturation,
+              1,
+              (v) => setState(() => _hsl = _hsl.withSaturation(v)),
+            ),
+            slider(
+              '明度',
+              _hsl.lightness,
+              1,
+              (v) => setState(() => _hsl = _hsl.withLightness(v)),
+            ),
           ],
         ),
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
         FilledButton(
-            onPressed: () => Navigator.pop(context, color),
-            child: const Text('使用')),
+          onPressed: () => Navigator.pop(context, color),
+          child: const Text('使用'),
+        ),
       ],
     );
   }
@@ -306,31 +467,36 @@ class _Accounts extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (final id in signedIn)
-          Builder(builder: (context) {
-            final s = ref.watch(sessionControllerProvider(id));
-            final expired = s.phase == AuthPhase.expired;
-            return ListTile(
-              leading: Icon(
-                id == activeId
-                    ? Icons.account_circle
-                    : Icons.account_circle_outlined,
-                color: expired ? scheme.error : null,
-              ),
-              title: Text(s.displayName),
-              subtitle: Text([
-                id,
-                if (s.activeBatch != null) s.activeBatch!.name,
-                if (expired) '登录已失效',
-              ].join('  ')),
-              trailing: TextButton(
-                onPressed: () => _signOut(context, ref, id, s.displayName),
-                child: const Text('退出'),
-              ),
-              onTap: id == activeId
-                  ? null
-                  : () => ref.read(activeAccountIdProvider.notifier).state = id,
-            );
-          }),
+          Builder(
+            builder: (context) {
+              final s = ref.watch(sessionControllerProvider(id));
+              final expired = s.phase == AuthPhase.expired;
+              return ListTile(
+                leading: Icon(
+                  id == activeId
+                      ? Icons.account_circle
+                      : Icons.account_circle_outlined,
+                  color: expired ? scheme.error : null,
+                ),
+                title: Text(s.displayName),
+                subtitle: Text(
+                  [
+                    id,
+                    if (s.activeBatch != null) s.activeBatch!.name,
+                    if (expired) '登录已失效',
+                  ].join('  '),
+                ),
+                trailing: TextButton(
+                  onPressed: () => _signOut(context, ref, id, s.displayName),
+                  child: const Text('退出'),
+                ),
+                onTap: id == activeId
+                    ? null
+                    : () =>
+                          ref.read(activeAccountIdProvider.notifier).state = id,
+              );
+            },
+          ),
         for (final a in saved)
           if (!signedIn.contains(a.id))
             ListTile(
@@ -356,10 +522,11 @@ class _Accounts extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.all(12),
             child: OutlinedButton.icon(
-              onPressed: () =>
-                  Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) => const LoginPage(addingAccount: true),
-              )),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const LoginPage(addingAccount: true),
+                ),
+              ),
               icon: const Icon(Icons.person_add_alt_1_outlined),
               label: const Text('添加账号'),
             ),
@@ -369,7 +536,11 @@ class _Accounts extends ConsumerWidget {
   }
 
   Future<void> _signOut(
-      BuildContext context, WidgetRef ref, String id, String name) async {
+    BuildContext context,
+    WidgetRef ref,
+    String id,
+    String name,
+  ) async {
     final running = ref.read(sessionScopeProvider(id)).engine.isRunning;
     if (running) {
       final ok = await showDialog<bool>(
@@ -379,11 +550,13 @@ class _Accounts extends ConsumerWidget {
           content: const Text('该账号的监控正在运行，退出后会停止。'),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('取消')),
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
             FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('退出')),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('退出'),
+            ),
           ],
         ),
       );
@@ -438,11 +611,13 @@ class _SilentReloginSettingState extends ConsumerState<_SilentReloginSetting> {
         SwitchListTile(
           secondary: const Icon(Icons.autorenew),
           title: const Text('掉线后自动重新登录'),
-          subtitle: Text(!enabled
-              ? '关闭，掉线后直接弹窗'
-              : unlimited
-                  ? '不限次数，间隔逐步拉长'
-                  : '验证码最多识别 $attempts 次，仍失败再弹窗并说明原因'),
+          subtitle: Text(
+            !enabled
+                ? '关闭，掉线后直接弹窗'
+                : unlimited
+                ? '不限次数，间隔逐步拉长'
+                : '验证码最多识别 $attempts 次，仍失败再弹窗并说明原因',
+          ),
           value: enabled,
           onChanged: (v) =>
               ref.read(silentReloginEnabledProvider.notifier).set(v),
@@ -487,9 +662,11 @@ class _SilentReloginSettingState extends ConsumerState<_SilentReloginSetting> {
           SwitchListTile(
             secondary: const Icon(Icons.swap_horiz),
             title: const Text('被踢下线时让步'),
-            subtitle: Text(guard
-                ? '重新登录后 $guardMinutes 分钟内再次被踢就不再抢回会话，改为弹窗'
-                : '关闭：每次被踢都自动重新登录，把别处的会话踢掉'),
+            subtitle: Text(
+              guard
+                  ? '重新登录后 $guardMinutes 分钟内再次被踢就不再抢回会话，改为弹窗'
+                  : '关闭：每次被踢都自动重新登录，把别处的会话踢掉',
+            ),
             value: guard,
             onChanged: (v) => ref.read(contestedGuardProvider.notifier).set(v),
           ),
@@ -537,8 +714,8 @@ class _BackgroundSettings extends ConsumerWidget {
     final subtitle = bg.supportsTray
         ? '关闭窗口后缩到托盘继续监控，从托盘图标恢复或退出'
         : bg.supportsForegroundService
-            ? '监控时申请前台服务；省电策略和系统时限仍可能中断监控'
-            : '系统限制，请保持应用在前台';
+        ? '监控时申请前台服务；省电策略和系统时限仍可能中断监控'
+        : '系统限制，请保持应用在前台';
     return Column(
       children: [
         SwitchListTile(
@@ -578,9 +755,9 @@ class _DiagnosticsEntry extends StatelessWidget {
       leading: const Icon(Icons.network_check),
       title: const Text('连接诊断'),
       trailing: const Icon(Icons.chevron_right),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const DiagnosticsPage()),
-      ),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const DiagnosticsPage())),
     );
   }
 }
@@ -599,11 +776,13 @@ class _Group extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 8),
-            child: Text(title,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                    )),
+            child: Text(
+              title,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
           Card(
             child: Column(
@@ -659,8 +838,9 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
     final cfg = ref.read(ocrApiProvider);
     _url = TextEditingController(text: cfg?.url ?? '');
     _imageField = TextEditingController(text: cfg?.imageField ?? 'image');
-    _responseField =
-        TextEditingController(text: cfg?.responseField ?? 'result');
+    _responseField = TextEditingController(
+      text: cfg?.responseField ?? 'result',
+    );
     if (cfg != null) {
       _req = cfg.requestFormat;
       _resp = cfg.responseFormat;
@@ -691,15 +871,20 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
           children: [
             Text('自定义 OCR API', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 4),
-            Text('留空即使用内置模型。',
-                style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: 13)),
+            Text(
+              '留空即使用内置模型。',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 13,
+              ),
+            ),
             const SizedBox(height: 16),
             TextField(
               controller: _url,
               decoration: const InputDecoration(
-                  labelText: '接口地址', hintText: 'https://127.0.0.1:8000/ocr'),
+                labelText: '接口地址',
+                hintText: 'https://127.0.0.1:8000/ocr',
+              ),
             ),
             const SizedBox(height: 12),
             InputDecorator(
@@ -711,13 +896,17 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
                   onChanged: (v) => setState(() => _req = v ?? _req),
                   items: const [
                     DropdownMenuItem(
-                        value: OcrRequestFormat.base64Json,
-                        child: Text('JSON 内 base64')),
+                      value: OcrRequestFormat.base64Json,
+                      child: Text('JSON 内 base64'),
+                    ),
                     DropdownMenuItem(
-                        value: OcrRequestFormat.multipart,
-                        child: Text('multipart 文件上传')),
+                      value: OcrRequestFormat.multipart,
+                      child: Text('multipart 文件上传'),
+                    ),
                     DropdownMenuItem(
-                        value: OcrRequestFormat.rawBytes, child: Text('原始字节')),
+                      value: OcrRequestFormat.rawBytes,
+                      child: Text('原始字节'),
+                    ),
                   ],
                 ),
               ),
@@ -727,7 +916,9 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
               TextField(
                 controller: _imageField,
                 decoration: const InputDecoration(
-                    labelText: '图片字段名', hintText: 'image'),
+                  labelText: '图片字段名',
+                  hintText: 'image',
+                ),
               ),
             const SizedBox(height: 12),
             InputDecorator(
@@ -739,10 +930,13 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
                   onChanged: (v) => setState(() => _resp = v ?? _resp),
                   items: const [
                     DropdownMenuItem(
-                        value: OcrResponseFormat.jsonField,
-                        child: Text('JSON 字段')),
+                      value: OcrResponseFormat.jsonField,
+                      child: Text('JSON 字段'),
+                    ),
                     DropdownMenuItem(
-                        value: OcrResponseFormat.plainText, child: Text('纯文本')),
+                      value: OcrResponseFormat.plainText,
+                      child: Text('纯文本'),
+                    ),
                   ],
                 ),
               ),
@@ -752,7 +946,9 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
               TextField(
                 controller: _responseField,
                 decoration: const InputDecoration(
-                    labelText: '结果字段名', hintText: 'result'),
+                  labelText: '结果字段名',
+                  hintText: 'result',
+                ),
               ),
             const SizedBox(height: 20),
             Row(
@@ -786,8 +982,11 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
                             );
                       await ref.read(ocrApiProvider.notifier).set(cfg);
                       if (context.mounted) {
-                        showToast(context, cfg == null ? '已改用内置模型' : '已保存',
-                            success: true);
+                        showToast(
+                          context,
+                          cfg == null ? '已改用内置模型' : '已保存',
+                          success: true,
+                        );
                         Navigator.pop(context);
                       }
                     },
@@ -822,9 +1021,13 @@ class _MonitorSettings extends ConsumerWidget {
               const Icon(Icons.speed),
               const SizedBox(width: 12),
               const Expanded(child: Text('检查间隔')),
-              Text('${baseSecs.toStringAsFixed(1)} 秒',
-                  style: TextStyle(
-                      color: scheme.primary, fontWeight: FontWeight.w700)),
+              Text(
+                '${baseSecs.toStringAsFixed(1)} 秒',
+                style: TextStyle(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ],
           ),
         ),
@@ -834,9 +1037,11 @@ class _MonitorSettings extends ConsumerWidget {
           max: 15,
           divisions: 28,
           label: '${baseSecs.toStringAsFixed(1)}s',
-          onChanged: (v) => ctrl.update(cfg.copyWith(
-            basePollInterval: Duration(milliseconds: (v * 1000).round()),
-          )),
+          onChanged: (v) => ctrl.update(
+            cfg.copyWith(
+              basePollInterval: Duration(milliseconds: (v * 1000).round()),
+            ),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -883,16 +1088,18 @@ class _BrowserNotificationSettingState
     final granted = _permission == 'granted';
     final denied = _permission == 'denied';
     return ListTile(
-      leading: Icon(granted
-          ? Icons.notifications_active_outlined
-          : Icons.notifications_outlined),
+      leading: Icon(
+        granted
+            ? Icons.notifications_active_outlined
+            : Icons.notifications_outlined,
+      ),
       title: const Text('浏览器通知'),
       subtitle: Text(
         granted
             ? '已启用'
             : denied
-                ? '浏览器已拒绝，请在站点权限中允许后刷新'
-                : '网页在后台时也能收到抢课结果',
+            ? '浏览器已拒绝，请在站点权限中允许后刷新'
+            : '网页在后台时也能收到抢课结果',
       ),
       trailing: granted
           ? const Icon(Icons.check_circle_outline)
@@ -985,9 +1192,9 @@ class _ServerOriginSettingState extends ConsumerState<ServerOriginSetting> {
                 onPressed: locked || _saving
                     ? null
                     : () => setState(() {
-                          _ctrl.text = Storage.defaultOrigin;
-                          _error = null;
-                        }),
+                        _ctrl.text = Storage.defaultOrigin;
+                        _error = null;
+                      }),
                 child: const Text('默认'),
               ),
               const SizedBox(width: 8),

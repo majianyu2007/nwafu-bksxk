@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app/edu_providers.dart';
 import '../app/providers.dart';
 import '../core/errors.dart';
 import '../core/constants.dart';
@@ -113,7 +114,28 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     if (widget.addingAccount) return;
     final storage = ref.read(storageProvider);
     final active = storage.activeAccount();
-    if (active != null) _useSavedAccount(active);
+    if (active != null) {
+      _useSavedAccount(active);
+    } else {
+      _prefillUnifiedAccount();
+    }
+  }
+
+  /// 统一账号: the selection system shares the unified identity's student
+  /// ID and password, so a signed-in identity with a saved password fills
+  /// the form.
+  Future<void> _prefillUnifiedAccount() async {
+    final edu = ref.read(eduSessionProvider).account;
+    if (edu == null || _loginCtrl.text.isNotEmpty) return;
+    final pw = await ref.read(storageProvider).eduPassword(edu.username);
+    if (!mounted || _loginCtrl.text.isNotEmpty) return;
+    _loginCtrl.text = edu.username;
+    if (pw != null && pw.isNotEmpty) {
+      _pwCtrl.text = pw;
+      if (_ocrStatus == OcrStatus.recognized && _captchaCtrl.text.isNotEmpty) {
+        _submit(fromOcr: true);
+      }
+    }
   }
 
   Future<void> _refreshCaptcha({bool autoRecognize = true}) async {
@@ -225,6 +247,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             remember: _remember,
           );
       ref.read(accountsProvider.notifier).refresh();
+      // 统一账号: the same student ID's unified identity password is the
+      // same secret; keep it in sync when the user chose to remember it.
+      final edu = ref.read(eduSessionProvider).account;
+      if (_remember && edu?.username == loginName) {
+        await ref.read(storageProvider).setEduPassword(loginName, password);
+      }
       if (!mounted) return;
       enterAccount(ref, loginName);
       if (widget.addingAccount) Navigator.of(context).pop();
@@ -576,7 +604,7 @@ class _Brand extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         Text(
-          '西农本科选课',
+          '西农教务助手',
           style: Theme.of(
             context,
           ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),

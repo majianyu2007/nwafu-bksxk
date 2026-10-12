@@ -125,7 +125,7 @@ class UpdateSettings extends ConsumerWidget {
       children: [
         ListTile(
           leading: const Icon(Icons.info_outline),
-          title: Text('西农本科选课 $versionLabel'),
+          title: Text('西农教务助手 $versionLabel'),
           subtitle: const Text(
             '每天最多自动检查一次；仅提示，不会自动安装、刷新页面或中断监控。',
           ),
