@@ -17,6 +17,9 @@ bool get isWebRuntime => impl.isWebRuntime;
 /// since native has no CORS restriction.
 bool get isWebBridgeReady => impl.isWebBridgeReady;
 
+/// The bridge supports cookie-backed academic reads, not manual CAS login.
+bool get isEduSessionBridgeReady => impl.isEduSessionBridgeReady;
+
 /// Installed bridge version, or null when absent, native, or a legacy script.
 String? get installedWebBridgeVersion => impl.installedWebBridgeVersion;
 

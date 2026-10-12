@@ -25,6 +25,23 @@ bool get isWebBridgeReady {
       'true';
 }
 
+bool get isEduSessionBridgeReady {
+  try {
+    if (web.window
+            .getProperty<JSAny?>('__bksxkEduSessionBridgeReady'.toJS)
+            ?.dartify() ==
+        true) {
+      return true;
+    }
+  } catch (_) {
+    // The DOM capability marker also crosses extension-isolated worlds.
+  }
+  return web.document.documentElement?.getAttribute(
+        'data-bksxk-edu-session-bridge-ready',
+      ) ==
+      'true';
+}
+
 String? get installedWebBridgeVersion {
   try {
     final version =

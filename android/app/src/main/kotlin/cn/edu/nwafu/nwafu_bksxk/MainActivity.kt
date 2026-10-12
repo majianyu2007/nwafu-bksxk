@@ -1,5 +1,6 @@
 package cn.edu.nwafu.nwafu_bksxk
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// local_auth (fingerprint sign-in) needs a FragmentActivity.
+class MainActivity : FlutterFragmentActivity()
