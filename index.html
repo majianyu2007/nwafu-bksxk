@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>西农教务助手</title>
+<meta name="description" content="西北农林科技大学学生用的教务助手：课表、成绩、考试、空教室，以及选课和抢课。支持 Android、iOS、macOS、Windows、Linux 和网页版。" />
+<style>
+  :root {
+    --bg: #f6f7fb; --surface: #ffffff; --surface-2: #eef1f8;
+    --text: #1a1c22; --muted: #5b6070; --primary: #1d7a6a; --primary-2: #07838a;
+    --border: #e3e7f0; --success: #2e9d5b;
+    --radius: 18px; --shadow: 0 6px 30px rgba(30,40,90,0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1116; --surface: #171a21; --surface-2: #1e2230;
+      --text: #eef0f6; --muted: #a2a8bd; --primary: #5cc4ae; --primary-2: #4fb8c0;
+      --border: #262b3a; --shadow: 0 6px 30px rgba(0,0,0,0.35);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--primary); text-decoration: none; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+
+  header { padding: 72px 0 48px; text-align: center; }
+  .logo {
+    width: 84px; height: 84px; border-radius: 22px; margin: 0 auto 24px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logo svg { width: 46px; height: 46px; fill: #fff; }
+  h1 { font-size: 2.6rem; font-weight: 800; letter-spacing: -0.02em; }
+  .tagline { color: var(--muted); font-size: 1.2rem; margin-top: 10px; }
+  .subtag { color: var(--muted); margin-top: 18px; max-width: 620px; margin-left: auto; margin-right: auto; }
+
+  .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 32px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 13px 26px; border-radius: 14px; font-weight: 700; font-size: 1rem;
+    border: 1px solid transparent; transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn-primary { background: var(--primary); color: #fff; box-shadow: var(--shadow); }
+  .btn-ghost { background: var(--surface); color: var(--text); border-color: var(--border); }
+
+  .note {
+    margin-top: 22px; font-size: 0.92rem; color: var(--muted);
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--surface-2); padding: 8px 16px; border-radius: 999px;
+  }
+
+  section { padding: 40px 0; }
+  h2 { font-size: 1.7rem; font-weight: 800; margin-bottom: 8px; }
+  .section-sub { color: var(--muted); margin-bottom: 28px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 22px; box-shadow: var(--shadow);
+  }
+  .card h3 { font-size: 1.12rem; margin-bottom: 8px; display: flex; align-items: center; gap: 9px; }
+  .card p { color: var(--muted); font-size: 0.96rem; }
+  .card ul { color: var(--muted); font-size: 0.96rem; padding-left: 1.1em; }
+  .card li + li { margin-top: 4px; }
+  .card.wide { grid-column: 1 / -1; }
+  .ic { width: 22px; height: 22px; fill: var(--primary); flex: none; }
+
+  .downloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+  .dl {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px 20px; display: flex; align-items: center; gap: 14px;
+    transition: border-color .12s ease, transform .12s ease;
+  }
+  .dl:hover { border-color: var(--primary); transform: translateY(-2px); }
+  .dl svg { width: 30px; height: 30px; fill: var(--text); flex: none; }
+  .dl .label { font-weight: 700; color: var(--text); }
+  .dl .hint { font-size: 0.82rem; color: var(--muted); }
+
+  .steps { counter-reset: s; display: grid; gap: 14px; }
+  .step { display: flex; gap: 14px; align-items: flex-start; }
+  .step::before {
+    counter-increment: s; content: counter(s);
+    width: 30px; height: 30px; flex: none; border-radius: 50%;
+    background: var(--primary); color: #fff; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; font-size: 0.95rem;
+  }
+  .step div { color: var(--muted); }
+  .step strong { color: var(--text); }
+
+  .callout {
+    background: var(--surface-2); border-radius: var(--radius);
+    padding: 20px 24px; color: var(--muted); border: 1px solid var(--border);
+  }
+  .callout strong { color: var(--text); }
+  .faq { display: grid; gap: 14px; }
+  .faq h3 { font-size: 1.02rem; margin-bottom: 4px; }
+  .faq p { color: var(--muted); }
+
+  footer { padding: 48px 0; text-align: center; color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--border); margin-top: 40px; }
+  code { background: var(--surface-2); padding: 2px 7px; border-radius: 6px; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="logo">
+      <img src="logo.png" alt="西农教务助手" width="84" height="84" style="display:block">
+    </div>
+    <h1>西农教务助手</h1>
+    <p class="tagline">课表、成绩、考试、空教室和选课，放在一个应用里</p>
+    <p class="subtag">给西北农林科技大学学生用的开源客户端。用学校统一身份认证登录一次，日常查课表、成绩、考试和空教室；选课季也能用它选课、抢课。</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
+        <svg class="ic" style="fill:#fff" viewBox="0 0 24 24"><path d="M12 3v10.5l3.5-3.5 1.5 1.5-6 6-6-6 1.5-1.5L9.5 13.5V3z"/><path d="M5 19h14v2H5z"/></svg>
+        下载客户端
+      </a>
+      <a class="btn btn-ghost" href="app/">网页版</a>
+      <a class="btn btn-ghost" href="https://github.com/majianyu2007/nwafu-bksxk">源代码</a>
+    </div>
+    <div class="note">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2zm0-8h-2V7h2z"/></svg>
+      学校接口只对校园网开放。客户端在校外可以用内置的校外访问，网页版需要在校园网内使用。
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2>功能</h2>
+    <p class="section-sub">课表数据同步后存在本机，没有网络时也能看。</p>
+    <div class="grid">
+      <div class="card">
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M7 2v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-2V2h-2v2H9V2zm-2 8h14v10H5z"/></svg>课表</h3>
+        <ul>
+          <li>按周显示，自动标出当前教学周，冬令、夏令作息时间分开算</li>
+          <li>定时同步，调课、换教室时发通知</li>
+          <li>上课前提醒，可以同步到系统日历或导出 .ics</li>
+          <li>Android 桌面小组件显示下一节课</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M12 3 1 9l11 6 9-4.9V17h2V9zM5 13.2V17l7 4 7-4v-3.8L12 17z"/></svg>成绩和考试</h3>
+        <ul>
+          <li>按学期查看成绩、学分和绩点变化</li>
+          <li>考试安排：时间、地点、座位号</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 012-2h8a2 2 0 012 2v16h4v-9h-2v-2h4v11zM8 7v2h2V7zm0 4v2h2v-2zm0 4v2h2v-2z"/></svg>空教室</h3>
+        <ul>
+          <li>按日期、节次和教学楼查询空闲教室</li>
+          <li>根据当天课表，推荐两节课之间可以去自习的教室</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5 3.8 9.7 9 11 5.2-1.3 9-6 9-11V5zm-1 14-4-4 1.4-1.4L11 12.2l4.6-4.6L17 9z"/></svg>账号和登录</h3>
+        <ul>
+          <li>使用学校统一身份认证，支持二次验证</li>
+          <li>可以给本机绑定一个通行密钥，之后用指纹或面容解锁登录</li>
+          <li>密码存在系统安全存储里，不上传到别处</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm6.9 6h-3a15.6 15.6 0 00-1.4-3.6A8 8 0 0118.9 8zM12 4a14 14 0 011.9 4h-3.8A14 14 0 0112 4zM4.3 14a8.2 8.2 0 010-4h3.4a16.5 16.5 0 000 4zm.8 2h3a15.6 15.6 0 001.4 3.6A8 8 0 015.1 16zm3-8h-3a8 8 0 014.3-3.6A15.6 15.6 0 008.1 8zM12 20a14 14 0 01-1.9-4h3.8A14 14 0 0112 20zm2.3-6H9.7a14.7 14.7 0 010-4h4.6a14.7 14.7 0 010 4zm.3 5.6a15.6 15.6 0 001.4-3.6h3a8 8 0 01-4.4 3.6zm1.7-5.6a16.5 16.5 0 000-4h3.4a8.2 8.2 0 010 4z"/></svg>校外访问</h3>
+        <ul>
+          <li>客户端内置校园网接入，在校外也能同步课表、查成绩</li>
+          <li>只有访问学校网站的请求会经过它，其他网络不受影响</li>
+          <li>网页版没有这个功能</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>选课和抢课</h3>
+        <ul>
+          <li>登录验证码自动识别，识别不了再手动输入</li>
+          <li>监控课程余量，有人退课时自动提交</li>
+          <li>选课开放前排好要选的课，开放后马上提交</li>
+          <li>登录失效后自动重新登录，可同时登录多个账号</li>
+          <li>提交前检查实验班和教材选项，信息不全就不提交</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="download">
+  <div class="wrap">
+    <h2>下载</h2>
+    <p class="section-sub">安装包在 GitHub Release 里，具体架构以每个版本的附件为准。</p>
+    <div class="downloads">
+      <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
+        <svg viewBox="0 0 24 24"><path d="M16 2H8a2 2 0 00-2 2v16a2 2 0 002 2h8a2 2 0 002-2V4a2 2 0 00-2-2zm-4 19a1 1 0 110-2 1 1 0 010 2z"/></svg>
+        <div><div class="label">Android</div><div class="hint">APK，多数手机选 arm64-v8a；能装 APK 的鸿蒙设备也可以用</div></div>
+      </a>
+      <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
+        <svg viewBox="0 0 24 24"><path d="M18 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V4a2 2 0 00-2-2zm-6 20a1 1 0 110-2 1 1 0 010 2z"/></svg>
+        <div><div class="label">iOS</div><div class="hint">iOS 16+ · IPA 需自行签名</div></div>
+      </a>
+      <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
+        <svg viewBox="0 0 24 24"><path d="M18 3a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6a3 3 0 013-3z"/></svg>
+        <div><div class="label">macOS</div><div class="hint">macOS 14+ · Intel / Apple Silicon</div></div>
+      </a>
+      <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
+        <svg viewBox="0 0 24 24"><path d="M3 5h18v12H3z"/><path d="M8 21h8" stroke="#fff" stroke-width="1.5"/></svg>
+        <div><div class="label">Windows</div><div class="hint">x64 / ARM64 · ZIP</div></div>
+      </a>
+      <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
+        <svg viewBox="0 0 24 24"><path d="M12 2a4 4 0 014 4c0 2-1 3-1 5l2 6H7l2-6c0-2-1-3-1-5a4 4 0 014-4z"/></svg>
+        <div><div class="label">Linux</div><div class="hint">x64 / ARM64 · tar.gz</div></div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section id="web">
+  <div class="wrap">
+    <h2>网页版</h2>
+    <p class="section-sub">不想安装客户端也可以用网页版，但要先装一个浏览器脚本。</p>
+    <div class="callout" style="margin-bottom:24px">
+      学校的服务器不允许其他网站直接调用接口，浏览器会拦下这些请求。配套脚本通过脚本管理器转发请求，只对 <code>bksxk.nwafu.edu.cn</code>（选课）、<code>ehall.nwafu.edu.cn</code> 和 <code>authserver.nwafu.edu.cn</code>（教务和统一身份认证）这三个学校域名生效。
+    </div>
+    <div class="steps">
+      <div class="step"><div>安装 <strong>篡改猴 (Tampermonkey)</strong> 或 <strong>脚本猫 (ScriptCat)</strong> 浏览器扩展。</div></div>
+      <div class="step"><div>安装 <strong><a href="bksxk-web-bridge.user.js">西农教务助手 · 网页版桥接</a></strong> 脚本，点开链接后在扩展里确认安装。</div></div>
+      <div class="step"><div>打开 <strong><a href="app/">网页版</a></strong> 并刷新，不再提示安装脚本就说明可以用了。</div></div>
+      <div class="step"><div>查课表、成绩等教务功能时，先在同一个浏览器里打开学校教务页面完成登录，再回到网页版点「连接当前浏览器会话」。网页版不会读取你的密码。</div></div>
+    </div>
+    <p style="margin-top:20px; color:var(--muted)">网页版只能在校园网内用，没有校外访问功能。浏览器通知需要授权；抢课监控在关闭标签页后会停止，放在后台的标签页也可能变慢。</p>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <h2>常见问题</h2>
+    <div class="faq">
+      <div>
+        <h3>以前的「西农本科选课」去哪了？</h3>
+        <p>就是这个应用。2.0 起改名为西农教务助手，加了课表、成绩等日常功能，选课和抢课都还在。</p>
+      </div>
+      <div>
+        <h3>鸿蒙手机能用吗？</h3>
+        <p>能安装 APK 的设备可以试 Android 版。纯血鸿蒙（HarmonyOS NEXT）暂时没有安装包。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>西农教务助手 · 开源于 <a href="https://github.com/majianyu2007/nwafu-bksxk">GitHub</a> · 非学校官方应用</p>
+    <p style="margin-top:8px">登录和教务数据只在你的设备和学校服务器之间传输。检查更新会访问 GitHub 和 mjy.js.org，不带任何学校账号信息。如果你在设置里配置了在线验证码识别服务，验证码图片会发给该服务。</p>
+  </div>
+</footer>
+</body>
+</html>
