@@ -148,7 +148,10 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
       final password = _password.text;
       _password.clear();
       _code.clear();
-      if (!_usedDeviceKey && !_deviceKey) {
+      // Offer face/fingerprint sign-in only when this device is not bound yet.
+      if (!_usedDeviceKey &&
+          !_deviceKey &&
+          !await _session.hasDeviceKey(_username.text.trim())) {
         await _offerDeviceKey(password);
         if (!mounted) return;
       }

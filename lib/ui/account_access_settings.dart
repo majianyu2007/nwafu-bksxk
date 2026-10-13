@@ -21,7 +21,6 @@ class DeviceSignInSetting extends ConsumerStatefulWidget {
 }
 
 class _DeviceSignInSettingState extends ConsumerState<DeviceSignInSetting> {
-  bool? _bound;
   bool _supported = false;
   String _label = '指纹/面容';
   bool _busy = false;
@@ -33,20 +32,13 @@ class _DeviceSignInSettingState extends ConsumerState<DeviceSignInSetting> {
   }
 
   Future<void> _refresh() async {
-    final account = ref.read(eduSessionProvider).account;
     final unlock = ref.read(deviceUnlockProvider);
     final supported = await unlock.available();
     final label = supported ? await unlock.label() : _label;
-    final bound = account == null
-        ? false
-        : await ref
-              .read(eduSessionProvider.notifier)
-              .hasDeviceKey(account.username);
     if (!mounted) return;
     setState(() {
       _supported = supported;
       _label = label;
-      _bound = bound;
     });
   }
 
@@ -93,18 +85,19 @@ class _DeviceSignInSettingState extends ConsumerState<DeviceSignInSetting> {
   Widget build(BuildContext context) {
     final signedIn = ref.watch(eduSessionProvider).signedIn;
     if (!signedIn) return const SizedBox.shrink();
+    final bound = ref.watch(deviceKeyBoundProvider).value;
     return SwitchListTile(
       secondary: const Icon(Icons.fingerprint),
       title: Text('$_label登录'),
       subtitle: Text(
         !_supported
             ? '此设备不支持'
-            : _bound == true
+            : bound == true
             ? '已开启'
             : '不用输密码和短信验证码',
       ),
-      value: _bound == true,
-      onChanged: !_supported || _busy || _bound == null ? null : _toggle,
+      value: bound == true,
+      onChanged: !_supported || _busy || bound == null ? null : _toggle,
     );
   }
 }

@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/providers.dart';
-import '../core/constants.dart';
+import '../app/update_providers.dart';
 import '../data/api_client.dart';
 import '../data/models.dart';
 import 'layout.dart';
@@ -119,8 +119,10 @@ class DiagnosticsPage extends ConsumerWidget {
                 title: '轮次',
                 value: session.activeBatch?.name ?? '—',
                 icon: Icons.event_outlined),
-            const _Tile(
-                title: '客户端版本', value: kAppVersion, icon: Icons.info_outline),
+            _Tile(
+                title: '客户端版本',
+                value: ref.watch(appVersionProvider).value ?? '—',
+                icon: Icons.info_outline),
             const SizedBox(height: 20),
             FilledButton.tonalIcon(
               onPressed: () => _copyReport(context, ref, origin, session, probe),
@@ -149,7 +151,7 @@ class DiagnosticsPage extends ConsumerWidget {
         : '****';
     final report = StringBuffer()
       ..writeln('# 西农教务助手 诊断报告')
-      ..writeln('client: $kAppVersion')
+      ..writeln('client: ${ref.read(appVersionProvider).value ?? '—'}')
       ..writeln('origin: $origin')
       ..writeln('reachable: ${reach?.reachable ?? 'unknown'}')
       ..writeln('detail: ${reach?.detail ?? '—'}')

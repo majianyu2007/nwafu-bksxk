@@ -174,3 +174,12 @@ final updatesProvider = StateNotifierProvider<UpdatesController, UpdatesState>((
   unawaited(Future<void>.microtask(controller.initialize));
   return controller;
 });
+
+/// The running app's version, from the build itself (pubspec version).
+/// The single source for every place that shows it.
+final appVersionProvider = FutureProvider<String>((ref) async {
+  final info = await PackageInfo.fromPlatform();
+  return info.buildNumber.isEmpty
+      ? info.version
+      : '${info.version} (${info.buildNumber})';
+});

@@ -4,9 +4,6 @@
 /// (docs/api.notes.md, docs/api.runtime.md).
 library;
 
-/// Client version shown in diagnostics; keep in step with pubspec.yaml.
-const String kAppVersion = '1.3.1';
-
 class Env {
   Env._();
 

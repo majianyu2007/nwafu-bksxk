@@ -443,6 +443,7 @@ class EduSessionController extends StateNotifier<EduState> {
       account.username,
       jsonEncode({...credential.toJson(), 'deviceName': deviceName}),
     );
+    _ref.invalidate(deviceKeyBoundProvider);
   }
 
   /// Removes this app's binding (server side when reachable) and the key.
@@ -467,6 +468,7 @@ class EduSessionController extends StateNotifier<EduState> {
       }
     } finally {
       await _storage.setEduDeviceKey(account.username, null);
+      _ref.invalidate(deviceKeyBoundProvider);
     }
   }
 
@@ -601,6 +603,14 @@ class _PendingEduLogin {
 
 /// Fingerprint / Face ID gate for the bound passkey.
 final deviceUnlockProvider = Provider<DeviceUnlock>((ref) => DeviceUnlock());
+
+/// Whether this install holds a bound passkey for the signed-in account.
+/// The one place every screen reads it from; bind/unbind invalidate it.
+final deviceKeyBoundProvider = FutureProvider<bool>((ref) async {
+  final account = ref.watch(eduSessionProvider.select((s) => s.account));
+  if (account == null) return false;
+  return await ref.read(storageProvider).eduDeviceKey(account.username) != null;
+});
 
 final eduSessionProvider =
     StateNotifierProvider<EduSessionController, EduState>(
