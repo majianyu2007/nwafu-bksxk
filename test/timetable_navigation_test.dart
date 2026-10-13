@@ -39,7 +39,7 @@ void main() {
     await tester.drag(find.byType(PageView), const Offset(-700, 0));
     await tester.pumpAndSettle();
     expect(find.textContaining('9月21日 — 9月27日'), findsOneWidget);
-    await tester.tap(find.text('今天'));
+    await tester.tap(find.text('跳回今天'));
     await tester.pumpAndSettle();
     expect(find.textContaining('9月7日 — 9月13日'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());

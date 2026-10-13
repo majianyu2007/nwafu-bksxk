@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'widgets/simple_markdown.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -22,13 +23,15 @@ Future<void> _openUpdateLink(BuildContext context, Uri uri) async {
     // Platform launchers may be unavailable; keep the URL accessible to copy.
   }
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: const Text('无法打开浏览器，可复制官方链接后手动访问。'),
-    action: SnackBarAction(
-      label: '复制链接',
-      onPressed: () => Clipboard.setData(ClipboardData(text: uri.toString())),
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: const Text('无法打开浏览器，可复制官方链接后手动访问。'),
+      action: SnackBarAction(
+        label: '复制链接',
+        onPressed: () => Clipboard.setData(ClipboardData(text: uri.toString())),
+      ),
     ),
-  ));
+  );
 }
 
 /// A non-modal notice. Watching it also initializes the throttled startup
@@ -53,20 +56,22 @@ class UpdateNoticeBanner extends ConsumerWidget {
             children: [
               Row(
                 children: [
-                  Icon(Icons.system_update_alt,
-                      color: scheme.onSecondaryContainer),
+                  Icon(
+                    Icons.system_update_alt,
+                    color: scheme.onSecondaryContainer,
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       [
                         if (state.app.hasUpdate)
                           '应用 ${state.app.release!.version} 可更新',
-                        if (state.bridge.hasUpdate)
+                        if (isWebRuntime && state.bridge.hasUpdate)
                           '桥接脚本 ${state.bridge.release!.version} 可更新',
                       ].join(' · '),
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: scheme.onSecondaryContainer,
-                          ),
+                        color: scheme.onSecondaryContainer,
+                      ),
                     ),
                   ),
                   IconButton(
@@ -116,19 +121,17 @@ class UpdateSettings extends ConsumerWidget {
     final versionLabel = state.loadingVersion
         ? '读取版本中…'
         : version == null
-            ? '版本读取失败'
-            : state.buildNumber.isEmpty
-                ? version
-                : '$version (${state.buildNumber})';
+        ? '版本读取失败'
+        : state.buildNumber.isEmpty
+        ? version
+        : '$version (${state.buildNumber})';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         ListTile(
           leading: const Icon(Icons.info_outline),
           title: Text('西农教务助手 $versionLabel'),
-          subtitle: const Text(
-            '每天最多自动检查一次；仅提示，不会自动安装、刷新页面或中断监控。',
-          ),
+          subtitle: const Text('每天最多自动检查一次；仅提示，不会自动安装、刷新页面或中断监控。'),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -172,23 +175,12 @@ class UpdateSettings extends ConsumerWidget {
             installedLabel: !isWebBridgeReady
                 ? '未检测到已安装脚本'
                 : installedWebBridgeVersion == null
-                    ? '已检测到脚本，版本未知'
-                    : '已安装 ${installedWebBridgeVersion!}',
-          )
-        else
-          ListTile(
-            leading: const Icon(Icons.extension_outlined),
-            title: const Text('Web 桥接脚本'),
-            subtitle: const Text('原生应用不需要此脚本；仅在浏览器使用网页版时安装。'),
-            onTap: () => _openUpdateLink(context, bridgeInstallerUri),
-            trailing: const Icon(Icons.open_in_new),
+                ? '已检测到脚本，版本未知'
+                : '已安装 ${installedWebBridgeVersion!}',
           ),
         const Padding(
           padding: EdgeInsets.fromLTRB(16, 4, 16, 16),
-          child: Text(
-            '更新检查只访问官方 GitHub / 发布站点，不发送账号、密码或选课会话。'
-            '安装脚本后请自行选择合适时机刷新网页版。',
-          ),
+          child: Text('更新检查只访问官方 GitHub / 发布站点，不发送账号、密码或选课会话。'),
         ),
       ],
     );
@@ -240,7 +232,10 @@ class _UpdateResult extends StatelessWidget {
               children: [
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: SelectableText(release.notes),
+                  child: SimpleMarkdown(
+                    release.notes,
+                    onLink: (uri) => _openUpdateLink(context, uri),
+                  ),
                 ),
               ],
             ),

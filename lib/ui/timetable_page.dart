@@ -672,7 +672,7 @@ class _WeekBar extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14),
           ),
           onPressed: onToday,
-          child: const Text('今天'),
+          child: const Text('跳回今天'),
         ),
       ],
     );

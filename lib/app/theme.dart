@@ -5,6 +5,7 @@ library;
 
 import 'dart:ui' show lerpDouble;
 
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 
 /// Multiply the platform scaler without discarding its nonlinear behavior.
@@ -74,6 +75,15 @@ class AppTheme {
       materialTapTargetSize: MaterialTapTargetSize.padded,
       visualDensity: VisualDensity.standard,
       splashFactory: InkSparkle.splashFactory,
+      // Native-feeling navigation on Apple platforms: edge-swipe back and
+      // the parallax push.
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
+        },
+      ),
       appBarTheme: AppBarTheme(
         backgroundColor: scheme.surface,
         foregroundColor: scheme.onSurface,

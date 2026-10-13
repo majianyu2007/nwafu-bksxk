@@ -124,24 +124,50 @@ class GlassSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = GlassTokens.of(context);
+    final apple = isApplePlatform(context);
+    // Apple's materials blur harder and boost saturation, then lay a thin
+    // bright rim on top; Material keeps the softer, flatter look.
+    final fill = alpha == null ? t.chromeFill : t.fill(alpha!);
     Widget body = DecoratedBox(
       decoration: BoxDecoration(
-        color: alpha == null ? t.chromeFill : t.fill(alpha!),
+        color: apple && t.enabled
+            ? fill.withValues(alpha: fill.a * 0.72)
+            : fill,
         borderRadius: borderRadius,
+        gradient: apple && t.enabled
+            ? LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  t.highlight.withValues(alpha: t.sheenAlpha * 0.5),
+                  fill.withValues(alpha: fill.a * 0.6),
+                ],
+                stops: const [0, 0.5],
+              )
+            : null,
         border: border && t.enabled
-            ? Border.all(color: t.border, width: 1)
+            ? Border.all(
+                color: apple
+                    ? t.highlight.withValues(alpha: t.borderAlpha * 2.2)
+                    : t.border,
+                width: apple ? 0.6 : 1,
+              )
             : null,
       ),
       child: padding == null ? child : Padding(padding: padding!, child: child),
     );
     if (t.enabled) {
-      body = ClipRRect(
-        borderRadius: borderRadius,
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: t.blurSigma, sigmaY: t.blurSigma),
-          child: body,
-        ),
+      final sigma = apple ? t.blurSigma * 2.6 : t.blurSigma;
+      final blur = ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma);
+      body = BackdropFilter(
+        filter: apple
+            ? ui.ImageFilter.compose(outer: _saturate, inner: blur)
+            : blur,
+        child: body,
       );
+      body = apple
+          ? ClipRSuperellipse(borderRadius: borderRadius, child: body)
+          : ClipRRect(borderRadius: borderRadius, child: body);
     }
     if (!shadow) return body;
     return DecoratedBox(
@@ -152,6 +178,26 @@ class GlassSurface extends StatelessWidget {
       child: body,
     );
   }
+}
+
+/// Saturation boost of Apple's system materials (about 1.8×).
+final _saturate = ui.ColorFilter.matrix(_saturation(1.8));
+
+List<double> _saturation(double s) {
+  const r = 0.2126, g = 0.7152, b = 0.0722;
+  final i = 1 - s;
+  return [
+    r * i + s, g * i, b * i, 0, 0, //
+    r * i, g * i + s, b * i, 0, 0, //
+    r * i, g * i, b * i + s, 0, 0, //
+    0, 0, 0, 1, 0,
+  ];
+}
+
+/// iOS and macOS get the Apple-material look.
+bool isApplePlatform(BuildContext context) {
+  final p = Theme.of(context).platform;
+  return p == TargetPlatform.iOS || p == TargetPlatform.macOS;
 }
 
 /// Tinted translucent card for content. No blur. [tint] blends a colour into

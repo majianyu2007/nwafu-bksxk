@@ -30,7 +30,7 @@ class UpdatesState {
       app.status == UpdateStatus.checking ||
       bridge.status == UpdateStatus.checking;
   bool get showNotice =>
-      !noticeDismissed && (app.hasUpdate || bridge.hasUpdate);
+      !noticeDismissed && (app.hasUpdate || (isWebRuntime && bridge.hasUpdate));
 
   UpdatesState copyWith({
     UpdateCheck? app,
@@ -39,15 +39,14 @@ class UpdatesState {
     String? buildNumber,
     bool? loadingVersion,
     bool? noticeDismissed,
-  }) =>
-      UpdatesState(
-        app: app ?? this.app,
-        bridge: bridge ?? this.bridge,
-        version: version ?? this.version,
-        buildNumber: buildNumber ?? this.buildNumber,
-        loadingVersion: loadingVersion ?? this.loadingVersion,
-        noticeDismissed: noticeDismissed ?? this.noticeDismissed,
-      );
+  }) => UpdatesState(
+    app: app ?? this.app,
+    bridge: bridge ?? this.bridge,
+    version: version ?? this.version,
+    buildNumber: buildNumber ?? this.buildNumber,
+    loadingVersion: loadingVersion ?? this.loadingVersion,
+    noticeDismissed: noticeDismissed ?? this.noticeDismissed,
+  );
 }
 
 class UpdatesController extends StateNotifier<UpdatesState> {
@@ -59,9 +58,9 @@ class UpdatesController extends StateNotifier<UpdatesState> {
     required this._bridgeVersion,
     Future<PackageInfo> Function()? packageInfo,
     DateTime Function()? now,
-  })  : _packageInfo = packageInfo ?? PackageInfo.fromPlatform,
-        _now = now ?? DateTime.now,
-        super(const UpdatesState());
+  }) : _packageInfo = packageInfo ?? PackageInfo.fromPlatform,
+       _now = now ?? DateTime.now,
+       super(const UpdatesState());
 
   final UpdateService _service;
   final Storage _storage;
@@ -127,7 +126,8 @@ class UpdatesController extends StateNotifier<UpdatesState> {
       } catch (_) {}
       if (state.version == null) await _loadVersion();
       if (!mounted) return;
-      await Future.wait([_checkApp(), _checkBridge()]);
+      // The bridge is a browser userscript: only the web build needs it.
+      await Future.wait([_checkApp(), if (isWebRuntime) _checkBridge()]);
     } finally {
       _busy = false;
     }
@@ -136,8 +136,10 @@ class UpdatesController extends StateNotifier<UpdatesState> {
   Future<void> _checkApp() async {
     final version = state.version;
     if (version == null) return;
-    final result =
-        await _service.checkApp(currentVersion: version, isWeb: _isWeb);
+    final result = await _service.checkApp(
+      currentVersion: version,
+      isWeb: _isWeb,
+    );
     if (mounted) state = state.copyWith(app: result);
   }
 
@@ -159,8 +161,9 @@ final updateServiceProvider = Provider<UpdateService>((ref) {
   return service;
 });
 
-final updatesProvider =
-    StateNotifierProvider<UpdatesController, UpdatesState>((ref) {
+final updatesProvider = StateNotifierProvider<UpdatesController, UpdatesState>((
+  ref,
+) {
   final controller = UpdatesController(
     service: ref.watch(updateServiceProvider),
     storage: ref.watch(storageProvider),
