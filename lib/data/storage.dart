@@ -410,6 +410,25 @@ class Storage {
   Future<void> setClassReminderMinutes(int v) =>
       _prefs.setInt('reminder.lead.v1', v);
 
+  /// Minutes before the day's first class; 0 = same as the usual lead.
+  int firstClassReminderMinutes() =>
+      _prefs.getInt('reminder.first_lead.v1') ?? 0;
+  Future<void> setFirstClassReminderMinutes(int v) =>
+      _prefs.setInt('reminder.first_lead.v1', v);
+
+  /// Skip the reminder for a class right after another in the same room.
+  bool reminderSkipSameRoom() =>
+      _prefs.getBool('reminder.skip_same_room.v1') ?? true;
+  Future<void> setReminderSkipSameRoom(bool v) =>
+      _prefs.setBool('reminder.skip_same_room.v1', v);
+
+  /// Warn when the next class is in another building, as the previous one
+  /// ends.
+  bool reminderBuildingChange() =>
+      _prefs.getBool('reminder.building_change.v1') ?? true;
+  Future<void> setReminderBuildingChange(bool v) =>
+      _prefs.setBool('reminder.building_change.v1', v);
+
   bool timetableShowWeekend() => _prefs.getBool('timetable.weekend.v1') ?? true;
   Future<void> setTimetableShowWeekend(bool v) =>
       _prefs.setBool('timetable.weekend.v1', v);

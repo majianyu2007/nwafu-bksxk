@@ -784,9 +784,11 @@ class TimetableController extends StateNotifier<TimetableState> {
       t.term.code,
       monday == null
           ? null
-          : DateTime.utc(monday.year, monday.month, monday.day)
-                .toIso8601String()
-                .substring(0, 10),
+          : DateTime.utc(
+              monday.year,
+              monday.month,
+              monday.day,
+            ).toIso8601String().substring(0, 10),
     );
     final cached = TermTimetable.decode(_storage.eduTimetable(id, t.term.code));
     if (cached != null && mounted) {
@@ -875,7 +877,9 @@ final timetableProvider =
 
 /// Debug builds can shift "now" (from the VM service) to check how the
 /// timetable looks during a class.
-final debugClockOffsetProvider = StateProvider<Duration>((ref) => Duration.zero);
+final debugClockOffsetProvider = StateProvider<Duration>(
+  (ref) => Duration.zero,
+);
 
 /// Ticks every 30 s so "now" views (current class, today line) move on.
 final clockProvider = StreamProvider<DateTime>((ref) async* {
@@ -994,7 +998,18 @@ class ClassReminderController extends StateNotifier<int> {
     final lead = state;
     final now = _ref.read(eduNowProvider)();
     final storage = _ref.read(storageProvider);
-    final plans = planReminders(t, now, lead: Duration(minutes: lead), days: 7);
+    final first = storage.firstClassReminderMinutes();
+    final plans = planReminders(
+      t,
+      now,
+      rules: ReminderRules(
+        lead: Duration(minutes: lead),
+        firstLead: first > 0 ? Duration(minutes: first) : null,
+        skipSameRoom: storage.reminderSkipSameRoom(),
+        moveBuilding: storage.reminderBuildingChange(),
+      ),
+      days: 7,
+    );
     final examPlans = storage.examReminders()
         ? planExamReminders(
             cachedExams(storage, identity, t.term.code),
@@ -1011,7 +1026,7 @@ class ClassReminderController extends StateNotifier<int> {
         (
           id: p.id,
           at: p.at,
-          title: reminderTitle(p.occurrence, lead),
+          title: reminderTitle(p, lead),
           body: reminderBody(p.occurrence),
         ),
       for (final p in examPlans)
@@ -1045,15 +1060,13 @@ class ClassReminderController extends StateNotifier<int> {
             unawaited(service.classReminderNow(p.title, p.body));
           }
         }
-        for (final o in t.upcoming(now, days: 1)) {
-          if (!now.isBefore(o.start.subtract(Duration(minutes: lead))) &&
+        for (final p in plans) {
+          final o = p.occurrence;
+          if (!now.isBefore(p.at) &&
               now.isBefore(o.start) &&
-              _fired.add(reminderId(o))) {
+              _fired.add(p.id)) {
             unawaited(
-              service.classReminderNow(
-                '即将上课：${o.session.displayName}',
-                reminderBody(o),
-              ),
+              service.classReminderNow(reminderTitle(p, lead), reminderBody(o)),
             );
           }
         }
@@ -1104,10 +1117,18 @@ final eduLifecycleProvider = Provider<void>((ref) {
   schedule();
 });
 
-String reminderTitle(ClassOccurrence o, int lead) =>
-    '$lead 分钟后上课：${o.session.displayName}';
+String reminderTitle(ReminderPlan p, int lead) {
+  final o = p.occurrence;
+  final minutes = o.start.difference(p.at).inMinutes;
+  return switch (p.reason) {
+    ReminderReason.moveBuilding =>
+      '换教室：${o.session.displayName} 在 ${o.session.room}',
+    ReminderReason.firstOfDay => '今天第一节，$minutes 分钟后：${o.session.displayName}',
+    ReminderReason.normal => '$minutes 分钟后上课：${o.session.displayName}',
+  };
+}
 
-String reminderBody(ClassOccurrence o) {
+String reminderBody(ClassOccurrence o, {String? fromRoom}) {
   final s = o.session;
   final local = o.start.add(const Duration(hours: 8));
   final hh = local.hour.toString().padLeft(2, '0');
@@ -1167,16 +1188,12 @@ class GradesController extends StateNotifier<GradesState> {
     try {
       final book = await _ref.read(eduClientProvider).ehall.grades();
       if (!_current(request)) return;
-      await session._cacheFor(
-        id,
-        () => _current(request),
-        () async {
-          try {
-            await _ref.read(eduSyncCoreProvider).recordGrades(id, book);
-          } catch (_) {}
-          await storage.setEduGrades(id, book.encode());
-        },
-      );
+      await session._cacheFor(id, () => _current(request), () async {
+        try {
+          await _ref.read(eduSyncCoreProvider).recordGrades(id, book);
+        } catch (_) {}
+        await storage.setEduGrades(id, book.encode());
+      });
       if (_current(request)) state = GradesState(book: book);
     } catch (e) {
       if (!_current(request)) return;

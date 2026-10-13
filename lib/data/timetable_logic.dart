@@ -162,33 +162,135 @@ class DayStatus {
   }
 }
 
+/// Why a reminder fires when it does; decides its wording.
+enum ReminderReason {
+  /// [lead] before class.
+  normal,
+
+  /// The day's first class, with the earlier first-class lead.
+  firstOfDay,
+
+  /// The previous class is in another building: fires when it ends.
+  moveBuilding,
+}
+
 /// A reminder to schedule: [at] is when it fires.
 class ReminderPlan {
   const ReminderPlan({
     required this.id,
     required this.at,
     required this.occurrence,
+    this.reason = ReminderReason.normal,
+    this.fromRoom,
   });
   final int id;
   final DateTime at;
   final ClassOccurrence occurrence;
+  final ReminderReason reason;
+
+  /// For [ReminderReason.moveBuilding]: where the previous class was.
+  final String? fromRoom;
 }
 
-/// Reminders for classes starting within [horizon] of [now], [lead] before
-/// each. Ids are stable for a given class slot so re-planning replaces
-/// rather than duplicates. Back-to-back periods of one course share one
-/// reminder because they are one session.
+/// How reminders are planned. [lead] is the usual time before class;
+/// [firstLead] (when set) replaces it for the day's first class, which
+/// usually means leaving the dorm; [quietBefore] (minutes after midnight,
+/// CST) moves a reminder that would fire earlier to that time, never past
+/// the class start.
+class ReminderRules {
+  const ReminderRules({
+    required this.lead,
+    this.firstLead,
+    this.skipSameRoom = true,
+    this.moveBuilding = true,
+    this.quietBefore = 7 * 60,
+  });
+  final Duration lead;
+  final Duration? firstLead;
+
+  /// No reminder for a class right after another in the same room.
+  final bool skipSameRoom;
+
+  /// Fire as the previous class ends when the next is in another building.
+  final bool moveBuilding;
+  final int? quietBefore;
+}
+
+/// Short building key for "is this another building": `N8618` → `N8`,
+/// `理科楼A402` → `理科楼`.
+String roomBuilding(String room) {
+  final code = RegExp(r'^([A-Za-z]+\d)').firstMatch(room.trim());
+  if (code != null) return code.group(1)!.toUpperCase();
+  return room.trim().replaceFirst(RegExp(r'[A-Za-z]?\d.*$'), '');
+}
+
+/// Reminders for classes starting within [days] of [now]. Ids are stable for
+/// a class slot so re-planning replaces rather than duplicates.
+///
+/// Per class, in order:
+///  * right after another class in the same room (gap ≤ 30 min, the long break): none, the
+///    student is already there ([ReminderRules.skipSameRoom]);
+///  * right after a class in another building: fire when that class ends,
+///    so the walk is not a surprise;
+///  * the day's first class: [ReminderRules.firstLead] if set;
+///  * otherwise [ReminderRules.lead].
+/// A time before [ReminderRules.quietBefore] moves to it.
 List<ReminderPlan> planReminders(
   TermTimetable t,
   DateTime now, {
-  required Duration lead,
+  Duration? lead,
+  ReminderRules? rules,
   int days = 7,
 }) {
+  final r = rules ?? ReminderRules(lead: lead ?? const Duration(minutes: 10));
   final out = <ReminderPlan>[];
-  for (final o in t.upcoming(now, days: days)) {
-    final at = o.start.subtract(lead);
+  final upcoming = t.upcoming(now, days: days);
+  // Every class of the days involved, to see what comes right before.
+  final byDay = <DateTime, List<ClassOccurrence>>{};
+  for (final o in upcoming) {
+    byDay.putIfAbsent(o.date, () => t.classesOn(o.start));
+  }
+  for (final o in upcoming) {
+    final day = byDay[o.date]!..sort((a, b) => a.start.compareTo(b.start));
+    final before = day.where((p) => !p.end.isAfter(o.start)).lastOrNull;
+    final gap = before == null ? null : o.start.difference(before.end);
+    final adjacent = gap != null && gap <= const Duration(minutes: 30);
+    final room = o.session.room;
+    final prevRoom = before?.session.room ?? '';
+
+    var reason = ReminderReason.normal;
+    DateTime at;
+    if (adjacent && room.isNotEmpty && room == prevRoom) {
+      if (r.skipSameRoom) continue;
+      at = o.start.subtract(r.lead);
+    } else if (r.moveBuilding &&
+        adjacent &&
+        room.isNotEmpty &&
+        prevRoom.isNotEmpty &&
+        roomBuilding(room) != roomBuilding(prevRoom)) {
+      reason = ReminderReason.moveBuilding;
+      at = before!.end;
+    } else if (before == null && r.firstLead != null) {
+      reason = ReminderReason.firstOfDay;
+      at = o.start.subtract(r.firstLead!);
+    } else {
+      at = o.start.subtract(r.lead);
+    }
+    final quiet = r.quietBefore;
+    if (quiet != null) {
+      final floor = schoolInstant(o.date, quiet);
+      if (at.isBefore(floor)) at = floor.isBefore(o.start) ? floor : at;
+    }
     if (!at.isAfter(now)) continue;
-    out.add(ReminderPlan(id: reminderId(o), at: at, occurrence: o));
+    out.add(
+      ReminderPlan(
+        id: reminderId(o),
+        at: at,
+        occurrence: o,
+        reason: reason,
+        fromRoom: reason == ReminderReason.moveBuilding ? prevRoom : null,
+      ),
+    );
   }
   return out;
 }

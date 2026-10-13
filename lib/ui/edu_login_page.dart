@@ -152,6 +152,8 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
         await _offerDeviceKey(password);
         if (!mounted) return;
       }
+      await _askNotifications();
+      if (!mounted) return;
       Navigator.of(context).pop(true);
     } on CasMfaRequired catch (e) {
       if (!mounted || operation != _operation) return;
@@ -176,6 +178,23 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
   }
 
   /// After a password sign-in, offer fingerprint / Face ID next time.
+  /// Right after the first sign-in, the moment the user expects it, ask the
+  /// system for notifications (iOS never shows them otherwise) and turn on
+  /// 10-minute class reminders if they were never set.
+  Future<void> _askNotifications() async {
+    if (kIsWeb) return;
+    final reminders = ref.read(classReminderProvider.notifier);
+    if (ref.read(classReminderProvider) > 0) {
+      await ref.read(eduNotificationsProvider).requestPermission();
+      return;
+    }
+    try {
+      await reminders.setLead(10);
+    } catch (_) {
+      // Declined: reminders stay off; Settings explains how to allow them.
+    }
+  }
+
   Future<void> _offerDeviceKey(String password) async {
     final unlock = ref.read(deviceUnlockProvider);
     if (password.isEmpty || !await unlock.available() || !mounted) return;
