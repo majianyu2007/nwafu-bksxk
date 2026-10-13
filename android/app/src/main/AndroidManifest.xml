@@ -71,11 +71,34 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <receiver android:name=".NextClassWidget" android:exported="false" android:label="下一节课">
+        <!-- Home-screen timetable widgets (1×1, 2×1, 2×2), see ClassWidgets.kt. -->
+        <receiver android:name=".ClassWidgetSmall" android:exported="false" android:label="@string/class_widget_small_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/class_widget_small_info" />
+        </receiver>
+        <receiver android:name=".NextClassWidget" android:exported="false" android:label="@string/next_class_widget_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/next_class_widget_info" />
+        </receiver>
+        <receiver android:name=".ClassWidgetToday" android:exported="false" android:label="@string/class_widget_today_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/class_widget_today_info" />
+        </receiver>
+        <!-- Redraws the widgets at class boundaries / midnight and after a
+             reboot or clock change (the boundary alarm does not survive those). -->
+        <receiver android:name=".ClassWidgetTick" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
         </receiver>
     </application>
     <!-- Required to query activities that can process text, see:

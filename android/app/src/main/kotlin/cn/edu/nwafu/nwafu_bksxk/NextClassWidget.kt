@@ -3,55 +3,50 @@ package cn.edu.nwafu.nwafu_bksxk
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.SharedPreferences
+import android.view.View
 import android.widget.RemoteViews
-import es.antonborri.home_widget.HomeWidgetLaunchIntent
-import es.antonborri.home_widget.HomeWidgetProvider
-import org.json.JSONArray
 
 /**
- * Home-screen widget: the class on now or next today. The app writes today's
- * and tomorrow's classes (start/end epoch millis) as JSON under "classes",
- * so the widget picks the right one at each update without the app running.
+ * 2×1: the class on now or next with time, room and periods, plus a live
+ * countdown to its start (within 3 h) or, during class, to its end. Keeps
+ * the original class name so widgets placed by earlier versions survive.
  */
-class NextClassWidget : HomeWidgetProvider() {
-    override fun onUpdate(
+class NextClassWidget : ClassWidgetProvider() {
+    override fun render(
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
         widgetData: SharedPreferences,
     ) {
         val now = System.currentTimeMillis()
-        var title = "今天没有课了"
-        var detail = widgetData.getString("empty", "") ?: ""
-        var badge = ""
-        try {
-            val list = JSONArray(widgetData.getString("classes", "[]"))
-            for (i in 0 until list.length()) {
-                val c = list.getJSONObject(i)
-                if (c.getLong("end") <= now) continue
-                title = c.getString("name")
-                detail = listOf(c.optString("time"), c.optString("room"))
-                    .filter { it.isNotEmpty() }.joinToString(" · ")
-                badge = when {
-                    c.getLong("start") <= now -> "上课中"
-                    c.optBoolean("tomorrow") -> "明天"
-                    else -> "下一节"
-                }
-                break
-            }
-        } catch (_: Exception) {
-        }
+        val data = ClassWidgets.read(widgetData)
+        val cur = ClassWidgets.current(data, now)
         for (id in appWidgetIds) {
-            val views = RemoteViews(context.packageName, R.layout.next_class_widget).apply {
-                setTextViewText(R.id.widget_badge, badge)
-                setTextViewText(R.id.widget_title, title)
-                setTextViewText(R.id.widget_detail, detail)
-                setOnClickPendingIntent(
-                    R.id.widget_root,
-                    HomeWidgetLaunchIntent.getActivity(context, MainActivity::class.java),
+            val v = RemoteViews(context.packageName, R.layout.next_class_widget)
+            v.setOnClickPendingIntent(R.id.widget_root, ClassWidgets.launch(context))
+            v.setTextViewText(R.id.widget_week, ClassWidgets.weekLabel(data, now))
+            if (cur == null) {
+                v.setTextViewText(R.id.widget_badge, ClassWidgets.dateLabel(now))
+                v.setTextViewText(R.id.widget_title, ClassWidgets.emptyText(data, now))
+                v.setTextViewText(R.id.widget_detail, "")
+                v.setViewVisibility(R.id.widget_countdown, View.GONE)
+            } else {
+                val (day, c) = cur
+                v.setTextViewText(R.id.widget_badge, ClassWidgets.badge(day, c, now))
+                v.setTextViewText(R.id.widget_title, c.name)
+                v.setTextViewText(
+                    R.id.widget_detail,
+                    listOf(c.time, c.room, c.sec).filter { it.isNotEmpty() }.joinToString(" · "),
                 )
+                when {
+                    c.start <= now ->
+                        ClassWidgets.setCountdown(v, R.id.widget_countdown, c.end, "%s 后下课", now)
+                    c.start - now < 3 * 3600 * 1000L ->
+                        ClassWidgets.setCountdown(v, R.id.widget_countdown, c.start, "%s 后上课", now)
+                    else -> v.setViewVisibility(R.id.widget_countdown, View.GONE)
+                }
             }
-            appWidgetManager.updateAppWidget(id, views)
+            appWidgetManager.updateAppWidget(id, v)
         }
     }
 }

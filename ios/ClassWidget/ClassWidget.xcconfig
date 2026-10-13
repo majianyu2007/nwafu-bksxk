@@ -1,0 +1,4 @@
+// Version numbers (FLUTTER_BUILD_NAME / FLUTTER_BUILD_NUMBER) follow the app,
+// which `flutter build ios` writes into Generated.xcconfig. No Pods here: the
+// widget extension links only SwiftUI and WidgetKit.
+#include? "../Flutter/Generated.xcconfig"
