@@ -24,6 +24,7 @@ import '../data/edu_models.dart';
 import '../data/ehall_service.dart';
 import '../data/home_widget_sync.dart';
 import '../data/notifications.dart';
+import '../data/portal_service.dart';
 import '../data/secure_cookie_storage.dart';
 import '../data/storage.dart';
 import '../data/timetable_logic.dart';
@@ -101,15 +102,18 @@ class EduClient {
     jar = _cookies == null ? CookieJar() : PersistCookieJar(storage: _cookies);
     cas = CasClient(cookieJar: jar);
     ehall = EhallService(cas);
+    portal = PortalService(cas);
   }
 
   EduClient.withServices(this.storage, this.cas, this.ehall)
-    : jar = cas.cookieJar;
+    : jar = cas.cookieJar,
+      portal = PortalService(cas);
 
   final Storage storage;
   late final CookieJar jar;
   late final CasClient cas;
   late final EhallService ehall;
+  late final PortalService portal;
   SecureCookieStorage? _cookies;
 
   Future<void> close({bool clearCookies = false}) async {
@@ -159,6 +163,7 @@ class EduSessionController extends StateNotifier<EduState> {
   Future<bool>? _relogin;
   void _bindClient() {
     _client.ehall.onLoginRequired = silentRelogin;
+    _client.portal.onLoginRequired = silentRelogin;
     _client.ehall.expectedUsername = state.account?.username;
   }
 
@@ -365,6 +370,7 @@ class EduSessionController extends StateNotifier<EduState> {
   Future<void> _finish(_PendingEduLogin p) async {
     if (!_current(p.epoch)) throw _cancelled;
     p.client.ehall.reset();
+    p.client.portal.reset();
     var account = EduAccount(
       username: p.username,
       usePasskey: p.passkey != null,
@@ -538,6 +544,7 @@ class EduSessionController extends StateNotifier<EduState> {
           if (!_current(epoch)) return;
           await client.cas.clearSession();
           client.ehall.reset();
+          client.portal.reset();
         });
         return false;
       } catch (_) {
