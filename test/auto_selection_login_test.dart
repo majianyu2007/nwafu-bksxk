@@ -123,7 +123,40 @@ void main() {
       isFalse,
     );
     expect(s.auth.requests, AutoSelectionLogin.maxCaptchas);
-    expect(s.sessions, isEmpty);
+    expect(s.sessions['2024012001']?.logins ?? const [], isEmpty);
+  });
+
+  test('one automatic run per app session, even after an identity change',
+      () async {
+    final s = await setup(outcomes: List.filled(10, '3'));
+    final auto = s.c.read(autoSelectionLoginProvider.notifier);
+    await auto.ensure();
+    expect(s.auth.requests, AutoSelectionLogin.maxCaptchas);
+    // The identity signs in again (same or another student): no new run.
+    auto.forget();
+    expect(await auto.ensure(), isFalse);
+    expect(s.auth.requests, AutoSelectionLogin.maxCaptchas);
+  });
+
+  test('concurrent calls collapse into one run', () async {
+    final s = await setup(outcomes: List.filled(10, '3'));
+    final auto = s.c.read(autoSelectionLoginProvider.notifier);
+    await Future.wait([
+      auto.ensure(),
+      auto.ensure(),
+      auto.ensure(force: true),
+    ]);
+    expect(s.auth.requests, AutoSelectionLogin.maxCaptchas);
+  });
+
+  test('never starts while another login is in flight', () async {
+    final s = await setup();
+    final session = s.c.read(sessionControllerProvider('2024012001').notifier);
+    session.state = session.state.copyWith(phase: AuthPhase.loggingIn);
+    final auto = s.c.read(autoSelectionLoginProvider.notifier);
+    expect(await auto.ensure(), isFalse);
+    expect(await auto.ensure(force: true), isFalse);
+    expect(s.auth.requests, 0);
   });
 
   test('a rejected password stops at once', () async {
