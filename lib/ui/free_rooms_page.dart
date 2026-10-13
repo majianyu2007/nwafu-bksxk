@@ -332,7 +332,7 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
                       style: theme.textTheme.bodySmall,
                     ),
                     final free when free.any((r) => r.name == name) =>
-                      StatusPill(label: '空闲', color: Colors.green),
+                      const StatusPill(label: '空闲', color: Colors.green),
                     _ => StatusPill(
                       label: '占用',
                       color: theme.colorScheme.error,
