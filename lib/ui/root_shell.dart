@@ -50,20 +50,7 @@ class _RootShellState extends ConsumerState<RootShell>
     AppBackground.instance.attach(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _afterSignIn();
-      _autoSignInAtStart();
     });
-  }
-
-  /// At launch, sign into 选课 only when it matters: this identity has
-  /// watches saved from an earlier run.
-  void _autoSignInAtStart() {
-    if (!mounted) return;
-    final id = ref.read(autoSelectionLoginProvider.notifier).candidate;
-    if (id == null) return;
-    final saved = ref.read(storageProvider).watchesJson(id).trim();
-    if (saved.isNotEmpty && saved != '[]') {
-      ref.read(autoSelectionLoginProvider.notifier).ensure();
-    }
   }
 
   @override

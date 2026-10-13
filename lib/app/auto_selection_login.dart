@@ -5,9 +5,10 @@
 ///
 /// It goes through the normal captcha login (session-less captcha client,
 /// on-device OCR, `SessionController.login`), with a small budget: the school
-/// gateway blocks clients that fetch `vcode.do` too often. It runs at most
-/// once per identity per app run unless the user asks again; any failure
-/// leaves the regular (prefilled) login form.
+/// gateway blocks clients that fetch `vcode.do` too often, and the account is
+/// frozen for logging in from too many clients. So it runs at most once per
+/// app session, never while another login is in flight, and any failure
+/// leaves the regular (prefilled) login form. Only the user's tap retries.
 library;
 
 import 'dart:async';
@@ -47,9 +48,14 @@ class AutoSelectionLogin extends StateNotifier<AutoSelectionLoginState> {
   }) : super(const AutoSelectionLoginState());
 
   final Ref _ref;
-  final _tried = <String>{};
 
-  /// Captcha fetches per attempt run (each one is a `vcode.do` request).
+  /// One automatic run per app session, whatever the identity: a failed
+  /// run is never repeated on its own (the school freezes accounts that
+  /// log in from too many clients). Only an explicit tap retries.
+  bool _autoUsed = false;
+  bool _busy = false;
+
+  /// Captcha fetches per run (each one is a `vcode.do` request).
   static const maxCaptchas = 3;
 
   /// Pause between captcha fetches, to stay well under the gateway's limit.
@@ -64,14 +70,30 @@ class AutoSelectionLogin extends StateNotifier<AutoSelectionLoginState> {
     return account.username;
   }
 
-  /// Signs in if the conditions hold and it has not been tried for this
-  /// identity yet ([force] = the user asked again). Returns true when a
-  /// selection account was signed in.
+  /// Whether the session controller for [id] is in the middle of a login
+  /// started elsewhere (the login form, the re-login dialog).
+  bool _loginInFlight(String id) =>
+      _ref.read(sessionControllerProvider(id)).phase == AuthPhase.loggingIn;
+
+  /// Signs in if the conditions hold. Without [force] this runs at most once
+  /// per app session; [force] is for the user's own 再试一次. Never starts
+  /// while another login is in flight. Returns true when a selection
+  /// account was signed in.
   Future<bool> ensure({bool force = false}) async {
     final id = candidate;
-    if (id == null || state.running) return false;
-    if (!force && _tried.contains(id)) return false;
-    _tried.add(id);
+    if (id == null || _busy || state.running) return false;
+    if (!force && _autoUsed) return false;
+    if (_loginInFlight(id)) return false;
+    _autoUsed = true;
+    _busy = true;
+    try {
+      return await _run(id);
+    } finally {
+      _busy = false;
+    }
+  }
+
+  Future<bool> _run(String id) async {
     final password = await _ref.read(storageProvider).eduPassword(id);
     if (!mounted) return false;
     if (password == null || password.isEmpty) {
@@ -83,7 +105,8 @@ class AutoSelectionLogin extends StateNotifier<AutoSelectionLoginState> {
     bool stillWanted() =>
         mounted &&
         edu.isCurrent(epoch) &&
-        _ref.read(signedInAccountsProvider).isEmpty;
+        _ref.read(signedInAccountsProvider).isEmpty &&
+        !_loginInFlight(id);
 
     var misreads = 0;
     String? failure;
@@ -153,9 +176,9 @@ class AutoSelectionLogin extends StateNotifier<AutoSelectionLoginState> {
     return false;
   }
 
-  /// Clears the once-per-identity memory and any failure message.
+  /// Clears a failure message (e.g. after the identity changed). Does not
+  /// re-arm the once-per-session automatic run.
   void forget() {
-    _tried.clear();
     if (mounted && !state.running) state = const AutoSelectionLoginState();
   }
 }
@@ -163,7 +186,8 @@ class AutoSelectionLogin extends StateNotifier<AutoSelectionLoginState> {
 final autoSelectionLoginProvider =
     StateNotifierProvider<AutoSelectionLogin, AutoSelectionLoginState>((ref) {
       final auto = AutoSelectionLogin(ref);
-      // A new sign-in of the identity gets a fresh try.
+      // A new identity clears an old failure message; the automatic run
+      // itself stays spent for this session.
       ref.listen<String?>(
         eduSessionProvider.select((s) => s.account?.username),
         (_, _) => auto.forget(),
