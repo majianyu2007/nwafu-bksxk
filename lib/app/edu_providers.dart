@@ -176,6 +176,19 @@ class EduSessionController extends StateNotifier<EduState> {
 
   bool _current(int epoch) => mounted && epoch == _epoch;
 
+  /// The identity generation; bumped by every login and logout. Controllers
+  /// in other files capture it and check [isCurrent] before showing results.
+  int get epoch => _epoch;
+  bool isCurrent(int epoch) => _current(epoch);
+
+  /// Writes a cache for [accountId] only if it is still the signed-in
+  /// identity and [current] still holds, serialised with sign-in changes.
+  Future<void> cacheFor(
+    String accountId,
+    bool Function() current,
+    Future<void> Function() save,
+  ) => _cacheFor(accountId, current, save);
+
   Future<void> _serial(Future<void> Function() action) {
     final next = _mutations.then((_) => action());
     _mutations = next.catchError((Object _) {});

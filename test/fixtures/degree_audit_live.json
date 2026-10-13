@@ -1,0 +1,847 @@
+{
+ "grpyfacx": {
+  "code": "0",
+  "datas": {
+   "grpyfacx": {
+    "totalSize": 1,
+    "rows": [
+     {
+      "YXDM": "010",
+      "ZYDM": "009005",
+      "PYFADM": "8cef7a8dec1f4e6dbb51bac6face811c",
+      "XSFAZT": null,
+      "XDLXDM": "01",
+      "BJDM": "01025026",
+      "ZSYQXF": 155.0,
+      "PYFAMC": "2025级软件工程主修培养方案",
+      "XH": "2024012001",
+      "WID": "09492dd942ad49039d1828503c9b2603",
+      "XM": "张三",
+      "XZNJ": "2025",
+      "XDLXDM_DISPLAY": "主修",
+      "XBDM": "1",
+      "YWCXF": 1.0
+     }
+    ],
+    "extParams": {
+     "code": 1,
+     "totalPage": 0,
+     "logId": "01e701adefae49808fafd0905f9c88e1"
+    }
+   }
+  }
+ },
+ "cxscfa": {
+  "code": "0",
+  "datas": {
+   "cxscfa": {
+    "totalSize": 1,
+    "rows": [
+     {
+      "BY8": null,
+      "BY7": null,
+      "CZIP": null,
+      "RZLBDM": null,
+      "BY9": null,
+      "PYFADM": "8cef7a8dec1f4e6dbb51bac6face811c",
+      "XKXF": 0.0,
+      "XDLXDM": "01",
+      "PYFAMC": "2025级软件工程主修培养方案",
+      "CZSJ": "2026-10-08 16:42:43",
+      "WCXF": "51.0",
+      "BZ": null,
+      "BY10": null,
+      "CZRXM": "张三",
+      "YQXF": "155.0",
+      "XH": "2024012001",
+      "JSSFTG": "0",
+      "WID": "5D4F61401639F539E063481E10AC8A45",
+      "ZSSFTG": null,
+      "ORDERFILTER": null,
+      "BYNJDM": "-",
+      "BY2": null,
+      "CZR": "2024012001",
+      "SCLBDM": "04",
+      "BY1": null,
+      "BY4": null,
+      "SCQKSM": null,
+      "BY3": null,
+      "BY6": null,
+      "BY5": null
+     }
+    ],
+    "extParams": {
+     "msg": "查询成功",
+     "code": 1,
+     "totalPage": 0,
+     "logId": "94f8f8e5b8554b409e21faaa03577db1"
+    }
+   }
+  }
+ },
+ "cxdqxnxq": {
+  "code": "0",
+  "datas": {
+   "cxdqxnxq": {
+    "totalSize": 1,
+    "rows": [
+     {
+      "BY8": null,
+      "ZCSDM": null,
+      "BY7": null,
+      "RZLBDM": null,
+      "SJLY": null,
+      "BY9": null,
+      "PX": 10,
+      "DM": "2026-2027-1",
+      "ZZSYRQ": null,
+      "XNDM": "2026-2027",
+      "MC": "2026-2027学年 秋",
+      "BZ": null,
+      "SFSY": 1,
+      "CSDM": null,
+      "BY10": null,
+      "XQDM": "1",
+      "WID": "3e2a3b84bbc046c187c2bde85b9e7deb",
+      "ORDERFILTER": null,
+      "FBQK": null,
+      "QSSYRQ": null,
+      "CLRQ": null,
+      "BY2": null,
+      "BZLY": null,
+      "BY1": "2026",
+      "BY4": null,
+      "BY3": null,
+      "BY6": null,
+      "BY5": null,
+      "YBZDM": null
+     }
+    ],
+    "extParams": {
+     "code": 1,
+     "totalPage": 0,
+     "logId": "5e6bdab777c14cd283a20084b02446ec"
+    }
+   }
+  }
+ },
+ "cxscfakz": {
+  "code": "0",
+  "datas": {
+   "cxscfakz": {
+    "totalSize": 4,
+    "rows": [
+     {
+      "BY8": null,
+      "BY7": null,
+      "RZLBDM": null,
+      "BY9": null,
+      "PYFADM": "8cef7a8dec1f4e6dbb51bac6face811c",
+      "XKXF": 0.0,
+      "YQWCKZS": null,
+      "WCKZS": null,
+      "XGXKLBDM": null,
+      "WCXF": "5.0",
+      "KCXZDM_DISPLAY": "必修",
+      "FKZH": "-1",
+      "SFXGXKZ": "0",
+      "KZLXDM": "01",
+      "YQMS": null,
+      "BZ": "4",
+      "KCLBDM": "25",
+      "WCMS": 3,
+      "SFTG": "0",
+      "KXKCS": "3",
+      "XNXQDM": null,
+      "BY10": null,
+      "YQXF": "29.0",
+      "XH": "2024012001",
+      "WID": "5D4F6140163AF539E063481E10AC8A45",
+      "ORDERFILTER": null,
+      "BYNJDM": "-",
+      "KCXZDM": "01",
+      "KZH": "0046e45abf1a45008f0767bf18bc51a8",
+      "BY2": null,
+      "SCLBDM": "04",
+      "BY1": null,
+      "BY4": null,
+      "BY3": null,
+      "BY6": null,
+      "BY5": null,
+      "KZM": "综合实践"
+     },
+     {
+      "BY8": null,
+      "BY7": null,
+      "RZLBDM": null,
+      "BY9": null,
+      "PYFADM": "8cef7a8dec1f4e6dbb51bac6face811c",
+      "XKXF": 0.0,
+      "YQWCKZS": null,
+      "WCKZS": 0,
+      "XGXKLBDM": null,
+      "WCXF": "8.5",
+      "KCXZDM_DISPLAY": "",
+      "FKZH": "39e20298c26545588642a30b8890c236",
+      "SFXGXKZ": "0",
+      "KZLXDM": "02",
+      "YQMS": null,
+      "BZ": "1",
+      "KCLBDM": "03",
+      "WCMS": 3,
+      "SFTG": "0",
+      "KXKCS": null,
+      "XNXQDM": null,
+      "BY10": null,
+      "YQXF": "45.0",
+      "XH": "2024012001",
+      "WID": "5D4F6140164BF539E063481E10AC8A45",
+      "ORDERFILTER": null,
+      "BYNJDM": "-",
+      "KCXZDM": null,
+      "KZH": "03aea09db9344c4c840f9a1b4a2b3384",
+      "BY2": null,
+      "SCLBDM": "04",
+      "BY1": null,
+      "BY4": null,
+      "BY3": null,
+      "BY6": null,
+      "BY5": null,
+      "KZM": "必修"
+     },
+     {
+      "BY8": null,
+      "BY7": null,
+      "RZLBDM": null,
+      "BY9": null,
+      "PYFADM": "8cef7a8dec1f4e6dbb51bac6face811c",
+      "XKXF": 0.0,
+      "YQWCKZS": null,
+      "WCKZS": null,
+      "XGXKLBDM": "20",
+      "WCXF": "1.0",
+      "KCXZDM_DISPLAY": "任选",
+      "FKZH": "d699f955c23f4e4c92938bce923c9595",
+      "SFXGXKZ": "1",
+      "KZLXDM": "01",
+      "YQMS": null,
+      "BZ": null,
+      "KCLBDM": "16",
+      "WCMS": 2,
+      "SFTG": "1",
+      "KXKCS": null,
+      "XNXQDM": null,
+      "BY10": null,
+      "YQXF": "0.0",
+      "XH": "2024012001",
+      "WID": "5D4F61401646F539E063481E10AC8A45",
+      "ORDERFILTER": null,
+      "BYNJDM": "-",
+      "KCXZDM": "03",
+      "KZH": "0fd04bd1fb4f415c8532fac1194e3141",
+      "BY2": null,
+      "SCLBDM": "04",
+      "BY1": null,
+      "BY4": null,
+      "BY3": null,
+      "BY6": null,
+      "BY5": null,
+      "KZM": "学科前沿与科技创新"
+     },
+     {
+      "BY8": null,
+      "BY7": null,
+      "RZLBDM": null,
+      "BY9": null,
+      "PYFADM": "8cef7a8dec1f4e6dbb51bac6face811c",
+      "XKXF": 0.0,
+      "YQWCKZS": null,
+      "WCKZS": null,
+      "XGXKLBDM": null,
+      "WCXF": "4.0",
+      "KCXZDM_DISPLAY": "必修",
+      "FKZH": "2bad537571b8417e813e74e66edf540f",
+      "SFXGXKZ": "0",
+      "KZLXDM": "01",
+      "YQMS": 7,
+      "BZ": "6",
+      "KCLBDM": "01",
+      "WCMS": 3,
+      "SFTG": "0",
+      "KXKCS": null,
+      "XNXQDM": null,
+      "BY10": null,
+      "YQXF": "6.0",
+      "XH": "2024012001",
+      "WID": "5D4F6140163CF539E063481E10AC8A45",
+      "ORDERFILTER": null,
+      "BYNJDM": "-",
+      "KCXZDM": "01",
+      "KZH": "0fd84edac57c4b9d8ba8f5dd84ba756b",
+      "BY2": null,
+      "SCLBDM": "04",
+      "BY1": null,
+      "BY4": null,
+      "BY3": null,
+      "BY6": null,
+      "BY5": null,
+      "KZM": "军事理论+体育"
+     }
+    ]
+   }
+  }
+ },
+ "cxfakzyxxfgj": {
+  "": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 28.0
+      }
+     ]
+    }
+   }
+  },
+  "0046e45abf1a45008f0767bf18bc51a8": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 4.0
+      }
+     ]
+    }
+   }
+  },
+  "2bad537571b8417e813e74e66edf540f": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 13.0
+      }
+     ]
+    }
+   }
+  },
+  "0fd84edac57c4b9d8ba8f5dd84ba756b": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 1.0
+      }
+     ]
+    }
+   }
+  },
+  "2cd6442a944e464a831b39fc0cc8f1d4": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 1.0
+      }
+     ]
+    }
+   }
+  },
+  "7deba5e5689a483abcdc85b9a1ce6648": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 4.5
+      }
+     ]
+    }
+   }
+  },
+  "9db0927422db4156831db9a0144b579a": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 1.5
+      }
+     ]
+    }
+   }
+  },
+  "a1a5af07ff1a44ee8163416682436a0e": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "1ccd04b28e72474480cb073e2e9ac8dc": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "2b3b1a8e351844f0934cc90365b10a20": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "5c541e2b28f64d82a5a485906d09022e": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "62deb652581f42e28007c80bdec21888": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "d699f955c23f4e4c92938bce923c9595": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "0fd04bd1fb4f415c8532fac1194e3141": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "4af7652fb55648c39c3963232268c35c": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "d848c46444c94f3daf2f29f8641727f9": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 5.0
+      }
+     ]
+    }
+   }
+  },
+  "ee34f2305d5542278ba99df4e33192f6": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "39e20298c26545588642a30b8890c236": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "03aea09db9344c4c840f9a1b4a2b3384": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 6.0
+      }
+     ]
+    }
+   }
+  },
+  "109116ebf201441b803222ef8c03d80c": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "a0144a309995478880d8dc3da9b37a65": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 6.0
+      }
+     ]
+    }
+   }
+  },
+  "bc49aeab15bd47f48324e274c9cceed5": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "43eccc0921c84011ac169ef271110ac9": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "8842ce6bc8eb40eb9d167f273976cbff": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "c771a7c96d174cc8aae1067b58e68120": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 2.5
+      }
+     ]
+    }
+   }
+  },
+  "134348f30d284cdfaa2adbf189531989": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 2.5
+      }
+     ]
+    }
+   }
+  },
+  "24b66fa611094ded81839e3c06a44462": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "7dfcb054e3f74e1d859bea06c241666b": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  },
+  "718b104881644a54b0a9b2cadc0a088a": {
+   "code": "0",
+   "datas": {
+    "cxfakzyxxfgj": {
+     "pageNumber": 0,
+     "totalSize": -1,
+     "extParams": {
+      "msg": null,
+      "code": 1
+     },
+     "pageSize": 0,
+     "rows": [
+      {
+       "XKXF": 0.0
+      }
+     ]
+    }
+   }
+  }
+ }
+}
