@@ -58,6 +58,12 @@ add_subdirectory("runner")
 include(onnxruntime.cmake)
 include(flutter/generated_plugins.cmake)
 list(APPEND PLUGIN_BUNDLED_LIBRARIES ${NWAFU_ORT_DLLS})
+# local_auth_windows still builds with /await; MSVC 14.5x (VS 18, used by the
+# ARM64 runner) rejects that unless the deprecation is explicitly silenced.
+if(TARGET local_auth_windows_plugin)
+  target_compile_definitions(local_auth_windows_plugin PRIVATE
+    _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+endif()
 
 
 # === Installation ===
