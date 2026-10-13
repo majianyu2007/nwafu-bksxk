@@ -13,6 +13,8 @@ PODS:
     - onnxruntime-objc (= 1.24.2)
   - flutter_secure_storage (6.0.0):
     - Flutter
+  - home_widget (0.0.1):
+    - Flutter
   - local_auth_darwin (0.0.1):
     - Flutter
     - FlutterMacOS
@@ -45,6 +47,7 @@ DEPENDENCIES:
   - flutter_local_notifications (from `.symlinks/plugins/flutter_local_notifications/ios`)
   - flutter_onnxruntime (from `.symlinks/plugins/flutter_onnxruntime/ios`)
   - flutter_secure_storage (from `.symlinks/plugins/flutter_secure_storage/ios`)
+  - home_widget (from `.symlinks/plugins/home_widget/ios`)
   - local_auth_darwin (from `.symlinks/plugins/local_auth_darwin/darwin`)
   - nwafu_connect_ffi (from `.symlinks/plugins/nwafu_connect_ffi/ios`)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
@@ -74,6 +77,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_onnxruntime/ios"
   flutter_secure_storage:
     :path: ".symlinks/plugins/flutter_secure_storage/ios"
+  home_widget:
+    :path: ".symlinks/plugins/home_widget/ios"
   local_auth_darwin:
     :path: ".symlinks/plugins/local_auth_darwin/darwin"
   nwafu_connect_ffi:
@@ -99,8 +104,9 @@ SPEC CHECKSUMS:
   flutter_local_notifications: 643a3eda1ce1c0599413ca31672536d423dee214
   flutter_onnxruntime: 577a012771672fd168079e29be7909a9d0f9c302
   flutter_secure_storage: 1ed9476fba7e7a782b22888f956cce43e2c62f13
+  home_widget: 54b4f6b36ed8d64cfee594a476225c35c3e45091
   local_auth_darwin: c3ee6cce0a8d56be34c8ccb66ba31f7f180aaebb
-  nwafu_connect_ffi: 128906beab9ce621fdb8e8191d6eb8261bb2b2fa
+  nwafu_connect_ffi: 4f860d9617b46b6e13d20bde7de1ea3fd75a6fae
   onnxruntime-c: b58bafbc58707d165404665e46a7467a16e8e0e4
   onnxruntime-objc: 99e0fe4b6d606970c6c1350c194c7629ef6e6fc9
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499

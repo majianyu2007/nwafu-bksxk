@@ -109,7 +109,7 @@ SPEC CHECKSUMS:
   flutter_secure_storage_macos: 7f45e30f838cf2659862a4e4e3ee1c347c2b3b54
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
   local_auth_darwin: c3ee6cce0a8d56be34c8ccb66ba31f7f180aaebb
-  nwafu_connect_ffi: 85ee251a5ca86343c6f47259d64ae4eccebee261
+  nwafu_connect_ffi: 9af0c0e70d7f267806968c8f912c46536a5fcf3c
   onnxruntime-c: b58bafbc58707d165404665e46a7467a16e8e0e4
   onnxruntime-objc: 99e0fe4b6d606970c6c1350c194c7629ef6e6fc9
   package_info_plus: f0052d280d17aa382b932f399edf32507174e870
