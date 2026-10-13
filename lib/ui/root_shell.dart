@@ -19,7 +19,7 @@ import 'login_page.dart';
 import 'monitor_page.dart';
 import 'relogin_dialog.dart';
 import 'selected_page.dart';
-import 'settings_page.dart';
+import 'me_page.dart';
 import 'batch_pick_dialog.dart';
 import 'widgets.dart';
 import 'widgets/glass.dart';
@@ -248,7 +248,7 @@ class _RootShellState extends ConsumerState<RootShell>
           ? _SelectionSignIn(onLogin: _addAccount)
           : MonitorPage(key: ValueKey('monitor-$activeId')),
       const GradesPage(),
-      const SettingsPage(),
+      const MePage(),
     ];
 
     return LayoutBuilder(

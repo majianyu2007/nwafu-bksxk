@@ -4,11 +4,11 @@ library;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/edu_providers.dart';
 import '../app/providers.dart';
+import '../app/sync_providers.dart';
 import '../app/theme.dart';
 import '../app/ui_prefs.dart';
 import '../data/background.dart';
@@ -21,56 +21,94 @@ import 'layout.dart';
 import 'login_page.dart';
 import 'update_widgets.dart';
 import 'widgets.dart';
+import 'widgets/glass.dart';
 import 'account_access_settings.dart';
 import 'sync_settings.dart';
 
-class SettingsPage extends ConsumerWidget {
-  const SettingsPage({super.key});
+/// 设置, reached from 我的. [section] scrolls to one group (e.g. 版本与更新).
+class SettingsScreen extends ConsumerStatefulWidget {
+  const SettingsScreen({super.key, this.section});
+  final String? section;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final side = ((constraints.maxWidth - kReadableMaxWidth) / 2).clamp(
-          16.0,
-          double.infinity,
-        );
-        return ListView(
-          padding: EdgeInsets.fromLTRB(side, 12, side, 32),
-          children: [
-            Text(
-              '设置',
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 16),
-            const _Group(
-              title: '统一账号',
-              children: [
-                _EduSettings(),
-                DeviceSignInSetting(),
-                CampusAccessSetting(),
-              ],
-            ),
-            const _Group(title: '课表更新与日历', children: [SyncSettings()]),
-            const _Group(title: '外观', children: [_Appearance()]),
-            const _Group(title: '监控', children: [_MonitorSettings()]),
-            const _Group(title: '验证码', children: [_OcrSettings()]),
-            const _Group(title: '选课系统账号', children: [_Accounts()]),
-            const _Group(title: '后台运行', children: [_BackgroundSettings()]),
-            const _Group(title: '版本与更新', children: [UpdateSettings()]),
-            const _Group(
-              title: '高级',
-              children: [
-                ServerOriginSetting(),
-                _BrowserNotificationSetting(),
-                _DiagnosticsEntry(),
-              ],
-            ),
-          ],
-        );
-      },
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  final _keys = <String, GlobalKey>{};
+
+  GlobalKey _key(String title) => _keys.putIfAbsent(title, GlobalKey.new);
+
+  @override
+  void initState() {
+    super.initState();
+    final section = widget.section;
+    if (section != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final c = _keys[section]?.currentContext;
+        if (c != null) {
+          Scrollable.ensureVisible(
+            c,
+            duration: const Duration(milliseconds: 300),
+          );
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _Group group(String title, List<Widget> children) =>
+        _Group(key: _key(title), title: title, children: children);
+    return AuroraBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: const Text('设置'),
+          backgroundColor: Colors.transparent,
+        ),
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            final side = ((constraints.maxWidth - kReadableMaxWidth) / 2).clamp(
+              16.0,
+              double.infinity,
+            );
+            // Single-column scroll so ensureVisible can reach every group.
+            return SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(side, 8, side, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  group('账号与安全', const [
+                    _EduSettings(),
+                    DeviceSignInSetting(),
+                    CampusAccessSetting(),
+                    _Accounts(),
+                  ]),
+                  group('课表与提醒', const [
+                    _TimetableDisplay(),
+                    _ReminderSettings(),
+                    SyncSettings(),
+                  ]),
+                  group('外观', const [_Appearance()]),
+                  group('选课与抢课', const [
+                    _MonitorSettings(),
+                    _SilentReloginSetting(),
+                    _OcrSettings(),
+                  ]),
+                  group('后台运行', const [_BackgroundSettings()]),
+                  group('版本与更新', const [UpdateSettings()]),
+                  group('高级', const [
+                    ServerOriginSetting(),
+                    _BrowserNotificationSetting(),
+                    _DiagnosticsEntry(),
+                  ]),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 }
@@ -81,8 +119,6 @@ class _EduSettings extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(eduSessionProvider);
-    final prefs = ref.watch(timetablePrefsProvider);
-    final reminder = ref.watch(classReminderProvider);
     return Column(
       children: [
         ListTile(
@@ -103,9 +139,7 @@ class _EduSettings extends ConsumerWidget {
                       context: context,
                       builder: (context) => AlertDialog(
                         title: const Text('退出教务账号？'),
-                        content: const Text(
-                          '会删除本机的课表、成绩和登录信息，并取消课前提醒。',
-                        ),
+                        content: const Text('会删除本机的课表、成绩和登录信息，并取消课前提醒。'),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.pop(context, false),
@@ -131,12 +165,28 @@ class _EduSettings extends ConsumerWidget {
                   MaterialPageRoute<void>(builder: (_) => const EduLoginPage()),
                 ),
         ),
+      ],
+    );
+  }
+}
+
+/// 显示周末 / 非本周课程.
+class _TimetableDisplay extends ConsumerWidget {
+  const _TimetableDisplay();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final prefs = ref.watch(timetablePrefsProvider);
+    return Column(
+      children: [
         SwitchListTile(
+          secondary: const Icon(Icons.weekend_outlined),
           title: const Text('显示周末'),
           value: prefs.showWeekend,
           onChanged: ref.read(timetablePrefsProvider.notifier).setShowWeekend,
         ),
         SwitchListTile(
+          secondary: const Icon(Icons.layers_outlined),
           title: const Text('显示非本周课程'),
           subtitle: const Text('斜纹淡色显示'),
           value: prefs.showOtherWeeks,
@@ -144,39 +194,166 @@ class _EduSettings extends ConsumerWidget {
               .read(timetablePrefsProvider.notifier)
               .setShowOtherWeeks,
         ),
-        ListTile(
-          leading: const Icon(Icons.notifications_active_outlined),
+      ],
+    );
+  }
+}
+
+/// 课前提醒: how long before, the first class of the day, same-room and
+/// building-change rules.
+class _ReminderSettings extends ConsumerStatefulWidget {
+  const _ReminderSettings();
+
+  @override
+  ConsumerState<_ReminderSettings> createState() => _ReminderSettingsState();
+}
+
+class _ReminderSettingsState extends ConsumerState<_ReminderSettings> {
+  Future<void> _setLead(int minutes) async {
+    try {
+      await ref.read(classReminderProvider.notifier).setLead(minutes);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('没有通知权限：请在系统设置里允许本应用发送通知。')),
+        );
+      }
+    }
+  }
+
+  Future<void> _update(Future<void> Function() save) async {
+    await save();
+    await ref.read(classReminderProvider.notifier).reschedule();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lead = ref.watch(classReminderProvider);
+    final storage = ref.watch(storageProvider);
+    final first = storage.firstClassReminderMinutes();
+    final status = ref.watch(reminderStatusProvider);
+    final on = lead > 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SwitchListTile(
+          secondary: const Icon(Icons.notifications_active_outlined),
           title: const Text('课前提醒'),
           subtitle: Text(
-            NotificationService.instance.canSchedule
-                ? '省电模式可能导致提醒延迟'
-                : '应用打开或在托盘时提醒',
+            !on
+                ? '关闭'
+                : status == null
+                ? '提前 $lead 分钟'
+                : '提前 $lead 分钟 · 已安排 ${status.count} 条',
           ),
-          trailing: DropdownButton<int>(
-            value: [0, 5, 10, 15, 20, 30].contains(reminder) ? reminder : 0,
-            underline: const SizedBox.shrink(),
-            items: [
-              for (final minutes in [0, 5, 10, 15, 20, 30])
-                DropdownMenuItem(
-                  value: minutes,
-                  child: Text(minutes == 0 ? '关闭' : '提前 $minutes 分钟'),
-                ),
-            ],
-            onChanged: (value) async {
-              if (value == null) return;
-              try {
-                await ref.read(classReminderProvider.notifier).setLead(value);
-              } catch (_) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('提醒设置失败，请检查系统通知权限。')),
-                  );
-                }
-              }
-            },
-          ),
+          value: on,
+          onChanged: (v) => _setLead(v ? 10 : 0),
         ),
+        if (on) ...[
+          _MinutesRow(
+            label: '提前多久',
+            value: lead,
+            min: 1,
+            max: 120,
+            onChanged: _setLead,
+          ),
+          _MinutesRow(
+            label: '每天第一节',
+            hint: '从宿舍出发通常要更早',
+            value: first,
+            min: 0,
+            max: 120,
+            zeroLabel: '同上',
+            onChanged: (v) =>
+                _update(() => storage.setFirstClassReminderMinutes(v)),
+          ),
+          SwitchListTile(
+            title: const Text('连堂同一教室不提醒'),
+            subtitle: const Text('下课就在这间，不用再提醒'),
+            value: storage.reminderSkipSameRoom(),
+            onChanged: (v) => _update(() => storage.setReminderSkipSameRoom(v)),
+          ),
+          SwitchListTile(
+            title: const Text('换楼时下课就提醒'),
+            subtitle: const Text('下一节在别的楼，上一节一结束就提醒你动身'),
+            value: storage.reminderBuildingChange(),
+            onChanged: (v) =>
+                _update(() => storage.setReminderBuildingChange(v)),
+          ),
+          if (!NotificationService.instance.canSchedule)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Text('这个平台只能在应用打开或在托盘时提醒。'),
+            ),
+        ],
       ],
+    );
+  }
+}
+
+/// A minutes value with − / + buttons and quick presets.
+class _MinutesRow extends StatelessWidget {
+  const _MinutesRow({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+    this.hint,
+    this.zeroLabel,
+  });
+  final String label;
+  final String? hint;
+  final int value;
+  final int min;
+  final int max;
+  final String? zeroLabel;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final step = value >= 30 ? 10 : 5;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: theme.textTheme.bodyLarge),
+                if (hint != null) Text(hint!, style: theme.textTheme.bodySmall),
+              ],
+            ),
+          ),
+          IconButton.filledTonal(
+            tooltip: '减少',
+            onPressed: value > min
+                ? () => onChanged((value - step).clamp(min, max))
+                : null,
+            icon: const Icon(Icons.remove),
+          ),
+          SizedBox(
+            width: 64,
+            child: Text(
+              value == 0 && zeroLabel != null ? zeroLabel! : '$value 分钟',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          IconButton.filledTonal(
+            tooltip: '增加',
+            onPressed: value < max
+                ? () => onChanged((value + step).clamp(min, max))
+                : null,
+            icon: const Icon(Icons.add),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -510,7 +687,7 @@ class _Accounts extends ConsumerWidget {
                     ref.read(accountsProvider.notifier).remove(a.id),
               ),
             ),
-        const _SilentReloginSetting(),
+
         SwitchListTile(
           secondary: const Icon(Icons.tab_outlined),
           title: const Text('多账号'),
@@ -577,27 +754,6 @@ class _SilentReloginSetting extends ConsumerStatefulWidget {
 }
 
 class _SilentReloginSettingState extends ConsumerState<_SilentReloginSetting> {
-  late final TextEditingController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    final v = ref.read(silentReloginAttemptsProvider);
-    _ctrl = TextEditingController(text: v < 0 ? '' : '$v');
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _apply(String text) async {
-    final n = int.tryParse(text.trim());
-    if (n == null || n < 0) return;
-    await ref.read(silentReloginAttemptsProvider.notifier).set(n.clamp(0, 999));
-  }
-
   @override
   Widget build(BuildContext context) {
     final attempts = ref.watch(silentReloginAttemptsProvider);
@@ -624,36 +780,45 @@ class _SilentReloginSettingState extends ConsumerState<_SilentReloginSetting> {
         ),
         if (enabled)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
             child: Row(
               children: [
+                const Expanded(child: Text('最多试几次')),
+                IconButton.filledTonal(
+                  tooltip: '减少',
+                  onPressed: !unlimited && attempts > 1
+                      ? () => ref
+                            .read(silentReloginAttemptsProvider.notifier)
+                            .set(attempts - 1)
+                      : null,
+                  icon: const Icon(Icons.remove),
+                ),
                 SizedBox(
-                  width: 120,
-                  child: TextField(
-                    controller: _ctrl,
-                    enabled: !unlimited,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    decoration: const InputDecoration(
-                      labelText: '次数',
-                      isDense: true,
+                  width: 56,
+                  child: Text(
+                    unlimited ? '不限' : '$attempts 次',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
-                    onSubmitted: _apply,
-                    onTapOutside: (_) => _apply(_ctrl.text),
                   ),
                 ),
-                const SizedBox(width: 16),
+                IconButton.filledTonal(
+                  tooltip: '增加',
+                  onPressed: !unlimited && attempts < 10
+                      ? () => ref
+                            .read(silentReloginAttemptsProvider.notifier)
+                            .set(attempts + 1)
+                      : null,
+                  icon: const Icon(Icons.add),
+                ),
+                const SizedBox(width: 8),
                 FilterChip(
                   label: const Text('不限'),
                   selected: unlimited,
-                  onSelected: (v) {
-                    if (v) {
-                      ref.read(silentReloginAttemptsProvider.notifier).set(-1);
-                    } else {
-                      _ctrl.text = '3';
-                      ref.read(silentReloginAttemptsProvider.notifier).set(3);
-                    }
-                  },
+                  onSelected: (v) => ref
+                      .read(silentReloginAttemptsProvider.notifier)
+                      .set(v ? -1 : 3),
                 ),
               ],
             ),
@@ -763,7 +928,7 @@ class _DiagnosticsEntry extends StatelessWidget {
 }
 
 class _Group extends StatelessWidget {
-  const _Group({required this.title, required this.children});
+  const _Group({super.key, required this.title, required this.children});
   final String title;
   final List<Widget> children;
 
