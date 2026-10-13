@@ -9,12 +9,17 @@ Pod::Spec.new do |s|
   s.platform         = :ios, '13.0'
   s.dependency 'Flutter'
   s.source_files     = 'Classes/**/*'
-  fw = File.join(__dir__, '..', 'prebuilt', 'ios', 'NwafuConnect.xcframework')
+  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
+  # tool/build-vpn-lib.sh ios copies the xcframework next to this podspec.
+  fw = File.join(__dir__, 'NwafuConnect.xcframework')
   if File.exist?(fw)
-    s.prepare_command = 'rm -rf NwafuConnect.xcframework && cp -R ../prebuilt/ios/NwafuConnect.xcframework .'
     s.vendored_frameworks = 'NwafuConnect.xcframework'
     s.preserve_paths = 'NwafuConnect.xcframework'
-    # Keep the exported Nc* symbols for DynamicLibrary.process().
-    s.user_target_xcconfig = { 'OTHER_LDFLAGS' => '-force_load "${PODS_XCFRAMEWORKS_BUILD_DIR}/nwafu_connect_ffi/libnwafuconnect.a" -lresolv' }
+    # Go's runtime needs libresolv; Classes/NwafuConnectKeep.c keeps the Nc*
+    # symbols that DynamicLibrary.process() looks up at run time.
+    s.libraries = 'resolv'
+  else
+    # No prebuilt library: compile without the keep-alive references.
+    s.exclude_files = 'Classes/NwafuConnectKeep.c'
   end
 end

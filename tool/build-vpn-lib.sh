@@ -12,11 +12,15 @@ build() { (cd "$src" && scripts/build-lib.sh "$1"); }
 case "$target" in
   macos)
     build macos
-    mkdir -p "$out/macos" && cp "$src/build/macos/libnwafuconnect.dylib" "$out/macos/" ;;
+    mkdir -p "$out/macos" && cp "$src/build/macos/libnwafuconnect.dylib" "$out/macos/"
+    # CocoaPods only vendors files inside the pod directory.
+    cp "$src/build/macos/libnwafuconnect.dylib" "$here/packages/nwafu_connect_ffi/macos/" ;;
   ios)
     build ios
     mkdir -p "$out/ios" && rm -rf "$out/ios/NwafuConnect.xcframework" &&
-      cp -R "$src/build/ios/NwafuConnect.xcframework" "$out/ios/" ;;
+      cp -R "$src/build/ios/NwafuConnect.xcframework" "$out/ios/"
+    rm -rf "$here/packages/nwafu_connect_ffi/ios/NwafuConnect.xcframework"
+    cp -R "$src/build/ios/NwafuConnect.xcframework" "$here/packages/nwafu_connect_ffi/ios/" ;;
   android)
     build android
     for abi in arm64-v8a armeabi-v7a x86_64; do

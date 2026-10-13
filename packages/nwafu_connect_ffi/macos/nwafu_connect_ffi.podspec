@@ -9,10 +9,10 @@ Pod::Spec.new do |s|
   s.platform         = :osx, '14.0'
   s.dependency 'FlutterMacOS'
   s.source_files     = 'Classes/**/*'
-  lib = File.join(__dir__, '..', 'prebuilt', 'macos', 'libnwafuconnect.dylib')
+  # tool/build-vpn-lib.sh macos copies the dylib next to this podspec.
+  lib = File.join(__dir__, 'libnwafuconnect.dylib')
   if File.exist?(lib)
     s.vendored_libraries = 'libnwafuconnect.dylib'
-    s.prepare_command = 'cp ../prebuilt/macos/libnwafuconnect.dylib .'
     s.preserve_paths = 'libnwafuconnect.dylib'
   end
 end
