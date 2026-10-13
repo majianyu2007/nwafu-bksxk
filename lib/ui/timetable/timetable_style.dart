@@ -124,6 +124,29 @@ class CellMetrics {
       math.max(12.0, columnWidth - 2 * inset - 2 * padH - 3);
 }
 
+/// The name font size for a cell [width] wide: [base], shrunk (down to 10)
+/// just enough that the longest run of Latin letters/digits ("Java", "III")
+/// fits on one line, so a narrow phone column never splits it mid-word.
+double fittedNameSize(String name, double width, double base) {
+  final runs = RegExp(r'[A-Za-z0-9ⅠⅡⅢⅣⅤ()（）.+#-]{3,}').allMatches(name);
+  var size = base;
+  for (final m in runs) {
+    final painter = TextPainter(
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+      text: TextSpan(
+        text: m[0],
+        style: TextStyle(fontSize: base, fontWeight: FontWeight.w700),
+      ),
+    )..layout();
+    if (painter.width > width) {
+      size = math.min(size, base * width / painter.width);
+    }
+    painter.dispose();
+  }
+  return math.max(10, size.floorToDouble() == size ? size : size - 0.1);
+}
+
 /// Text shown in one cell, line by line. Dense cells drop the `@`.
 ({String name, String meta}) cellText(
   CourseSession s, {
@@ -160,26 +183,38 @@ double termRowHeight(
       textDirection: TextDirection.ltr,
       textScaler: scaler,
       text: TextSpan(
-        children: [
-          TextSpan(
-            text: text.name,
-            style: TextStyle(
-              fontSize: m.name,
-              height: 1.2,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          if (text.meta.isNotEmpty)
-            TextSpan(
-              text: '\n${text.meta}',
-              style: TextStyle(fontSize: m.meta, height: 1.2),
-            ),
-        ],
+        text: text.name,
+        style: TextStyle(
+          fontSize: m.dense ? fittedNameSize(text.name, inner, m.name) : m.name,
+          height: 1.2,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     )..layout(maxWidth: inner);
+    // Dense cells keep each meta line on one line (scaled to fit).
+    final metaLines = text.meta.isEmpty
+        ? 0
+        : '\n'.allMatches(text.meta).length + 1;
+    var height = painter.height;
+    if (metaLines > 0) {
+      if (m.dense && !text.meta.split('\n').any((l) => l.length > 6)) {
+        height += metaLines * scaler.scale(m.meta) * 1.2;
+      } else {
+        final meta = TextPainter(
+          textDirection: TextDirection.ltr,
+          textScaler: scaler,
+          text: TextSpan(
+            text: text.meta,
+            style: TextStyle(fontSize: m.meta, height: 1.2),
+          ),
+        )..layout(maxWidth: inner);
+        height += meta.height;
+        meta.dispose();
+      }
+    }
     final span = s.endPeriod - s.startPeriod + 1;
     // + the 2 px gap above and below each cell.
-    need = math.max(need, (painter.height + 2 * m.padV + 4) / span);
+    need = math.max(need, (height + 2 * m.padV + 4) / span);
     painter.dispose();
   }
   return math.min(need, scaler.scale(maxRow)).ceilToDouble();

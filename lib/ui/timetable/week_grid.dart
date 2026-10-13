@@ -251,6 +251,18 @@ class WeekGrid extends ConsumerWidget {
             ),
             for (var day = 1; day <= days; day++)
               Expanded(
+                // An empty weekend gets half a column so the weekdays,
+                // where the classes are, get the width.
+                flex:
+                    day >= 6 &&
+                        metrics.dense &&
+                        !data.sessions.any(
+                          (s) =>
+                              s.weekday == day &&
+                              (s.runsInWeek(week) || prefs.showOtherWeeks),
+                        )
+                    ? 1
+                    : 2,
                 child: _DayColumn(
                   data: data,
                   week: week,
@@ -371,7 +383,8 @@ class _DayColumn extends StatelessWidget {
         children: [
           SizedBox(
             height: headerHeight,
-            child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -730,6 +743,17 @@ class CourseCell extends StatelessWidget {
   }
 }
 
+double _textWidth(String text, TextStyle style) {
+  final p = TextPainter(
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+    text: TextSpan(text: text, style: style),
+  )..layout();
+  final w = p.width;
+  p.dispose();
+  return w;
+}
+
 class _CellText extends StatelessWidget {
   const _CellText({
     required this.metrics,
@@ -752,74 +776,97 @@ class _CellText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final body = Text.rich(
-      TextSpan(
-        children: [
-          if (badge != null)
-            WidgetSpan(
-              alignment: PlaceholderAlignment.middle,
-              child: Container(
-                margin: const EdgeInsets.only(bottom: 3),
-                padding: EdgeInsets.symmetric(
-                  horizontal: metrics.dense ? 4 : 6,
-                  vertical: 1,
-                ),
-                decoration: BoxDecoration(
-                  color: badgeColor,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  metrics.dense ? (badge == '上课中' ? '上课' : '下节') : badge!,
-                  style: TextStyle(
-                    fontSize: metrics.dense ? 9.5 : 10.5,
-                    fontWeight: FontWeight.w700,
-                    color:
-                        ThemeData.estimateBrightnessForColor(badgeColor!) ==
-                            Brightness.dark
-                        ? Colors.white
-                        : Colors.black87,
-                    height: 1.3,
+    final inkStyle = TextStyle(color: ink.withValues(alpha: other ? 0.8 : 1));
+    return LayoutBuilder(
+      builder: (context, box) {
+        final nameSize = metrics.dense
+            ? fittedNameSize(name, box.maxWidth, metrics.name)
+            : metrics.name;
+        final lines = meta.isEmpty ? const <String>[] : meta.split('\n');
+        final head = Text.rich(
+          TextSpan(
+            children: [
+              if (badge != null)
+                WidgetSpan(
+                  alignment: PlaceholderAlignment.middle,
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 3),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: metrics.dense ? 4 : 6,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: badgeColor,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      metrics.dense ? (badge == '上课中' ? '上课' : '下节') : badge!,
+                      style: TextStyle(
+                        fontSize: metrics.dense ? 9.5 : 10.5,
+                        fontWeight: FontWeight.w700,
+                        color:
+                            ThemeData.estimateBrightnessForColor(badgeColor!) ==
+                                Brightness.dark
+                            ? Colors.white
+                            : Colors.black87,
+                        height: 1.3,
+                      ),
+                    ),
                   ),
                 ),
+              if (badge != null) const TextSpan(text: '\n'),
+              if (other)
+                const TextSpan(
+                  text: '非本周\n',
+                  style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600),
+                ),
+              if (extra > 1)
+                TextSpan(
+                  text: '$extra 项重叠\n',
+                  style: const TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              TextSpan(
+                text: name,
+                style: TextStyle(
+                  fontSize: nameSize,
+                  height: 1.2,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-          if (badge != null) const TextSpan(text: '\n'),
-          if (other)
-            const TextSpan(
-              text: '非本周\n',
-              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600),
-            ),
-          if (extra > 1)
-            TextSpan(
-              text: '$extra 项重叠\n',
-              style: const TextStyle(
-                fontSize: 9.5,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          TextSpan(
-            text: name,
-            style: TextStyle(
-              fontSize: metrics.name,
-              height: 1.2,
-              fontWeight: FontWeight.w700,
-            ),
+            ],
           ),
-          if (meta.isNotEmpty)
-            TextSpan(
-              text: '\n$meta',
-              style: TextStyle(
-                fontSize: metrics.meta,
-                height: 1.2,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-        ],
-      ),
-      style: TextStyle(color: ink.withValues(alpha: other ? 0.8 : 1)),
-      overflow: TextOverflow.fade,
+          style: inkStyle,
+        );
+        final metaStyle = inkStyle.copyWith(
+          fontSize: metrics.meta,
+          height: 1.2,
+          fontWeight: FontWeight.w500,
+        );
+        // Clip rather than overflow if a very long name meets the row cap.
+        return ClipRect(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              head,
+              for (final line in lines)
+                // A short room code ("N9308") is one unit: shrink it a
+                // little onto one line rather than split it. Long names
+                // ("计算机机房202-B") wrap normally instead of going tiny.
+                metrics.dense &&
+                        _textWidth(line, metaStyle) <= box.maxWidth / 0.8
+                    ? FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(line, style: metaStyle, maxLines: 1),
+                      )
+                    : Text(line, style: metaStyle),
+            ],
+          ),
+        );
+      },
     );
-    // Clip rather than overflow if a very long name meets the row-height cap.
-    return ClipRect(child: body);
   }
 }

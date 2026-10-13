@@ -1,8 +1,9 @@
 /// 空教室: the school's 空闲教室查询, organised around the student's day.
 ///
-/// The top of the page answers "where can I study before/after my class"
-/// from the timetable ([suggestRooms]); below it anyone can browse any block
-/// of any day with building and name filters.
+/// Top: 给你挑的, rooms for the free stretches between, before and after
+/// today's classes ([suggestRooms]). Below: every free room of the day,
+/// grouped by building, each with a strip showing which blocks it is free in
+/// (like the official 教室查询's time tabs), filterable by time and name.
 library;
 
 import 'package:flutter/material.dart';
@@ -34,18 +35,22 @@ class FreeRoomsPage extends ConsumerStatefulWidget {
 
 class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
   late DateTime _date;
-  RoomBlock? _block;
+
+  /// Blocks a room must be free in to be listed (empty = any).
+  final _need = <RoomBlock>{};
   String? _building;
+  bool _studyOnly = true;
   final _search = TextEditingController();
   final _rooms = <RoomBlock, List<FreeRoom>>{};
   final _errors = <RoomBlock, AppError>{};
   final _loading = <RoomBlock>{};
+  final _open = <String>{};
   int _request = 0;
 
   @override
   void initState() {
     super.initState();
-    _date = schoolDate(DateTime.now());
+    _date = schoolDate(ref.read(clockProvider).value ?? DateTime.now());
     _load();
   }
 
@@ -105,12 +110,20 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
     ]);
   }
 
+  /// Which loaded blocks [name] is free in.
+  Set<RoomBlock> _freeBlocks(String name) => {
+    for (final e in _rooms.entries)
+      if (e.value.any((r) => r.name == name)) e.key,
+  };
+
   @override
   Widget build(BuildContext context) {
     final signedIn = ref.watch(eduSessionProvider).signedIn;
     final timetable = ref.watch(timetableProvider).data;
     final now = ref.watch(clockProvider).value ?? DateTime.now();
     final today = schoolDate(now);
+    final width = MediaQuery.sizeOf(context).width;
+    final gutter = ((width - kReadableMaxWidth) / 2).clamp(12.0, 1e9);
 
     final suggestions = timetable == null
         ? const <RoomSuggestion>[]
@@ -120,21 +133,8 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
             classes: timetable.classesOn(_date),
             free: _rooms,
             now: now,
+            home: homeBuilding(timetable, _rooms),
           );
-    // Browsing defaults to the block the first suggestion is about, else the
-    // current one.
-    final browse =
-        _block ??
-        (suggestions.isNotEmpty ? suggestions.first.block : null) ??
-        (_date == today
-            ? currentOrNextBlock(
-                    _cstMinutes(now),
-                    (p) =>
-                        timetable?.period(p, on: _date)?.end ??
-                        _bell(p, _date)?.end,
-                  ) ??
-                  kRoomBlocks.last
-            : kRoomBlocks.first);
 
     return AuroraBackground(
       child: Scaffold(
@@ -148,42 +148,30 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
             : RefreshIndicator(
                 onRefresh: () => _load(force: true),
                 child: ListView(
-                  padding: EdgeInsets.symmetric(
-                    horizontal:
-                        ((MediaQuery.sizeOf(context).width -
-                                    kReadableMaxWidth) /
-                                2)
-                            .clamp(16.0, double.infinity),
-                    vertical: 12,
-                  ),
+                  padding: EdgeInsets.fromLTRB(gutter, 4, gutter, 32),
                   children: [
                     _DayStrip(
                       today: today,
                       selected: _date,
                       onSelected: (d) {
-                        setState(() {
-                          _date = d;
-                          _block = null;
-                        });
+                        setState(() => _date = d);
                         _load();
                       },
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                     if (timetable != null)
                       ..._suggestionSection(context, suggestions),
-                    _BrowseHeader(
-                      block: browse,
-                      loading: _loading,
-                      onBlock: (b) => setState(() => _block = b),
-                    ),
-                    const SizedBox(height: 12),
-                    ..._browseList(context, browse),
+                    ..._browse(context, timetable),
                   ],
                 ),
               ),
       ),
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // 给你挑的
+  // ---------------------------------------------------------------------------
 
   List<Widget> _suggestionSection(
     BuildContext context,
@@ -192,21 +180,20 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
     final theme = Theme.of(context);
     if (suggestions.isEmpty) {
       if (_loading.isNotEmpty) {
-        return [
-          const _SectionTitle('给你挑的'),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
+        return const [
+          _SectionTitle('给你挑的'),
+          Padding(
+            padding: EdgeInsets.fromLTRB(4, 8, 4, 20),
             child: LinearProgressIndicator(),
           ),
-          const SizedBox(height: 12),
         ];
       }
       return [
         const _SectionTitle('给你挑的'),
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 16),
+          padding: const EdgeInsets.fromLTRB(4, 0, 4, 18),
           child: Text(
-            '这天没有课前课后的空档，可以在下面按时间段找',
+            '这天课排得满，没有能去自习的空档。下面可以按时间段找。',
             style: theme.textTheme.bodyMedium,
           ),
         ),
@@ -217,67 +204,160 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
       for (final s in suggestions)
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
-          child: GlassCard(
-            onTap: () => setState(() => _block = s.block),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      switch (s.kind) {
-                        SuggestionKind.beforeClass => Icons.schedule,
-                        SuggestionKind.now => Icons.event_seat_outlined,
-                        SuggestionKind.afterClass => Icons.nightlight_outlined,
-                      },
-                      size: 20,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        s.title,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    Text(_blockTime(s.block), style: theme.textTheme.bodySmall),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(s.reason, style: theme.textTheme.bodyMedium),
-                if (s.sameRoom != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    '${s.sameRoom!.name} 这段时间空着，可以直接在那儿等上课',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 10),
-                if (s.rooms.isEmpty)
-                  Text('这段时间没有空教室', style: theme.textTheme.bodySmall)
-                else
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final r in s.rooms)
-                        _RoomChip(
-                          room: r,
-                          highlight: r == s.sameRoom,
-                          onTap: () => _showRoomDay(r.name),
-                        ),
-                    ],
-                  ),
-              ],
-            ),
+          child: _SuggestionCard(
+            suggestion: s,
+            time: _stretchTime(s.blocks),
+            freeBlocks: _freeBlocks,
+            onRoom: _showRoomDay,
           ),
         ),
-      const SizedBox(height: 4),
+      const SizedBox(height: 6),
+    ];
+  }
+
+  String _stretchTime(List<RoomBlock> blocks) {
+    final t = ref.read(timetableProvider).data;
+    final start =
+        t?.period(blocks.first.from, on: _date) ??
+        _bell(blocks.first.from, _date);
+    final end =
+        t?.period(blocks.last.to, on: _date) ?? _bell(blocks.last.to, _date);
+    if (start == null || end == null) return '';
+    return '${_hm(start.start)}–${_hm(end.end)}';
+  }
+
+  // ---------------------------------------------------------------------------
+  // 全部空教室
+  // ---------------------------------------------------------------------------
+
+  List<Widget> _browse(BuildContext context, TermTimetable? timetable) {
+    final theme = Theme.of(context);
+    final loaded = _rooms.isNotEmpty;
+    // Every room free in at least one block, once.
+    final all = <String, FreeRoom>{};
+    for (final list in _rooms.values) {
+      for (final r in list) {
+        all.putIfAbsent(r.name, () => r);
+      }
+    }
+    final q = _search.text.trim().toUpperCase();
+    final shown =
+        all.values
+            .where((r) => !_studyOnly || isStudyRoom(r))
+            .where((r) => _building == null || r.building == _building)
+            .where((r) => q.isEmpty || r.name.toUpperCase().contains(q))
+            .where((r) => _freeBlocks(r.name).containsAll(_need))
+            .toList()
+          ..sort((a, b) {
+            final f = _freeBlocks(
+              b.name,
+            ).length.compareTo(_freeBlocks(a.name).length);
+            return f != 0 ? f : a.name.compareTo(b.name);
+          });
+    final groups = <String, List<FreeRoom>>{};
+    for (final r in shown) {
+      (groups[r.building.isEmpty ? '其他' : r.building] ??= []).add(r);
+    }
+    final buildings = {
+      for (final r in all.values)
+        if (!_studyOnly || isStudyRoom(r)) r.building,
+    }.where((b) => b.isNotEmpty).toList()..sort();
+
+    return [
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Expanded(child: _SectionTitle('全部空教室')),
+          Padding(
+            padding: const EdgeInsets.only(top: 4, right: 4),
+            child: Text(
+              '右侧五格 = 1-2 至 9-11 节，绿色为空',
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+      _TimeFilter(
+        need: _need,
+        loading: _loading,
+        timeOf: (b) => _stretchTime([b]),
+        onChanged: (b) =>
+            setState(() => _need.contains(b) ? _need.remove(b) : _need.add(b)),
+      ),
+      const SizedBox(height: 10),
+      Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _search,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: '教室名，如 N8 或 理科楼',
+                isDense: true,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _BuildingButton(
+            buildings: buildings,
+            selected: _building,
+            onSelected: (b) => setState(() => _building = b),
+          ),
+        ],
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(4, 6, 4, 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                !loaded
+                    ? '正在查询…'
+                    : _need.isEmpty
+                    ? '${shown.length} 间这天有空'
+                    : '${shown.length} 间在所选时段都空着',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+            FilterChip(
+              label: const Text('只看普通教室'),
+              selected: _studyOnly,
+              visualDensity: VisualDensity.compact,
+              onSelected: (v) => setState(() => _studyOnly = v),
+            ),
+          ],
+        ),
+      ),
+      if (_errors.length == kRoomBlocks.length)
+        EmptyState(
+          icon: Icons.cloud_off_outlined,
+          title: _errors.values.first.message,
+          subtitle: _errors.values.first.hint ?? '下拉重试',
+        )
+      else if (!loaded)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 24),
+          child: Center(child: CircularProgressIndicator()),
+        )
+      else
+        for (final e in groups.entries)
+          _BuildingGroup(
+            building: e.key,
+            rooms: e.value,
+            open:
+                _open.contains(e.key) ||
+                q.isNotEmpty ||
+                _building != null ||
+                groups.length == 1,
+            onToggle: () => setState(
+              () => _open.contains(e.key)
+                  ? _open.remove(e.key)
+                  : _open.add(e.key),
+            ),
+            freeBlocks: _freeBlocks,
+            onRoom: _showRoomDay,
+          ),
     ];
   }
 
@@ -285,12 +365,15 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
   /// room is missing from the free list is taken (a class or an exam).
   void _showRoomDay(String name) {
     final theme = Theme.of(context);
+    final room = [
+      for (final l in _rooms.values) ...l,
+    ].where((r) => r.name == name).firstOrNull;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -316,16 +399,23 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
                 ],
               ),
               Text(
-                '${_date.month}月${_date.day}日',
+                [
+                  '${_date.month}月${_date.day}日',
+                  if (room != null) ...[
+                    room.campus,
+                    room.building,
+                    if ((room.seats ?? 0) > 0) '${room.seats} 座',
+                  ],
+                ].where((s) => s.isNotEmpty).join(' · '),
                 style: theme.textTheme.bodyMedium,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               for (final b in kRoomBlocks)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
                   title: Text(b.label),
-                  subtitle: Text(_blockTime(b)),
+                  subtitle: Text(_stretchTime([b])),
                   trailing: switch (_rooms[b]) {
                     null => Text(
                       _errors.containsKey(b) ? '没查到' : '查询中',
@@ -345,111 +435,12 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
       ),
     );
   }
-
-  String _blockTime(RoomBlock b) {
-    final t = ref.read(timetableProvider).data;
-    final start = t?.period(b.from, on: _date) ?? _bell(b.from, _date);
-    final end = t?.period(b.to, on: _date) ?? _bell(b.to, _date);
-    if (start == null || end == null) return '';
-    return '${_hm(start.start)}–${_hm(end.end)}';
-  }
-
-  List<Widget> _browseList(BuildContext context, RoomBlock block) {
-    final theme = Theme.of(context);
-    final error = _errors[block];
-    final rooms = _rooms[block];
-    if (rooms == null) {
-      if (error != null) {
-        return [
-          EmptyState(
-            icon: Icons.cloud_off_outlined,
-            title: error.message,
-            subtitle: error.hint ?? '下拉重试',
-          ),
-        ];
-      }
-      return const [
-        Padding(
-          padding: EdgeInsets.symmetric(vertical: 24),
-          child: Center(child: CircularProgressIndicator()),
-        ),
-      ];
-    }
-    final buildings = {for (final r in rooms) _buildingOf(r)}.toList()..sort();
-    final q = _search.text.trim().toUpperCase();
-    final shown =
-        rooms
-            .where((r) => _building == null || _buildingOf(r) == _building)
-            .where((r) => q.isEmpty || r.name.toUpperCase().contains(q))
-            .toList()
-          ..sort((a, b) => a.name.compareTo(b.name));
-    return [
-      TextField(
-        controller: _search,
-        decoration: const InputDecoration(
-          prefixIcon: Icon(Icons.search),
-          hintText: '找教室，如 N8 或 6A',
-          isDense: true,
-        ),
-        onChanged: (_) => setState(() {}),
-      ),
-      const SizedBox(height: 10),
-      SizedBox(
-        height: 36,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
-                label: const Text('全部'),
-                selected: _building == null,
-                onSelected: (_) => setState(() => _building = null),
-              ),
-            ),
-            for (final b in buildings)
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text(b),
-                  selected: _building == b,
-                  onSelected: (_) =>
-                      setState(() => _building = _building == b ? null : b),
-                ),
-              ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 12),
-      if (shown.isEmpty && q.isNotEmpty)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: GlassCard(
-            onTap: () => _showRoomDay(q),
-            child: Text('$q 这段时间不空，点这里看它这天哪些时段空着'),
-          ),
-        ),
-      Text('${shown.length} 间空着', style: theme.textTheme.titleSmall),
-      const SizedBox(height: 8),
-      for (final r in shown)
-        _RoomTile(room: r, onTap: () => _showRoomDay(r.name)),
-    ];
-  }
 }
-
-String _buildingOf(FreeRoom r) => RegExp(r'^[A-Za-z]+\d').hasMatch(r.name)
-    ? buildingKey(r.name)
-    : (r.building.isEmpty ? '其他' : r.building);
 
 /// The built-in NWAFU bell time of [period] on [date], for when no timetable
 /// is cached yet.
 ClassPeriod? _bell(int period, DateTime date) =>
     BellSeason.of(date).table.where((p) => p.index == period).firstOrNull;
-
-int _cstMinutes(DateTime instant) {
-  final cst = instant.toUtc().add(const Duration(hours: 8));
-  return cst.hour * 60 + cst.minute;
-}
 
 String _hm(int minutes) =>
     '${minutes ~/ 60}:${(minutes % 60).toString().padLeft(2, '0')}';
@@ -465,7 +456,7 @@ class _SectionTitle extends StatelessWidget {
       text,
       style: Theme.of(
         context,
-      ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+      ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
     ),
   );
 }
@@ -483,25 +474,52 @@ class _DayStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const names = ['一', '二', '三', '四', '五', '六', '日'];
+    final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      height: 40,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
+      height: 58,
+      child: Row(
         children: [
           for (var i = 0; i < 7; i++)
             if (today.add(Duration(days: i)) case final d)
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text(
-                    '${switch (i) {
-                      0 => '今天',
-                      1 => '明天',
-                      _ => '周${names[d.weekday - 1]}',
-                    }} ${d.month}/${d.day}',
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Material(
+                    color: selected == d
+                        ? scheme.primary
+                        : scheme.surface.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => onSelected(d),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            switch (i) {
+                              0 => '今天',
+                              1 => '明天',
+                              _ => '周${names[d.weekday - 1]}',
+                            },
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: selected == d
+                                  ? scheme.onPrimary
+                                  : scheme.onSurfaceVariant,
+                            ),
+                          ),
+                          Text(
+                            '${d.day}',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: selected == d ? scheme.onPrimary : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  selected: selected == d,
-                  onSelected: (_) => onSelected(d),
                 ),
               ),
         ],
@@ -510,76 +528,320 @@ class _DayStrip extends StatelessWidget {
   }
 }
 
-class _BrowseHeader extends StatelessWidget {
-  const _BrowseHeader({
-    required this.block,
-    required this.loading,
-    required this.onBlock,
-  });
-  final RoomBlock block;
-  final Set<RoomBlock> loading;
-  final ValueChanged<RoomBlock> onBlock;
+/// Five dots for 1-2 … 9-11: filled where the room is free.
+class _FreeStrip extends StatelessWidget {
+  const _FreeStrip({required this.free, this.highlight = const {}});
+  final Set<RoomBlock> free;
+  final Set<RoomBlock> highlight;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        const _SectionTitle('按时间段查'),
-        SegmentedButton<RoomBlock>(
-          showSelectedIcon: false,
-          segments: [
-            for (final b in kRoomBlocks)
-              ButtonSegment(
-                value: b,
-                label: Text(
-                  b.label.replaceAll(' 节', ''),
-                  style: loading.contains(b)
-                      ? TextStyle(color: Theme.of(context).disabledColor)
-                      : null,
-                ),
-              ),
-          ],
-          selected: {block},
-          onSelectionChanged: (s) => onBlock(s.first),
-        ),
+        for (final b in kRoomBlocks)
+          Container(
+            width: 14,
+            height: 6,
+            margin: const EdgeInsets.only(left: 2),
+            decoration: BoxDecoration(
+              color: free.contains(b)
+                  ? (highlight.contains(b)
+                        ? scheme.primary
+                        : Colors.green.withValues(alpha: 0.75))
+                  : scheme.outlineVariant.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
       ],
     );
   }
 }
 
-class _RoomChip extends StatelessWidget {
-  const _RoomChip({
+class _RoomRow extends StatelessWidget {
+  const _RoomRow({
     required this.room,
+    required this.free,
     required this.onTap,
-    this.highlight = false,
+    this.highlight = const {},
+    this.star = false,
+    this.showBuilding = true,
   });
   final FreeRoom room;
-  final bool highlight;
+  final Set<RoomBlock> free;
+  final Set<RoomBlock> highlight;
   final VoidCallback onTap;
+  final bool star;
+  final bool showBuilding;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return ActionChip(
-      avatar: highlight
-          ? Icon(Icons.star, size: 16, color: scheme.primary)
-          : null,
-      label: Text(
-        room.seats != null && room.seats! > 0
-            ? '${room.name} · ${room.seats}座'
-            : room.name,
+    final theme = Theme.of(context);
+    final sub = [
+      if (showBuilding) room.building,
+      if ((room.seats ?? 0) > 0) '${room.seats} 座',
+    ].where((s) => s.isNotEmpty).join(' · ');
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      onLongPress: () {
+        Clipboard.setData(ClipboardData(text: room.name));
+        showToast(context, '已复制 ${room.name}');
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        child: Row(
+          children: [
+            if (star) ...[
+              Icon(
+                Icons.star_rounded,
+                size: 18,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 4),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    room.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (sub.isNotEmpty)
+                    Text(
+                      sub,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            _FreeStrip(free: free, highlight: highlight),
+          ],
+        ),
       ),
-      side: highlight ? BorderSide(color: scheme.primary) : null,
-      onPressed: onTap,
     );
   }
 }
 
-class _RoomTile extends StatelessWidget {
-  const _RoomTile({required this.room, required this.onTap});
-  final FreeRoom room;
-  final VoidCallback onTap;
+class _SuggestionCard extends StatefulWidget {
+  const _SuggestionCard({
+    required this.suggestion,
+    required this.time,
+    required this.freeBlocks,
+    required this.onRoom,
+  });
+  final RoomSuggestion suggestion;
+  final String time;
+  final Set<RoomBlock> Function(String) freeBlocks;
+  final ValueChanged<String> onRoom;
+
+  @override
+  State<_SuggestionCard> createState() => _SuggestionCardState();
+}
+
+class _SuggestionCardState extends State<_SuggestionCard> {
+  bool _more = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.suggestion;
+    final theme = Theme.of(context);
+    final rooms = _more ? s.rooms : s.rooms.take(3).toList();
+    return GlassCard(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                switch (s.kind) {
+                  SuggestionKind.beforeClass => Icons.wb_twilight_outlined,
+                  SuggestionKind.between => Icons.coffee_outlined,
+                  SuggestionKind.afterClass => Icons.nightlight_outlined,
+                  SuggestionKind.freeDay => Icons.event_seat_outlined,
+                },
+                size: 20,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  s.title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Text(widget.time, style: theme.textTheme.bodySmall),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(s.reason, style: theme.textTheme.bodySmall),
+          if (s.sameRoom != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                '${s.sameRoom!.name} 这段时间空着，可以直接去那儿等上课',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          const SizedBox(height: 4),
+          if (s.rooms.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text('这段时间没有空教室', style: theme.textTheme.bodySmall),
+            )
+          else
+            for (final r in rooms)
+              _RoomRow(
+                room: r.room,
+                free: widget.freeBlocks(r.room.name),
+                highlight: s.blocks.toSet(),
+                star: r.room == s.sameRoom,
+                onTap: () => widget.onRoom(r.room.name),
+              ),
+          if (s.rooms.length > 3)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => setState(() => _more = !_more),
+                child: Text(_more ? '收起' : '再看 ${s.rooms.length - 3} 间'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimeFilter extends StatelessWidget {
+  const _TimeFilter({
+    required this.need,
+    required this.loading,
+    required this.timeOf,
+    required this.onChanged,
+  });
+  final Set<RoomBlock> need;
+  final Set<RoomBlock> loading;
+  final String Function(RoomBlock) timeOf;
+  final ValueChanged<RoomBlock> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        for (final b in kRoomBlocks)
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Material(
+                color: need.contains(b)
+                    ? scheme.primaryContainer
+                    : scheme.surface.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () => onChanged(b),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Column(
+                      children: [
+                        Text(
+                          b.label.replaceAll(' 节', ''),
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: loading.contains(b)
+                                ? Theme.of(context).disabledColor
+                                : need.contains(b)
+                                ? scheme.onPrimaryContainer
+                                : null,
+                          ),
+                        ),
+                        FittedBox(
+                          child: Text(
+                            timeOf(b).split('–').first,
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _BuildingButton extends StatelessWidget {
+  const _BuildingButton({
+    required this.buildings,
+    required this.selected,
+    required this.onSelected,
+  });
+  final List<String> buildings;
+  final String? selected;
+  final ValueChanged<String?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: '选教学楼',
+      onSelected: (v) => onSelected(v.isEmpty ? null : v),
+      itemBuilder: (_) => [
+        const PopupMenuItem(value: '', child: Text('全部教学楼')),
+        for (final b in buildings) PopupMenuItem(value: b, child: Text(b)),
+      ],
+      child: Chip(
+        avatar: const Icon(Icons.apartment_outlined, size: 18),
+        label: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 84),
+          child: Text(
+            selected ?? '教学楼',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BuildingGroup extends StatelessWidget {
+  const _BuildingGroup({
+    required this.building,
+    required this.rooms,
+    required this.open,
+    required this.onToggle,
+    required this.freeBlocks,
+    required this.onRoom,
+  });
+  final String building;
+  final List<FreeRoom> rooms;
+  final bool open;
+  final VoidCallback onToggle;
+  final Set<RoomBlock> Function(String) freeBlocks;
+  final ValueChanged<String> onRoom;
 
   @override
   Widget build(BuildContext context) {
@@ -587,37 +849,37 @@ class _RoomTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: GlassCard(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        onTap: onTap,
-        onLongPress: () {
-          Clipboard.setData(ClipboardData(text: room.name));
-          showToast(context, '已复制 ${room.name}');
-        },
-        child: Row(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+        child: Column(
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    room.name,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+            InkWell(
+              onTap: onToggle,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        building,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    [
-                      room.campus,
-                      room.building,
-                    ].where((s) => s.isNotEmpty).join(' · '),
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
+                    Text('${rooms.length} 间', style: theme.textTheme.bodySmall),
+                    Icon(open ? Icons.expand_less : Icons.expand_more),
+                  ],
+                ),
               ),
             ),
-            if (room.seats != null && room.seats! > 0)
-              Text('${room.seats} 座', style: theme.textTheme.bodyMedium),
+            if (open)
+              for (final r in rooms)
+                _RoomRow(
+                  room: r,
+                  free: freeBlocks(r.name),
+                  showBuilding: false,
+                  onTap: () => onRoom(r.name),
+                ),
           ],
         ),
       ),

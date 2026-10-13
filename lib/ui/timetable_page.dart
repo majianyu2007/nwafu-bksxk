@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show OverflowBoxFit;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/edu_providers.dart';
@@ -300,7 +301,8 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
                     icon: Icons.cloud_off_outlined,
                     error: true,
                     // An expired login cannot be fixed by syncing again.
-                    action: error.kind == AppErrorKind.sessionExpired ||
+                    action:
+                        error.kind == AppErrorKind.sessionExpired ||
                             error.kind == AppErrorKind.account
                         ? TextButton(
                             onPressed: _login,
@@ -407,13 +409,20 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
                       ),
                     ),
                   ] else
-                    WeekPager(
-                      key: ValueKey('${data.term.code}:${data.weekCount}'),
-                      data: data,
-                      week: week,
-                      now: now,
-                      prefs: prefs,
-                      onWeekChanged: (value) => _selectWeek(data, value),
+                    // On phones the grid takes most of the page margin back:
+                    // every pixel is a wider course column.
+                    _Bleed(
+                      by: constraints.maxWidth < kDayViewBreakpoint
+                          ? gutter - 6
+                          : 0,
+                      child: WeekPager(
+                        key: ValueKey('${data.term.code}:${data.weekCount}'),
+                        data: data,
+                        week: week,
+                        now: now,
+                        prefs: prefs,
+                        onWeekChanged: (value) => _selectWeek(data, value),
+                      ),
                     ),
                   const SizedBox(height: 20),
                   Padding(
@@ -453,6 +462,29 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Widens [child] by [by] on each side, into the page margin.
+class _Bleed extends StatelessWidget {
+  const _Bleed({required this.by, required this.child});
+  final double by;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (by <= 0) return child;
+    return LayoutBuilder(
+      builder: (context, c) => OverflowBox(
+        alignment: Alignment.topCenter,
+        minWidth: c.maxWidth + 2 * by,
+        maxWidth: c.maxWidth + 2 * by,
+        minHeight: 0,
+        maxHeight: double.infinity,
+        fit: OverflowBoxFit.deferToChild,
+        child: child,
       ),
     );
   }
