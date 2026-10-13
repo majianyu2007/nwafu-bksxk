@@ -90,8 +90,10 @@ jobs:
                   f.write('\nrequireReleaseSigning=true\n')
           PY
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64,android-x64
-      - run: flutter build appbundle --release --target-platform android-arm,android-arm64,android-x64
+      # --obfuscate + --split-debug-info strip Dart symbol names from libapp.so
+      # (~1.5 MB per ABI); the symbol files are uploaded for symbolizing traces.
+      - run: flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64,android-x64 --obfuscate --split-debug-info=build/symbols/android
+      - run: flutter build appbundle --release --target-platform android-arm,android-arm64,android-x64 --obfuscate --split-debug-info=build/symbols/android
       - name: Package and inspect APKs
         run: |
           mkdir -p dist
@@ -106,6 +108,11 @@ jobs:
           name: android
           path: dist/*
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: symbols-android
+          path: build/symbols/android
+          retention-days: 90
       - name: Remove signing material
         if: always()
         run: rm -f android/key.properties android/release.jks
@@ -139,14 +146,14 @@ jobs:
           NWAFU_CONNECT_DIR: ${{ github.workspace }}/nwafu-connect
         run: tool/build-vpn-lib.sh macos
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build macos --release
+      - run: flutter build macos --release --obfuscate --split-debug-info=build/symbols/macos
       - name: Verify universal bundle and package
         run: |
           mkdir -p dist
           APP=$(find build/macos/Build/Products/Release -maxdepth 1 -name '*.app' -print -quit)
           test -n "$APP"
           python3 tool/verify-native.py "$APP" arm64 x86_64
-          hdiutil create -volname "西农教务助手" -srcfolder "$APP" -ov -format UDZO dist/nwafu-bksxk-macos-universal.dmg
+          tool/create-dmg.sh "$APP" dist/nwafu-bksxk-macos-universal.dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos-universal
@@ -203,7 +210,7 @@ jobs:
           CGO_ENABLED=1 go build -buildmode=c-shared -trimpath -ldflags "-s -w" \
             -o ../packages/nwafu_connect_ffi/prebuilt/windows/nwafuconnect.dll ./cmd/libnwafuconnect
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build windows --release
+      - run: flutter build windows --release --obfuscate --split-debug-info=build/symbols/windows
       - name: Verify architecture and package
         shell: pwsh
         run: |
@@ -265,7 +272,7 @@ jobs:
           CGO_ENABLED=1 go build -buildmode=c-shared -trimpath -ldflags "-s -w" \
             -o ../packages/nwafu_connect_ffi/prebuilt/linux/libnwafuconnect.so ./cmd/libnwafuconnect
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build linux --release --target-platform linux-${{ matrix.arch }}
+      - run: flutter build linux --release --target-platform linux-${{ matrix.arch }} --obfuscate --split-debug-info=build/symbols/linux
       - name: Verify architecture and package
         run: |
           python3 tool/verify-native.py build/linux/${{ matrix.arch }}/release/bundle ${{ matrix.arch }}
@@ -307,7 +314,7 @@ jobs:
           NWAFU_CONNECT_DIR: ${{ github.workspace }}/nwafu-connect
         run: tool/build-vpn-lib.sh ios
       - run: flutter pub get --enforce-lockfile
-      - run: flutter build ios --release --no-codesign
+      - run: flutter build ios --release --no-codesign --obfuscate --split-debug-info=build/symbols/ios
       - name: Package unsigned IPA for user signing (not directly installable)
         run: |
           mkdir -p dist Payload
@@ -361,25 +368,29 @@ jobs:
           tar -C artifacts/web-site -czf dist/nwafu-bksxk-web-site.tar.gz .
           cd dist
           sha256sum * > SHA256SUMS.txt
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          sparse-checkout: release-notes
+      - name: Release notes
+        # Hand-written notes in release-notes/<tag>.md, same layout as earlier
+        # releases (本次更新 / 下载与使用 / 验证与已知限制).
+        run: |
+          notes="src/release-notes/${GITHUB_REF_NAME}.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::missing $notes"
+            exit 1
+          fi
+          cp "$notes" release-body.md
       - uses: softprops/action-gh-release@v2
         with:
           # Keep the release reviewable until real-device smoke tests pass.
           draft: true
           files: dist/*
           fail_on_unmatched_files: true
-          generate_release_notes: true
-          name: ${{ github.ref_name }}
+          name: 西农教务助手 ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
-          body: |
-            西农教务助手 ${{ github.ref_name }}
-
-            Android：手机优先 arm64-v8a；旧款 ARM 设备选 armeabi-v7a；x86_64 供对应设备/模拟器。AAB 不能直接安装。
-            Windows：x64 或原生 ARM64；不提供 32 位版本。
-            macOS：Universal（Intel x86_64 + Apple Silicon arm64），需要 macOS 14+；未进行 Developer ID 公证。
-            Linux：x64 / ARM64，需安装 GTK、libsecret、Ayatana AppIndicator 运行库。
-            iOS：ARM64 未签名 IPA，需要 iOS 16+，必须自行签名后安装；不保证持续后台监控。
-            鸿蒙：支持 APK 的设备可尝试 Android 包；原生 HarmonyOS HAP 的状态以平台说明为准，不将 APK 标成 HAP。
-            校外需连接学校 VPN。发布前请完成各平台登录、OCR、选课查询和后台行为的真机验收。
+          body_path: release-body.md
 
   deploy-web:
     needs: build-web
