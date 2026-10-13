@@ -15,11 +15,11 @@ Pod::Spec.new do |s|
   if File.exist?(fw)
     s.vendored_frameworks = 'NwafuConnect.xcframework'
     s.preserve_paths = 'NwafuConnect.xcframework'
-    # Go's runtime needs libresolv; Classes/NwafuConnectKeep.c keeps the Nc*
+    # Go's runtime needs libresolv; Classes/NwafuConnectKeep.m keeps the Nc*
     # symbols that DynamicLibrary.process() looks up at run time.
     s.libraries = 'resolv'
   else
     # No prebuilt library: compile without the keep-alive references.
-    s.exclude_files = 'Classes/NwafuConnectKeep.c'
+    s.exclude_files = 'Classes/NwafuConnectKeep.m'
   end
 end
