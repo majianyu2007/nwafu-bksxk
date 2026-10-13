@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         西农教务助手 · 网页版桥接 (NWAFU Web Bridge)
 // @namespace    cn.edu.nwafu.bksxk.webbridge
-// @version      1.3.1
+// @version      1.3.2
 // @description  让西农教务助手网页版访问学校接口：选课，以及用本浏览器里已登录的教务会话查看课表、成绩、考试和空教室。教务登录在学校官方页面完成；仅在校园网内有效。
 // @author       nwafu-bksxk
 // @match        https://mjy.js.org/nwafu-bksxk/*
@@ -45,7 +45,7 @@
   // Signal to the app that the bridge is present (used to skip the install prompt).
   try {
     win.__bksxkBridgeReady = true;
-    win.__bksxkBridgeVersion = '1.3.1';
+    win.__bksxkBridgeVersion = '1.3.2';
     win.__bksxkEduSessionBridgeReady = true;
   } catch (e) { /* ignore */ }
 
@@ -56,7 +56,7 @@
     try {
       if (win.document && win.document.documentElement) {
         win.document.documentElement.setAttribute('data-bksxk-bridge-ready', 'true');
-        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.3.1');
+        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.3.2');
         win.document.documentElement.setAttribute('data-bksxk-edu-session-bridge-ready', 'true');
       }
     } catch (e) { /* ignore */ }
@@ -91,15 +91,16 @@
     if (!isEduUrl(u)) return false;
     var path = u.pathname;
     if (method.toUpperCase() === 'GET') {
-      return /^\/jwapp\/sys\/(wdkbby|cjcx|studentWdksapApp|kxjas)\/\*default\/index\.do$/.test(path) ||
-        /^\/jwapp\/sys\/funauthapp\/api\/getAppConfig\/(wdkbby-5959167891382285|cjcx-4768574631264620|studentWdksapApp-4768687067472349|kxjas-4768402106681759)\.do$/.test(path);
+      return /^\/jwapp\/sys\/(wdkbby|cjcx|studentWdksapApp|kxjas|xywccx)\/\*default\/index\.do$/.test(path) ||
+        /^\/jwapp\/sys\/funauthapp\/api\/getAppConfig\/(wdkbby-5959167891382285|cjcx-4768574631264620|studentWdksapApp-4768687067472349|kxjas-4768402106681759|xywccx-4980269146247992)\.do$/.test(path);
     }
     if (method.toUpperCase() !== 'POST' || u.search) return false;
     return /^\/jwapp\/sys\/wdkbby\/modules\/(jshkcb\/(dqxnxq|xnxqcx|jc)|xskcb\/(cxxljc|cxxszhxqkb|xswpkc|xsdkkc))\.do$/.test(path) ||
       /^\/jwapp\/sys\/cjcx\/modules\/cjcx\/(xscjcx|cxxscjpm)\.do$/.test(path) ||
       path === '/jwapp/sys/studentWdksapApp/WdksapController/cxxsksap.do' ||
       path === '/jwapp/sys/studentWdksapApp/modules/wdksap/cxxsjbxx.do' ||
-      path === '/jwapp/sys/kxjas/modules/kxjscx/cxkxjs.do';
+      path === '/jwapp/sys/kxjas/modules/kxjscx/cxkxjs.do' ||
+      /^\/jwapp\/sys\/xywccx\/modules\/xywccx\/(grpyfacx|cxdqxnxq|cxscfa|cxscfakz|cxfakzyxxfgj)\.do$/.test(path);
   }
 
   function isSafeEduResponse(url) {

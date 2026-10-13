@@ -12,7 +12,11 @@ import '../app/providers.dart';
 import '../app/update_providers.dart';
 import '../data/vpn/campus_route.dart';
 import 'edu_login_page.dart';
+import '../app/portal_providers.dart';
+import 'degree_page.dart';
 import 'free_rooms_page.dart';
+import 'library_page.dart';
+import 'portal_inbox_page.dart';
 import 'layout.dart';
 import 'settings_page.dart';
 import 'widgets/glass.dart';
@@ -37,6 +41,24 @@ class MeTool {
 
 /// The tools on 我的, in order.
 final meTools = <MeTool>[
+  MeTool(
+    icon: Icons.school_outlined,
+    label: '学业进度',
+    open: () => const DegreePage(),
+  ),
+  MeTool(
+    icon: Icons.mark_email_unread_outlined,
+    label: '消息',
+    open: () => const PortalInboxPage(),
+    badge: portalBadgeProvider,
+    nativeOnly: true,
+  ),
+  MeTool(
+    icon: Icons.local_library_outlined,
+    label: '图书馆',
+    open: () => const LibraryPage(),
+    nativeOnly: true,
+  ),
   MeTool(
     icon: Icons.meeting_room_outlined,
     label: '空教室',
