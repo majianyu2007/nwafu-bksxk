@@ -384,6 +384,12 @@ class Storage {
   Future<void> setEduExams(String accountId, String termCode, String json) =>
       _prefs.setString(_eduKey(accountId, 'exams::$termCode'), json);
 
+  /// Last 学业完成 result (see `DegreeAudit.encode`), for offline viewing.
+  String? eduDegreeAudit(String accountId) =>
+      _prefs.getString(_eduKey(accountId, 'degree'));
+  Future<void> setEduDegreeAudit(String accountId, String json) =>
+      _prefs.setString(_eduKey(accountId, 'degree'), json);
+
   /// Drops cached rows for one identity. Old unscoped caches are never read.
   Future<void> clearEduData(String accountId) async {
     final prefix = _eduKey(accountId, '');

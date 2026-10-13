@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app/auto_selection_login.dart';
 import '../app/monitor_providers.dart';
 import '../app/edu_providers.dart';
 import '../app/providers.dart';
@@ -49,7 +50,20 @@ class _RootShellState extends ConsumerState<RootShell>
     AppBackground.instance.attach(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _afterSignIn();
+      _autoSignInAtStart();
     });
+  }
+
+  /// At launch, sign into 选课 only when it matters: this identity has
+  /// watches saved from an earlier run.
+  void _autoSignInAtStart() {
+    if (!mounted) return;
+    final id = ref.read(autoSelectionLoginProvider.notifier).candidate;
+    if (id == null) return;
+    final saved = ref.read(storageProvider).watchesJson(id).trim();
+    if (saved.isNotEmpty && saved != '[]') {
+      ref.read(autoSelectionLoginProvider.notifier).ensure();
+    }
   }
 
   @override
@@ -172,6 +186,16 @@ class _RootShellState extends ConsumerState<RootShell>
 
   void _selectPage(int index) {
     if (_index != index) setState(() => _index = index);
+    _maybeAutoSignIn();
+  }
+
+  /// 一次登录: opening 课程 or 抢课 with no selection account signs in with
+  /// the unified identity's saved password (once per identity per run).
+  void _maybeAutoSignIn() {
+    if ((_index == 1 || _index == 2) &&
+        ref.read(activeAccountIdProvider) == null) {
+      ref.read(autoSelectionLoginProvider.notifier).ensure();
+    }
   }
 
   Future<void> _addAccount() async {
@@ -200,6 +224,17 @@ class _RootShellState extends ConsumerState<RootShell>
         WidgetsBinding.instance.addPostFrameCallback((_) => _afterSignIn());
       }
     });
+    // The identity may sign in while 课程 / 抢课 is already open.
+    ref.listen<String?>(
+      eduSessionProvider.select((s) => s.signedIn ? s.account?.username : null),
+      (previous, next) {
+        if (next != null && next != previous) {
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => mounted ? _maybeAutoSignIn() : null,
+          );
+        }
+      },
+    );
     ref.watch(backgroundDriverProvider);
     ref.watch(eduLifecycleProvider);
     for (final id in signedIn) {
@@ -398,13 +433,46 @@ class _RootShellState extends ConsumerState<RootShell>
   }
 }
 
-class _SelectionSignIn extends StatelessWidget {
+class _SelectionSignIn extends ConsumerWidget {
   const _SelectionSignIn({required this.onLogin});
   final VoidCallback onLogin;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final auto = ref.watch(autoSelectionLoginProvider);
+    final edu = ref.watch(eduSessionProvider).account;
+    final unified = edu != null && !edu.usePasskey;
+    void retry() =>
+        ref.read(autoSelectionLoginProvider.notifier).ensure(force: true);
+    if (auto.running) {
+      return Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const LinearProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(
+                  '正在登录选课系统…',
+                  style: theme.textTheme.titleMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  auto.attempt > 1
+                      ? '用统一身份认证的账号，验证码第 ${auto.attempt} 次识别'
+                      : '用统一身份认证的账号',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
@@ -421,16 +489,45 @@ class _SelectionSignIn extends StatelessWidget {
               const SizedBox(height: 24),
               Text('选课与抢课', style: theme.textTheme.headlineSmall),
               const SizedBox(height: 12),
+              if (auto.phase == AutoSelectionPhase.failed) ...[
+                NoticeStrip(
+                  text: auto.message,
+                  icon: Icons.error_outline,
+                  error: true,
+                  margin: EdgeInsets.zero,
+                ),
+                const SizedBox(height: 12),
+              ],
               const Text(
                 '登录本科选课系统后，即可查询课程、查看已选结果和创建抢课监控。\n'
-                '此登录独立于教务统一身份认证，需要校园网。',
+                '选课系统和统一身份认证用同一个学号和密码，需要校园网。',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: onLogin,
-                icon: const Icon(Icons.login),
-                label: const Text('登录选课系统'),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  if (unified && auto.phase == AutoSelectionPhase.failed)
+                    FilledButton.icon(
+                      onPressed: retry,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('再试一次'),
+                    ),
+                  if (unified && auto.phase == AutoSelectionPhase.failed)
+                    OutlinedButton.icon(
+                      onPressed: onLogin,
+                      icon: const Icon(Icons.login),
+                      label: const Text('手动登录'),
+                    )
+                  else
+                    FilledButton.icon(
+                      onPressed: onLogin,
+                      icon: const Icon(Icons.login),
+                      label: const Text('登录选课系统'),
+                    ),
+                ],
               ),
             ],
           ),

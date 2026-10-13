@@ -17,6 +17,7 @@ import 'package:flutter/foundation.dart';
 
 import '../core/errors.dart';
 import 'cas_client.dart';
+import 'degree_audit.dart';
 import 'edu_models.dart';
 
 const kEhallOrigin = 'https://ehall.nwafu.edu.cn';
@@ -26,7 +27,8 @@ enum EmapApp {
   timetable('wdkbby', '5959167891382285'),
   grades('cjcx', '4768574631264620'),
   exams('studentWdksapApp', '4768687067472349'),
-  rooms('kxjas', '4768402106681759');
+  rooms('kxjas', '4768402106681759'),
+  degree('xywccx', '4980269146247992');
 
   const EmapApp(this.path, this.appId);
   final String path;
@@ -559,6 +561,118 @@ class EhallService {
         if (FreeRoom.fromRow(row) case final room when room.name.isNotEmpty)
           room,
     ];
+  }
+
+  // -------------------------------------------------------------------------
+  // Degree audit (学业完成查询, xywccx). Read-only: 重新计算 is never posted.
+  // -------------------------------------------------------------------------
+
+  /// Every training plan of [username] with its group tree. Selected credits
+  /// (已选学分) need one request per group; they are fetched [parallel] at a
+  /// time and a failure only leaves that figure blank.
+  Future<DegreeAudit> degreeAudit(
+    String username, {
+    bool withSelected = true,
+    int parallel = 4,
+  }) async {
+    final plans = await rows(
+      EmapApp.degree,
+      'modules/xywccx/grpyfacx.do',
+      'grpyfacx',
+      form: {'XH': username},
+    );
+    String? term;
+    try {
+      final t = await rows(
+        EmapApp.degree,
+        'modules/xywccx/cxdqxnxq.do',
+        'cxdqxnxq',
+      );
+      if (t.isNotEmpty) term = EduTerm.fromRow(t.first).code;
+    } on Object {
+      // Without a term the groups still load; 已选学分 stays empty.
+    }
+    final result = <DegreePlan>[];
+    for (final plan in plans) {
+      final id = '${plan['PYFADM'] ?? ''}'.trim();
+      if (id.isEmpty) continue;
+      final base = {
+        'XH': username,
+        'PYFADM': id,
+        'BYNJDM': '-',
+        'SCLBDM': '04',
+      };
+      final audit = await rows(
+        EmapApp.degree,
+        'modules/xywccx/cxscfa.do',
+        'cxscfa',
+        form: base,
+      );
+      final groups = await rows(
+        EmapApp.degree,
+        'modules/xywccx/cxscfakz.do',
+        'cxscfakz',
+        form: {...base, 'XNXQDM': ?term},
+      );
+      double? selected;
+      final perGroup = <String, double>{};
+      if (withSelected && term != null) {
+        final form = {...base, 'XNXQDM': term};
+        Future<double?> credits(Map<String, String> extra) async {
+          try {
+            return selectedCreditsFrom(
+              await rows(
+                EmapApp.degree,
+                'modules/xywccx/cxfakzyxxfgj.do',
+                'cxfakzyxxfgj',
+                form: {...extra, ...form},
+              ),
+            );
+          } on AppError {
+            return null;
+          }
+        }
+
+        selected = await credits(const {});
+        final queue = [
+          for (final g in groups)
+            if ('${g['KZH'] ?? ''}'.isNotEmpty) g,
+        ];
+        Future<void> worker() async {
+          while (queue.isNotEmpty) {
+            final g = queue.removeLast();
+            final kzh = '${g['KZH']}';
+            final v = await credits({
+              'KZLXDM': '${g['KZLXDM'] ?? ''}',
+              'KZH': kzh,
+            });
+            if (v != null) perGroup[kzh] = v;
+          }
+        }
+
+        await Future.wait([
+          for (var i = 0; i < parallel.clamp(1, 8); i++) worker(),
+        ]);
+      }
+      try {
+        result.add(
+          DegreePlan.fromRows(
+            plan: plan,
+            audit: audit.isEmpty ? null : audit.first,
+            groups: groups,
+            selected: selected,
+            groupSelected: perGroup,
+          ),
+        );
+      } on Object {
+        throw AppError(
+          AppErrorKind.schemaOrRedirect,
+          message: '学业完成数据结构已变化',
+          hint: '未覆盖离线数据，请到学校官方页面查看。',
+        );
+      }
+    }
+    return DegreeAudit(plans: result, syncedAt: DateTime.now());
   }
 }
 

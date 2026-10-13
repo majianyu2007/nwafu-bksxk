@@ -111,7 +111,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   void _prefillActiveAccount() {
-    if (widget.addingAccount) return;
+    // Adding a second account starts blank; the shell's first sign-in (also
+    // pushed as "adding") still gets the saved or unified account.
+    if (widget.addingAccount &&
+        ref.read(signedInAccountsProvider).isNotEmpty) {
+      return;
+    }
     final storage = ref.read(storageProvider);
     final active = storage.activeAccount();
     if (active != null) {

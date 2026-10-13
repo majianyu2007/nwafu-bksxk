@@ -174,6 +174,9 @@ class CasClient {
         !const {
           'authserver.nwafu.edu.cn',
           'ehall.nwafu.edu.cn',
+          // 一网通办 (messages, to-dos); see portal_service.dart.
+          'newehall.nwafu.edu.cn',
+          // 图书馆空间预约; see library_service.dart.
           'booking-lib.nwafu.edu.cn',
         }.contains(uri.host)) {
       throw AppError(

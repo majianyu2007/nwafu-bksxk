@@ -650,27 +650,44 @@ final signedInAccountsProvider = StateProvider<List<String>>((ref) => const []);
 final activeAccountIdProvider = StateProvider<String?>((ref) => null);
 
 /// Adds [id] to the signed-in list (after a successful login) and shows it.
-void enterAccount(WidgetRef ref, String id) {
-  final list = ref.read(signedInAccountsProvider);
-  if (!list.contains(id)) {
-    ref.read(signedInAccountsProvider.notifier).state = [...list, id];
-  }
-  ref.read(activeAccountIdProvider.notifier).state = id;
-}
+void enterAccount(WidgetRef ref, String id) => _enter(ref.read, id);
+
+/// [enterAccount] for providers and controllers.
+void enterAccountFrom(Ref ref, String id) => _enter(ref.read, id);
 
 /// Signs [id] out and shows the next signed-in account, or the login screen.
-Future<void> leaveAccount(WidgetRef ref, String id) async {
-  await ref.read(sessionControllerProvider(id).notifier).logout();
-  final remaining =
-      ref.read(signedInAccountsProvider).where((e) => e != id).toList();
-  ref.read(signedInAccountsProvider.notifier).state = remaining;
-  if (ref.read(activeAccountIdProvider) == id) {
-    ref.read(activeAccountIdProvider.notifier).state =
+Future<void> leaveAccount(WidgetRef ref, String id) =>
+    _leave(ref.read, ref.invalidate, id);
+
+/// [leaveAccount] for providers and controllers.
+Future<void> leaveAccountFrom(Ref ref, String id) =>
+    _leave(ref.read, ref.invalidate, id);
+
+typedef _Read = T Function<T>(ProviderListenable<T> provider);
+
+void _enter(_Read read, String id) {
+  final list = read(signedInAccountsProvider);
+  if (!list.contains(id)) {
+    read(signedInAccountsProvider.notifier).state = [...list, id];
+  }
+  read(activeAccountIdProvider.notifier).state = id;
+}
+
+Future<void> _leave(
+  _Read read,
+  void Function(ProviderOrFamily) invalidate,
+  String id,
+) async {
+  await read(sessionControllerProvider(id).notifier).logout();
+  final remaining = read(signedInAccountsProvider).where((e) => e != id).toList();
+  read(signedInAccountsProvider.notifier).state = remaining;
+  if (read(activeAccountIdProvider) == id) {
+    read(activeAccountIdProvider.notifier).state =
         remaining.isEmpty ? null : remaining.first;
   }
   // Drop the scope so a later sign-in of the same account starts clean.
-  ref.invalidate(sessionScopeProvider(id));
-  ref.invalidate(sessionControllerProvider(id));
+  invalidate(sessionScopeProvider(id));
+  invalidate(sessionControllerProvider(id));
 }
 
 /// Drives the platform keep-alive from the monitors: any running engine keeps

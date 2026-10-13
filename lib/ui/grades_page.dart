@@ -5,6 +5,7 @@ import '../app/edu_providers.dart';
 import '../core/errors.dart';
 import '../app/ui_prefs.dart';
 import '../data/edu_models.dart';
+import 'degree_page.dart';
 import 'edu_login_page.dart';
 import 'grades_trend.dart';
 import 'widgets/glass.dart';
@@ -200,6 +201,8 @@ class _GradesPageState extends ConsumerState<GradesPage> {
                                     ),
                                   ),
                                 ),
+                              const SizedBox(height: 12),
+                              const DegreeProgressTile(),
                               const SizedBox(height: 12),
                               const Text(
                                 '绩点和排名为全部学期，来自教务系统。',
