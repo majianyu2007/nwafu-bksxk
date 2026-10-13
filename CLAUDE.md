@@ -33,7 +33,7 @@ flutter build apk --release
 flutter build windows / linux
 # macOS needs full Xcode; if only Xcode-beta is installed, set DEVELOPER_DIR instead of xcode-select:
 DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer flutter build macos
-tool/create-dmg.sh                                # packages build/macos/.../Release/西农本科选课.app into a DMG
+tool/create-dmg.sh                                # packages build/macos/.../Release/西农教务助手.app into a DMG
 flutter build web --release --base-href /nwafu-bksxk/app/   # what CI runs; web/ is committed (custom index.html + web/ort/)
 ```
 
@@ -98,7 +98,7 @@ The bundled model is `assets/models/autoverify.onnx` (quantized ddddocr CRNN fro
 
 ### Web build
 
-The school server sends no CORS headers, so the web app only works with the Tampermonkey/ScriptCat bridge in `web_bridge/bksxk-web-bridge.user.js` (v1.1.0), which replaces `XMLHttpRequest` for the API host with `GM_xmlhttpRequest`. Dio's browser adapter sends bodies as `Uint8Array`; the bridge must decode them to a string (`normaliseBody`) or GM sends the text "[object Uint8Array]" and every POST (course queries, selection) fails while GETs (login, courseResult) work, which is exactly the "can log in but nothing else works" symptom. Test the shim without a browser with a fake `GM_xmlhttpRequest` under Node. The app detects it via `window.__bksxkBridgeReady` or the `data-bksxk-bridge-ready` DOM attribute. If you change the deployed URL, update the `@match`/`@downloadURL` lines in the userscript header. Build with `--no-web-resources-cdn` (CI does) so CanvasKit ships next to the app instead of from gstatic.com, which is slow or blocked on campus; `web/index.html` shows a boot screen until `flutter-first-frame` and loads onnxruntime-web deferred. The fonts are a GB2312 + course-catalogue subset (2.3 MB each, was 7.7 MB); regenerate with fontTools if the catalogue grows characters outside GB2312.
+The school server sends no CORS headers, so the web app only works with the Tampermonkey/ScriptCat bridge in `web_bridge/bksxk-web-bridge.user.js` (v1.3.1; the app requires ≥ 1.3.0), which replaces `XMLHttpRequest` for the selection host and the ehall/authserver hosts with `GM_xmlhttpRequest`. Dio's browser adapter sends bodies as `Uint8Array`; the bridge must decode them to a string (`normaliseBody`) or GM sends the text "[object Uint8Array]" and every POST (course queries, selection) fails while GETs (login, courseResult) work, which is exactly the "can log in but nothing else works" symptom. Test the shim without a browser with a fake `GM_xmlhttpRequest` under Node. The app detects it via `window.__bksxkBridgeReady` or the `data-bksxk-bridge-ready` DOM attribute. If you change the deployed URL, update the `@match`/`@downloadURL` lines in the userscript header. Build with `--no-web-resources-cdn` (CI does) so CanvasKit ships next to the app instead of from gstatic.com, which is slow or blocked on campus; `web/index.html` shows a boot screen until `flutter-first-frame` and loads onnxruntime-web deferred. The fonts are a GB2312 + course-catalogue subset (2.3 MB each, was 7.7 MB); regenerate with fontTools if the catalogue grows characters outside GB2312.
 
 ## Platform configuration that was hard-won
 

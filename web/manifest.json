@@ -5,7 +5,7 @@
     "display": "standalone",
     "background_color": "#f6f7fb",
     "theme_color": "#3B6FE0",
-    "description": "西北农林科技大学本科选课客户端",
+    "description": "西北农林科技大学教务助手：课表、成绩、考试、空教室和选课",
     "orientation": "any",
     "prefer_related_applications": false,
     "icons": [

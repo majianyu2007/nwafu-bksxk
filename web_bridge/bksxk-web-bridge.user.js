@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         西农本科选课 · Web 跨域桥接 (BKSXK Web Bridge)
+// @name         西农教务助手 · 网页版桥接 (NWAFU Web Bridge)
 // @namespace    cn.edu.nwafu.bksxk.webbridge
-// @version      1.3.0
-// @description  为西农本科选课网页版桥接选课请求，以及已在同一浏览器登录的教务会话。教务登录请在学校官方页面完成；仅在校园网内有效。
+// @version      1.3.1
+// @description  让西农教务助手网页版访问学校接口：选课，以及用本浏览器里已登录的教务会话查看课表、成绩、考试和空教室。教务登录在学校官方页面完成；仅在校园网内有效。
 // @author       nwafu-bksxk
 // @match        https://mjy.js.org/nwafu-bksxk/*
 // @match        http://localhost:*/*
@@ -22,7 +22,8 @@
 // HOW IT WORKS
 // ------------
 // The Flutter web app (served from GitHub Pages / localhost / etc.) makes its
-// API calls with XMLHttpRequest to https://bksxk.nwafu.edu.cn/... . A browser
+// API calls with XMLHttpRequest to https://bksxk.nwafu.edu.cn/... (selection)
+// and https://ehall.nwafu.edu.cn/... (timetable, grades, exams, free rooms). A browser
 // blocks those as cross-origin (the school server sends no CORS headers) and
 // also forbids setting Cookie / User-Agent from page JS.
 //
@@ -44,7 +45,7 @@
   // Signal to the app that the bridge is present (used to skip the install prompt).
   try {
     win.__bksxkBridgeReady = true;
-    win.__bksxkBridgeVersion = '1.3.0';
+    win.__bksxkBridgeVersion = '1.3.1';
     win.__bksxkEduSessionBridgeReady = true;
   } catch (e) { /* ignore */ }
 
@@ -55,7 +56,7 @@
     try {
       if (win.document && win.document.documentElement) {
         win.document.documentElement.setAttribute('data-bksxk-bridge-ready', 'true');
-        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.3.0');
+        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.3.1');
         win.document.documentElement.setAttribute('data-bksxk-edu-session-bridge-ready', 'true');
       }
     } catch (e) { /* ignore */ }
@@ -339,5 +340,5 @@
     return handler;
   };
 
-  console.log('[BKSXK Web Bridge] installed — API 请求将通过 GM_xmlhttpRequest 访问 ' + API_HOST);
+  console.log('[NWAFU Web Bridge] installed — 选课与教务请求将通过 GM_xmlhttpRequest 访问 ' + API_HOST + ' / ' + EDU_HOST);
 })();

@@ -60,7 +60,7 @@ class NotificationService implements EduAlerts {
     );
     const linux = LinuxInitializationSettings(defaultActionName: '打开');
     const windows = WindowsInitializationSettings(
-      appName: '西农本科选课',
+      appName: '西农教务助手',
       appUserModelId: 'cn.edu.nwafu.nwafuBksxk',
       guid: '6f1e2c3a-7b4d-4e5f-9a80-1c2d3e4f5a6b',
     );

@@ -81,9 +81,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       builder: (context) => AlertDialog(
         title: const Text('网页版需要安装配套脚本'),
         content: const Text(
-          '浏览器不允许网页直接访问校园网选课接口，需要一个配套脚本转发请求。\n\n'
+          '浏览器不允许网页直接访问学校接口，需要一个配套脚本转发请求。\n\n'
           '1. 安装 Tampermonkey 或 ScriptCat 扩展\n'
-          '2. 安装「西农本科选课 Web 跨域桥接」脚本\n'
+          '2. 安装「西农教务助手 · 网页版桥接」脚本\n'
           '3. 刷新本页面\n\n'
           '桌面端和手机端不需要此步骤。',
         ),
@@ -593,15 +593,7 @@ class _Brand extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Container(
-          height: 64,
-          width: 64,
-          decoration: BoxDecoration(
-            color: scheme.primary,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Icon(Icons.school_outlined, color: scheme.onPrimary, size: 36),
-        ),
+        Image.asset('assets/icons/logo_512.png', width: 64, height: 64),
         const SizedBox(height: 14),
         Text(
           '西农教务助手',
