@@ -571,11 +571,22 @@ class EduSessionController extends StateNotifier<EduState> {
       _pending == null && state.signedIn ? Future.value() : logout();
 
   Future<void> logout() async {
+    final signedInAs = state.signedIn ? state.account?.username : null;
     final previousAccount = state.account?.username ?? _pending?.username;
     ++_epoch;
     _pending = null;
     _relogin = null;
     state = const EduState(phase: EduPhase.signedOut);
+    // 一次登录: the selection account of the same student goes with it.
+    // Other selection accounts (multi-account tabs) stay signed in.
+    if (signedInAs != null &&
+        _ref.read(signedInAccountsProvider).contains(signedInAs)) {
+      try {
+        await leaveAccountFrom(_ref, signedInAs);
+      } catch (_) {
+        // The local identity is signed out regardless.
+      }
+    }
     // Cancellation is queued after any in-flight replacement schedule.
     final reminders = _ref.read(classReminderProvider.notifier).reschedule();
     await _serial(() async {
