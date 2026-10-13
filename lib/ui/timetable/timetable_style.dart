@@ -64,7 +64,9 @@ Color cellInk(BuildContext context, Color course) {
 /// later period a session actually uses (the server's table lists 12–13,
 /// which no class uses, and empty rows only make the grid look sparse).
 List<int> periodIndices(TermTimetable data) {
-  final indices = <int>{for (final period in ClassPeriod.nwafuWinter) period.index};
+  final indices = <int>{
+    for (final period in ClassPeriod.nwafuWinter) period.index,
+  };
   for (final session in data.sessions) {
     if (session.startPeriod > 0 && session.endPeriod >= session.startPeriod) {
       for (var p = session.startPeriod; p <= session.endPeriod; p++) {
@@ -94,15 +96,42 @@ List<List<CourseSession>> overlapGroups(List<CourseSession> sessions) {
   return groups;
 }
 
-const double kCellPadH = 5;
-const double kCellPadV = 6;
-const double kCellNameSize = 14;
-const double kCellMetaSize = 12;
+/// Text sizes and padding of a grid cell. Phones get [dense] metrics (as in
+/// WakeUp): seven columns of ~50 px cannot fit 14 px names without wrapping
+/// every two characters.
+class CellMetrics {
+  const CellMetrics._(this.padH, this.padV, this.name, this.meta, this.dense);
+  final double padH;
+  final double padV;
+  final double name;
+  final double meta;
+  final bool dense;
 
-/// Text shown in one cell, line by line.
-({String name, String meta}) cellText(CourseSession s, {bool teacher = false}) {
+  static const regular = CellMetrics._(5, 6, 14, 12, false);
+  static const narrow = CellMetrics._(3, 4, 12.5, 10.5, true);
+
+  /// Below this column width the grid switches to [narrow].
+  static const denseBelow = 72.0;
+
+  static CellMetrics forColumn(double columnWidth) =>
+      columnWidth < denseBelow ? narrow : regular;
+
+  /// Horizontal inset of a cell inside its column (each side).
+  static const double inset = 2;
+
+  /// Width left for text in a cell of [columnWidth] (accent bar included).
+  double textWidth(double columnWidth) =>
+      math.max(12.0, columnWidth - 2 * inset - 2 * padH - 3);
+}
+
+/// Text shown in one cell, line by line. Dense cells drop the `@`.
+({String name, String meta}) cellText(
+  CourseSession s, {
+  bool teacher = false,
+  bool dense = false,
+}) {
   final meta = [
-    if (s.room.isNotEmpty) '@${s.room}',
+    if (s.room.isNotEmpty) dense ? s.room : '@${s.room}',
     if (teacher && s.teacher.isNotEmpty) s.teacher,
   ].join('\n');
   return (name: s.displayName, meta: meta);
@@ -118,14 +147,15 @@ double termRowHeight(
   required bool compact,
   required bool teacher,
 }) {
-  final minRow = compact ? 52.0 : 60.0;
+  final m = CellMetrics.forColumn(columnWidth);
+  final minRow = compact ? 52.0 : (m.dense ? 56.0 : 60.0);
   final maxRow = compact ? 80.0 : 140.0;
   if (compact) return scaler.scale(minRow);
-  final inner = math.max(12.0, columnWidth - 2 * kCellPadH - 6);
+  final inner = m.textWidth(columnWidth);
   var need = minRow;
   for (final s in data.sessions) {
     if (s.startPeriod < 1 || s.endPeriod < s.startPeriod) continue;
-    final text = cellText(s, teacher: teacher);
+    final text = cellText(s, teacher: teacher, dense: m.dense);
     final painter = TextPainter(
       textDirection: TextDirection.ltr,
       textScaler: scaler,
@@ -133,22 +163,23 @@ double termRowHeight(
         children: [
           TextSpan(
             text: text.name,
-            style: const TextStyle(
-              fontSize: kCellNameSize,
-              height: 1.25,
+            style: TextStyle(
+              fontSize: m.name,
+              height: 1.2,
               fontWeight: FontWeight.w700,
             ),
           ),
           if (text.meta.isNotEmpty)
             TextSpan(
               text: '\n${text.meta}',
-              style: const TextStyle(fontSize: kCellMetaSize, height: 1.25),
+              style: TextStyle(fontSize: m.meta, height: 1.2),
             ),
         ],
       ),
     )..layout(maxWidth: inner);
     final span = s.endPeriod - s.startPeriod + 1;
-    need = math.max(need, (painter.height + 2 * kCellPadV + 6) / span);
+    // + the 2 px gap above and below each cell.
+    need = math.max(need, (painter.height + 2 * m.padV + 4) / span);
     painter.dispose();
   }
   return math.min(need, scaler.scale(maxRow)).ceilToDouble();
@@ -224,7 +255,9 @@ double? nowOffset(
       return previousEnd + (top - previousEnd) / 2;
     }
     if (minutes <= p.end) {
-      final f = p.end == p.start ? 0.0 : (minutes - p.start) / (p.end - p.start);
+      final f = p.end == p.start
+          ? 0.0
+          : (minutes - p.start) / (p.end - p.start);
       return top + f * layout.rowHeight;
     }
     previousEnd = top + layout.rowHeight;

@@ -282,6 +282,16 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
 
   Future<void> _connectBrowser() async {
     if (_busy) return;
+    if (!isEduSessionBridgeReady) {
+      // The button stays enabled so a click always explains itself.
+      final v = installedWebBridgeVersion;
+      setState(
+        () => _error = v == null
+            ? '没检测到桥接脚本。装好后刷新本页再连接。'
+            : '桥接脚本是 $v，需要 1.3.0 以上。更新后刷新本页。',
+      );
+      return;
+    }
     final operation = ++_operation;
     _started = true;
     setState(() {
@@ -289,7 +299,16 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
       _error = null;
     });
     try {
-      await _session.connectBrowserSession();
+      // A script manager can hold a request while it waits for the user to
+      // allow a domain (often in another tab); never spin forever.
+      await _session.connectBrowserSession().timeout(
+        const Duration(seconds: 45),
+        onTimeout: () => throw AppError(
+          AppErrorKind.timeout,
+          message: '连接超时',
+          hint: '看看脚本管理器有没有弹出"允许访问域名"的确认页，允许后再点一次。',
+        ),
+      );
       if (!mounted || operation != _operation) return;
       _finished = true;
       Navigator.of(context).pop(true);
@@ -363,9 +382,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                   ),
                   const SizedBox(height: 12),
                   if (_busy)
-                    const LinearProgressIndicator(
-                      semanticsLabel: '正在连接',
-                    ),
+                    const LinearProgressIndicator(semanticsLabel: '正在连接'),
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -380,7 +397,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                       ),
                     ),
                   FilledButton(
-                    onPressed: _busy || !ready ? null : _connectBrowser,
+                    onPressed: _busy ? null : _connectBrowser,
                     child: Text(_busy ? '正在连接…' : '连接当前浏览器会话'),
                   ),
                 ],
@@ -548,9 +565,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                             ),
                           const SizedBox(height: 16),
                           if (method == null)
-                            const Text(
-                              '没有可用的验证方式，请在学校认证页面登录。',
-                            )
+                            const Text('没有可用的验证方式，请在学校认证页面登录。')
                           else ...[
                             TextFormField(
                               controller: _code,
@@ -591,9 +606,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                             CheckboxListTile(
                               contentPadding: EdgeInsets.zero,
                               title: const Text('信任此设备'),
-                              subtitle: const Text(
-                                '一年内不再要求二次验证，公用电脑别勾选。',
-                              ),
+                              subtitle: const Text('一年内不再要求二次验证，公用电脑别勾选。'),
                               value: _trustDevice,
                               onChanged: _busy
                                   ? null
@@ -624,9 +637,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                             ),
                           ),
                         if (_captchaUnsupported) ...[
-                          const Text(
-                            '学校要求滑块验证，请先在官方页面登录一次，再回来重试。',
-                          ),
+                          const Text('学校要求滑块验证，请先在官方页面登录一次，再回来重试。'),
                           const SizedBox(height: 8),
                         ],
                         if (_captchaUnsupported ||

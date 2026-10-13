@@ -77,8 +77,14 @@ class _WeekPagerState extends ConsumerState<WeekPager> {
     final days = widget.prefs.showWeekend ? 7 : 5;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final timeWidth = 44 * scale.clamp(1.0, 1.5);
-        final columnWidth = (constraints.maxWidth - timeWidth - 8) / days;
+        var timeWidth = 44 * scale.clamp(1.0, 1.5);
+        var columnWidth = (constraints.maxWidth - timeWidth - 4) / days;
+        final metrics = CellMetrics.forColumn(columnWidth);
+        if (metrics.dense) {
+          // Phones: a slim time column gives the days the width back.
+          timeWidth = 34 * scale.clamp(1.0, 1.4);
+          columnWidth = (constraints.maxWidth - timeWidth - 4) / days;
+        }
         final rowHeight = termRowHeight(
           widget.data,
           columnWidth: columnWidth,
@@ -102,6 +108,7 @@ class _WeekPagerState extends ConsumerState<WeekPager> {
               headerHeight: headerHeight,
               timeWidth: timeWidth,
               showTeacher: ui.showTeacher,
+              metrics: metrics,
             ),
           ),
         );
@@ -121,6 +128,7 @@ class WeekGrid extends ConsumerWidget {
     required this.headerHeight,
     required this.timeWidth,
     this.showTeacher = false,
+    this.metrics = CellMetrics.regular,
   });
   final TermTimetable data;
   final int week;
@@ -130,6 +138,7 @@ class WeekGrid extends ConsumerWidget {
   final double headerHeight;
   final double timeWidth;
   final bool showTeacher;
+  final CellMetrics metrics;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -215,6 +224,7 @@ class WeekGrid extends ConsumerWidget {
                             child: _PeriodLabel(
                               index: index,
                               period: data.period(index, on: monday),
+                              dense: metrics.dense,
                             ),
                           ),
                         for (final (y, label) in layout.breaks)
@@ -251,6 +261,7 @@ class WeekGrid extends ConsumerWidget {
                   lineColor: lineColor,
                   showOtherWeeks: prefs.showOtherWeeks,
                   showTeacher: showTeacher,
+                  metrics: metrics,
                   colors: colors,
                   nowLine: data.dayOf(week, day) == today
                       ? nowOffset(data, layout, today, minutes)
@@ -259,7 +270,7 @@ class WeekGrid extends ConsumerWidget {
                   highlightOngoing: highlightOngoing,
                 ),
               ),
-            const SizedBox(width: 4),
+            SizedBox(width: metrics.dense ? 2 : 4),
           ],
         ),
       ),
@@ -268,14 +279,19 @@ class WeekGrid extends ConsumerWidget {
 }
 
 class _PeriodLabel extends StatelessWidget {
-  const _PeriodLabel({required this.index, required this.period});
+  const _PeriodLabel({
+    required this.index,
+    required this.period,
+    this.dense = false,
+  });
   final int index;
   final ClassPeriod? period;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
     final muted = TextStyle(
-      fontSize: 10.5,
+      fontSize: dense ? 9 : 10.5,
       height: 1.2,
       color: Theme.of(context).colorScheme.onSurfaceVariant,
     );
@@ -285,7 +301,10 @@ class _PeriodLabel extends StatelessWidget {
       children: [
         Text(
           '$index',
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: dense ? 13 : 15,
+          ),
         ),
         if (p != null) ...[
           Text(p.startLabel, style: muted, softWrap: false),
@@ -307,6 +326,7 @@ class _DayColumn extends StatelessWidget {
     required this.lineColor,
     required this.showOtherWeeks,
     required this.showTeacher,
+    required this.metrics,
     required this.colors,
     required this.nowLine,
     required this.highlight,
@@ -321,6 +341,7 @@ class _DayColumn extends StatelessWidget {
   final Color lineColor;
   final bool showOtherWeeks;
   final bool showTeacher;
+  final CellMetrics metrics;
   final CourseColors colors;
   final double? nowLine;
   final CourseSession? highlight;
@@ -355,7 +376,9 @@ class _DayColumn extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    kWeekdayNames[day - 1],
+                    metrics.dense
+                        ? kWeekdayNames[day - 1].substring(1)
+                        : kWeekdayNames[day - 1],
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
@@ -423,6 +446,7 @@ class _DayColumn extends StatelessWidget {
                       week: week,
                       color: colors.of(_primary(group, week)),
                       showTeacher: showTeacher,
+                      metrics: metrics,
                       glow: highlight != null && group.contains(highlight),
                       ongoing: _ongoing(group),
                       progress: _ongoing(group) ? _progressIn(group) : null,
@@ -460,18 +484,22 @@ class _DayColumn extends StatelessWidget {
     final y = nowLine;
     if (y == null) return null;
     final top = layout.top(group.first.startPeriod)!;
-    final bottom = layout.bottom(group.map((s) => s.endPeriod).reduce(math.max));
+    final bottom = layout.bottom(
+      group.map((s) => s.endPeriod).reduce(math.max),
+    );
     return ((y - top) / (bottom - top)).clamp(0.0, 1.0);
   }
 
   Widget _positioned(List<CourseSession> group, {required Widget child}) {
     final top = layout.top(group.first.startPeriod)!;
-    final bottom = layout.bottom(group.map((s) => s.endPeriod).reduce(math.max));
+    final bottom = layout.bottom(
+      group.map((s) => s.endPeriod).reduce(math.max),
+    );
     return Positioned(
       top: top + 2,
       height: bottom - top - 4,
-      left: 3,
-      right: 3,
+      left: CellMetrics.inset,
+      right: CellMetrics.inset,
       child: child,
     );
   }
@@ -549,6 +577,7 @@ class CourseCell extends StatelessWidget {
     required this.week,
     required this.color,
     this.showTeacher = false,
+    this.metrics = CellMetrics.regular,
     this.glow = false,
     this.ongoing = false,
     this.progress,
@@ -558,6 +587,7 @@ class CourseCell extends StatelessWidget {
   final int week;
   final Color color;
   final bool showTeacher;
+  final CellMetrics metrics;
   final bool glow;
   final bool ongoing;
 
@@ -576,7 +606,7 @@ class CourseCell extends StatelessWidget {
         ? scheme.surfaceContainerHighest.withValues(alpha: 0.55)
         : cellFill(context, color, now: ongoing);
     final ink = other ? scheme.onSurfaceVariant : cellInk(context, color);
-    final text = cellText(session, teacher: showTeacher);
+    final text = cellText(session, teacher: showTeacher, dense: metrics.dense);
     final radius = BorderRadius.circular(tokens.cellRadius);
     final fullLabel = group
         .map(
@@ -667,13 +697,14 @@ class CourseCell extends StatelessWidget {
                           ),
                         ),
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          kCellPadH + 3,
-                          kCellPadV,
-                          kCellPadH,
-                          kCellPadV,
+                        padding: EdgeInsets.fromLTRB(
+                          metrics.padH + 3,
+                          metrics.padV,
+                          metrics.padH,
+                          metrics.padV,
                         ),
                         child: _CellText(
+                          metrics: metrics,
                           badge: glow && !other
                               ? (ongoing ? '上课中' : '下一节')
                               : null,
@@ -701,6 +732,7 @@ class CourseCell extends StatelessWidget {
 
 class _CellText extends StatelessWidget {
   const _CellText({
+    required this.metrics,
     this.badge,
     this.badgeColor,
     required this.name,
@@ -709,6 +741,7 @@ class _CellText extends StatelessWidget {
     required this.other,
     required this.extra,
   });
+  final CellMetrics metrics;
   final String name;
   final String meta;
   final Color ink;
@@ -727,15 +760,18 @@ class _CellText extends StatelessWidget {
               alignment: PlaceholderAlignment.middle,
               child: Container(
                 margin: const EdgeInsets.only(bottom: 3),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                padding: EdgeInsets.symmetric(
+                  horizontal: metrics.dense ? 4 : 6,
+                  vertical: 1,
+                ),
                 decoration: BoxDecoration(
                   color: badgeColor,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  badge!,
+                  metrics.dense ? (badge == '上课中' ? '上课' : '下节') : badge!,
                   style: TextStyle(
-                    fontSize: 10.5,
+                    fontSize: metrics.dense ? 9.5 : 10.5,
                     fontWeight: FontWeight.w700,
                     color:
                         ThemeData.estimateBrightnessForColor(badgeColor!) ==
@@ -763,18 +799,18 @@ class _CellText extends StatelessWidget {
             ),
           TextSpan(
             text: name,
-            style: const TextStyle(
-              fontSize: kCellNameSize,
-              height: 1.25,
+            style: TextStyle(
+              fontSize: metrics.name,
+              height: 1.2,
               fontWeight: FontWeight.w700,
             ),
           ),
           if (meta.isNotEmpty)
             TextSpan(
               text: '\n$meta',
-              style: const TextStyle(
-                fontSize: kCellMetaSize,
-                height: 1.25,
+              style: TextStyle(
+                fontSize: metrics.meta,
+                height: 1.2,
                 fontWeight: FontWeight.w500,
               ),
             ),

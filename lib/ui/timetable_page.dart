@@ -310,8 +310,13 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
                     onAction: signedIn ? _sync : _login,
                   )
                 else ...[
-                  _TodayCard(data: data, now: now),
-                  const SizedBox(height: 14),
+                  // A phone's week grid needs the height; the cells already
+                  // mark the current/next class.
+                  if (dayView ||
+                      constraints.maxWidth >= kDayViewBreakpoint) ...[
+                    _TodayCard(data: data, now: now),
+                    const SizedBox(height: 14),
+                  ],
                   _WeekBar(
                     week: week,
                     currentWeek: currentWeek,
