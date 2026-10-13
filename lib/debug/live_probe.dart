@@ -12,6 +12,7 @@ import 'package:dio/dio.dart';
 
 import '../app/campus_access.dart';
 import '../data/ehall_service.dart';
+import '../data/library_service.dart';
 import '../data/vpn/campus_route.dart';
 import '../app/edu_providers.dart';
 import '../app/providers.dart' show storageProvider;
@@ -191,4 +192,26 @@ void probeRoomsTiming(ProviderContainer c, int size) => probe(() async {
   final j = jsonDecode(r.data!) as Map;
   final b = (j['datas'] as Map)['cxkxjs'] as Map;
   return {'ms': sw.elapsedMilliseconds, 'rows': (b['rows'] as List).length, 'total': b['totalSize'], 'bytes': r.data!.length};
+});
+
+void probeLibrary(ProviderContainer c) => probe(() async {
+  final lib = LibraryService(
+    c.read(eduClientProvider).cas,
+    onLoginRequired: c.read(eduSessionProvider.notifier).silentRelogin,
+  );
+  final today = DateTime.now();
+  final seats = await lib.areas(LibraryKind.seat, today);
+  final rooms = await lib.areas(LibraryKind.space, today);
+  final mine = await lib.seatBookings();
+  final m = await lib.member();
+  String rb;
+  try {
+    rb = (await lib.roomBookings()).length.toString();
+  } catch (e) {
+    rb = 'ERR $e';
+  }
+  return 'seats ${seats.length} first ${seats.isEmpty ? '' : '${seats.first.campus}/${seats.first.floor}/${seats.first.name} ${seats.first.free}/${seats.first.total}'}\n'
+      'rooms ${rooms.length} first ${rooms.isEmpty ? '' : '${rooms.first.name} cap ${rooms.first.capacity} ${rooms.first.typeName}'}\n'
+      'mySeat ${mine.length} first ${mine.isEmpty ? '' : '${mine.first.place} ${mine.first.seat} ${mine.first.day} ${mine.first.statusName}'}\n'
+      'roomBookings $rb\nmember ${m.roleName} qr ${m.qrImage != null}';
 });

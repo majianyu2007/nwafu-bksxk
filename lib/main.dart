@@ -131,3 +131,4 @@ String debugDay(int y, int m, int d) => debugContainer!
           '${o.session.courseName} ${o.session.startPeriod}-${o.session.endPeriod} ${o.session.room}',
     )
     .join('; ');
+void debugProbeLibrary() => live_probe.probeLibrary(debugContainer!);

@@ -174,6 +174,7 @@ class CasClient {
         !const {
           'authserver.nwafu.edu.cn',
           'ehall.nwafu.edu.cn',
+          'booking-lib.nwafu.edu.cn',
         }.contains(uri.host)) {
       throw AppError(
         AppErrorKind.schemaOrRedirect,
