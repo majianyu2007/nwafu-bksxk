@@ -32,10 +32,12 @@ ditto "$APP_PATH" "$STAGE_DIR/$APP_NAME.app"
 # Finder presents this beside the app, giving users the standard drag target.
 ln -s /Applications "$STAGE_DIR/Applications"
 
+# ULMO (LZMA) is ~30% smaller than UDZO (zlib) for this app (71 MB -> 49 MB on
+# v2.0.0) and mounts on macOS 10.15+, below the app's 14.0 minimum.
 hdiutil create \
   -volname "$APP_NAME" \
   -srcfolder "$STAGE_DIR" \
-  -format UDZO \
+  -format ULMO \
   -ov \
   "$DMG_PATH"
 

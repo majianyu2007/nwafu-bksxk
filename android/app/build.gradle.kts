@@ -39,6 +39,16 @@ android {
         versionName = flutter.versionName
     }
 
+    // Compress native libraries inside the APK (extracted at install time).
+    // The .so files are ~56 MB stored vs ~21 MB deflated (onnxruntime, the Go
+    // VPN library, libflutter, libapp), so this roughly halves the download.
+    // Trade-off: the installed footprint grows by the extracted copies.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     signingConfigs {
         if (keyPropertiesFile.exists()) {
             create("release") {

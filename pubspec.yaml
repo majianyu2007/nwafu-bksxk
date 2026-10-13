@@ -30,7 +30,6 @@ dependencies:
   image: ^4.2.0
   # UI niceties
   dynamic_color: ^1.7.0
-  cupertino_icons: ^1.0.6
   # Web-only: read the companion userscript's install flag (tree-shaken off web).
   web: ^1.1.0
   window_manager: ^0.5.2
