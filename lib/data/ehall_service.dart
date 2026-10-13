@@ -529,28 +529,36 @@ class EhallService {
 
   /// Rooms free on [date] (Beijing calendar day) from period [from] to [to].
   /// The official page posts flat fields (KXRQ/KSJC/JSJC), not querySetting.
+  /// The server ignores paging and returns every room (~850, ~4 s), so this
+  /// is one request; callers cache per day and block.
   Future<List<FreeRoom>> freeRooms(DateTime date, int from, int to) async {
     final day =
         '${date.year}-${date.month.toString().padLeft(2, '0')}-'
         '${date.day.toString().padLeft(2, '0')}';
-    final rooms = <FreeRoom>[];
-    for (var page = 1; page <= 20; page++) {
-      final r = await rows(
-        EmapApp.rooms,
-        'modules/kxjscx/cxkxjs.do',
-        'cxkxjs',
-        form: {
-          'KXRQ': day,
-          'KSJC': '$from',
-          'JSJC': '$to',
-          'pageSize': '200',
-          'pageNumber': '$page',
-        },
-      );
-      rooms.addAll(r.map(FreeRoom.fromRow).where((x) => x.name.isNotEmpty));
-      if (r.length < 200) break;
-    }
-    return rooms;
+    final r = await rows(
+      EmapApp.rooms,
+      'modules/kxjscx/cxkxjs.do',
+      'cxkxjs',
+      form: {
+        'KXRQ': day,
+        'KSJC': '$from',
+        'JSJC': '$to',
+        'pageSize': '2000',
+        'pageNumber': '1',
+      },
+    ).timeout(
+      const Duration(seconds: 25),
+      onTimeout: () => throw AppError(
+        AppErrorKind.timeout,
+        message: '空教室查询超时',
+        hint: '学校服务器较慢，请稍后下拉重试。',
+      ),
+    );
+    return [
+      for (final row in r)
+        if (FreeRoom.fromRow(row) case final room when room.name.isNotEmpty)
+          room,
+    ];
   }
 }
 

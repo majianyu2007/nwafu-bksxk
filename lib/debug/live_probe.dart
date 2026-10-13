@@ -178,3 +178,17 @@ void probeFetch(ProviderContainer c, String url) => probe(() async {
   final r = await dio.get<String>(url);
   return r.data ?? '';
 });
+
+void probeRoomsTiming(ProviderContainer c, int size) => probe(() async {
+  final dio = c.read(eduClientProvider).cas.dio;
+  await c.read(eduClientProvider).ehall.activate(EmapApp.rooms);
+  final sw = Stopwatch()..start();
+  final r = await dio.post<String>(
+    '$kEhallOrigin/jwapp/sys/kxjas/modules/kxjscx/cxkxjs.do',
+    data: {'KXRQ': '2026-10-13', 'KSJC': '1', 'JSJC': '2', 'pageSize': '$size', 'pageNumber': '1'},
+    options: Options(contentType: Headers.formUrlEncodedContentType),
+  );
+  final j = jsonDecode(r.data!) as Map;
+  final b = (j['datas'] as Map)['cxkxjs'] as Map;
+  return {'ms': sw.elapsedMilliseconds, 'rows': (b['rows'] as List).length, 'total': b['totalSize'], 'bytes': r.data!.length};
+});

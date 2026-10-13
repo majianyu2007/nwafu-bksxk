@@ -5,7 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'app/edu_providers.dart' show debugClockOffsetProvider;
+import 'app/edu_providers.dart'
+    show debugClockOffsetProvider, timetableProvider;
 import 'app/providers.dart';
 import 'app/theme.dart';
 import 'app/ui_prefs.dart';
@@ -13,6 +14,7 @@ import 'data/background.dart';
 import 'debug/live_probe.dart' as live_probe;
 import 'data/notifications.dart';
 import 'data/storage.dart';
+import 'data/timetable_logic.dart';
 import 'ui/root_shell.dart';
 
 /// Debug builds expose the container to the VM service for live checks.
@@ -35,12 +37,14 @@ void debugProbeDirect() => live_probe.probeDirect();
 void debugProbeRooms() => live_probe.probeRoomsMeta(debugContainer!);
 void debugProbeRoomsSample() => live_probe.probeRoomsSample(debugContainer!);
 void debugFetch(String u) => live_probe.probeFetch(debugContainer!, u);
+void debugRoomsTiming(int n) => live_probe.probeRoomsTiming(debugContainer!, n);
 void debugTheme(bool dark) => debugContainer!
     .read(themeControllerProvider.notifier)
     .setMode(dark ? ThemeMode.dark : ThemeMode.light);
 void debugShiftClock(int minutes) =>
-    debugContainer!.read(debugClockOffsetProvider.notifier).state =
-        Duration(minutes: minutes);
+    debugContainer!.read(debugClockOffsetProvider.notifier).state = Duration(
+      minutes: minutes,
+    );
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -117,3 +121,13 @@ class NwafuXkApp extends ConsumerWidget {
     );
   }
 }
+
+String debugDay(int y, int m, int d) => debugContainer!
+    .read(timetableProvider)
+    .data!
+    .classesOn(DateTime.utc(y, m, d))
+    .map(
+      (o) =>
+          '${o.session.courseName} ${o.session.startPeriod}-${o.session.endPeriod} ${o.session.room}',
+    )
+    .join('; ');
