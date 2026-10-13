@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Home-screen widgets: frosted light surface. Dark variants in values-night. -->
+    <color name="widget_surface">#E6FFFFFF</color>
+    <color name="widget_stroke">#33FFFFFF</color>
+    <color name="widget_row">#0D1B1B1F</color>
+    <color name="widget_row_next">#143B6FE0</color>
+    <color name="widget_row_live">#293B6FE0</color>
+    <color name="widget_text">#1B1B1F</color>
+    <color name="widget_text_secondary">#5F6368</color>
+    <color name="widget_text_faint">#9AA0A6</color>
+    <color name="widget_accent">#3B6FE0</color>
+    <color name="widget_chip">#1F3B6FE0</color>
+</resources>

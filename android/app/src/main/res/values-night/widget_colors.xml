@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_surface">#D91E1F24</color>
+    <color name="widget_stroke">#1FFFFFFF</color>
+    <color name="widget_row">#14FFFFFF</color>
+    <color name="widget_row_next">#2E8AB4FF</color>
+    <color name="widget_row_live">#478AB4FF</color>
+    <color name="widget_text">#ECEDF1</color>
+    <color name="widget_text_secondary">#B0B4BC</color>
+    <color name="widget_text_faint">#6E737C</color>
+    <color name="widget_accent">#8AB4FF</color>
+    <color name="widget_chip">#338AB4FF</color>
+</resources>

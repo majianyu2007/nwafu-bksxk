@@ -1092,8 +1092,14 @@ final eduLifecycleProvider = Provider<void>((ref) {
       unawaited(ref.read(classReminderProvider.notifier).reschedule());
   ref.listen(timetableProvider, (_, next) {
     schedule();
-    unawaited(updateHomeWidget(next.data));
   });
+  // Also on launch, so the widgets' week of dated classes rolls forward
+  // whenever the app opens, not only after a sync.
+  ref.listen(
+    timetableProvider.select((s) => s.data),
+    (_, data) => unawaited(updateHomeWidget(data)),
+    fireImmediately: true,
+  );
   ref.listen<EduState>(eduSessionProvider, (previous, next) {
     schedule();
     if (next.signedIn &&

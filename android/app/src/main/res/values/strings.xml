@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="next_class_widget_description">当前或下一节课</string>
+    <string name="next_class_widget_description">当前或下一节课，含上课/下课倒计时</string>
+    <string name="class_widget_small_description">下一节课的时间、课程和教室</string>
+    <string name="class_widget_today_description">今天的课程列表，正在上的课高亮</string>
+    <string name="next_class_widget_label">下一节课 2×1</string>
+    <string name="class_widget_small_label">下一节课 1×1</string>
+    <string name="class_widget_today_label">今日课表 2×2</string>
 </resources>
