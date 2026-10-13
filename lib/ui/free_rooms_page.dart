@@ -685,13 +685,24 @@ class _SuggestionCardState extends State<_SuggestionCard> {
               Text(widget.time, style: theme.textTheme.bodySmall),
             ],
           ),
-          const SizedBox(height: 2),
-          Text(s.reason, style: theme.textTheme.bodySmall),
+          if (s.anchorRoom != null) ...[
+            const SizedBox(height: 8),
+            // Where the class is: the fact the whole card hangs on.
+            _ClassPlace(
+              label: s.kind == SuggestionKind.afterClass ? '上一节' : '下一节',
+              room: s.anchorRoom!,
+              building: s.building,
+              course: s.reason,
+            ),
+          ] else ...[
+            const SizedBox(height: 2),
+            Text(s.reason, style: theme.textTheme.bodySmall),
+          ],
           if (s.sameRoom != null)
             Padding(
-              padding: const EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.only(top: 8),
               child: Text(
-                '${s.sameRoom!.name} 这段时间空着，可以直接去那儿等上课',
+                '这间教室这段时间空着，可以直接去那儿',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.primary,
                   fontWeight: FontWeight.w600,
@@ -702,17 +713,32 @@ class _SuggestionCardState extends State<_SuggestionCard> {
           if (s.rooms.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text('这段时间没有空教室', style: theme.textTheme.bodySmall),
+              child: Text(
+                s.building == null
+                    ? '这段时间没有空教室'
+                    : '${s.building}这段时间没有空教室，可以在下面按楼找',
+                style: theme.textTheme.bodySmall,
+              ),
             )
-          else
+          else ...[
+            if (s.building != null && s.sameRoom == null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '同在${s.building}',
+                  style: theme.textTheme.labelMedium,
+                ),
+              ),
             for (final r in rooms)
               _RoomRow(
                 room: r.room,
                 free: widget.freeBlocks(r.room.name),
                 highlight: s.blocks.toSet(),
                 star: r.room == s.sameRoom,
+                showBuilding: false,
                 onTap: () => widget.onRoom(r.room.name),
               ),
+          ],
           if (s.rooms.length > 3)
             Align(
               alignment: Alignment.centerRight,
@@ -721,6 +747,62 @@ class _SuggestionCardState extends State<_SuggestionCard> {
                 child: Text(_more ? '收起' : '再看 ${s.rooms.length - 3} 间'),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The class next to a free stretch: room in large type, building and course
+/// beside it.
+class _ClassPlace extends StatelessWidget {
+  const _ClassPlace({
+    required this.label,
+    required this.room,
+    required this.building,
+    required this.course,
+  });
+  final String label;
+  final String room;
+  final String? building;
+  final String course;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.place, color: scheme.primary, size: 22),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  room,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+                Text(
+                  [label, course, if (building != null) building!].join(' · '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

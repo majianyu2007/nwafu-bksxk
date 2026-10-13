@@ -6,11 +6,14 @@
 /// blocks without a class) and, for each, ranks study rooms:
 ///
 ///  1. the next class's own room, when it is free for the whole stretch
-///     (study there, no walking: the "早十有课，早八先去那间" case);
-///  2. rooms free for the whole stretch before rooms free for part of it;
-///  3. the same building as the class next to the stretch, then the same
-///     campus, then the rest;
-///  4. ordinary classrooms of a normal size before huge halls.
+///     (stay there, no walking: the "早十有课，早八先去那间" case);
+///  2. other rooms **in the same building** as that class, free for the whole
+///     stretch first, ordinary-sized classrooms before huge halls.
+///
+/// Rooms in other buildings are never suggested: whether a walk is worth it
+/// is the student's call (some do not want to change buildings at all), and
+/// the school gives no map to judge distance. When the building has nothing
+/// free the suggestion says so and the list below is there to browse.
 ///
 /// Sports grounds, rehearsal and lecture halls, labs and computer rooms are
 /// listed by the school as "free" but are not study rooms; they are left out
@@ -124,6 +127,8 @@ class RoomSuggestion {
     required this.reason,
     required this.rooms,
     this.sameRoom,
+    this.anchorRoom,
+    this.building,
   });
   final SuggestionKind kind;
 
@@ -139,6 +144,12 @@ class RoomSuggestion {
 
   /// The next class's own room, when it is free for the whole stretch.
   final FreeRoom? sameRoom;
+
+  /// The room of the class this stretch is about, e.g. `N8618`.
+  final String? anchorRoom;
+
+  /// The school building of [anchorRoom], when known.
+  final String? building;
 
   RoomBlock get block => blocks.first;
 }
@@ -238,10 +249,12 @@ List<RoomSuggestion> suggestRooms({
         reason: anchor.room.isEmpty
             ? '${next == null ? '上' : '下'}一节是${anchor.displayName}'
             : next != null
-            ? '${periods(next)}在 ${next.room} 上${next.displayName}'
-            : '${periods(anchor)}在 ${anchor.room}，附近的排在前面',
+            ? '${periods(next)} ${next.displayName}'
+            : '${periods(anchor)} ${anchor.displayName}',
         rooms: ranked.take(limit).toList(),
         sameRoom: same,
+        anchorRoom: anchor.room.isEmpty ? null : anchor.room,
+        building: anchor.room.isEmpty ? null : dir.buildingOf(anchor.room),
       ),
     );
   }
@@ -258,7 +271,7 @@ List<RoomSuggestion> suggestRooms({
           kind: SuggestionKind.freeDay,
           blocks: [b],
           title: '${b.label} 没课',
-          reason: home == null ? '这天没有课' : '这天没有课，$home 的排在前面',
+          reason: home == null ? '这天没有课' : '这天没有课，看看常去的$home',
           rooms: _rank(
             [b],
             free,
@@ -282,7 +295,6 @@ List<RankedRoom> _rank(
   final building =
       anchorBuilding ??
       (anchorRoom == null ? null : dir.buildingOf(anchorRoom));
-  final campus = anchorRoom == null ? null : dir.campusOf(anchorRoom);
   final byName = <String, RankedRoom>{};
   for (final b in stretch) {
     for (final r in free[b]!) {
@@ -291,18 +303,14 @@ List<RankedRoom> _rank(
       byName[r.name] = RankedRoom(r, [...?seen?.freeIn, b]);
     }
   }
-  // The class's own room leads only when it is free for the whole stretch;
-  // otherwise it is just another room in that building.
-  int place(RankedRoom r) {
-    if (anchorRoom != null &&
-        r.room.name == anchorRoom &&
-        r.freeIn.length == stretch.length) {
-      return 0;
-    }
-    if (building != null && r.room.building == building) return 1;
-    if (campus != null && r.room.campus == campus) return 2;
-    return 3;
-  }
+  // Only the class's own building counts as "no walking".
+  final near = byName.values
+      .where(
+        (r) =>
+            r.room.name == anchorRoom ||
+            (building != null && r.room.building == building),
+      )
+      .toList();
 
   // 40–150 seats is an ordinary classroom; very small or huge rooms last.
   int size(FreeRoom r) {
@@ -310,12 +318,14 @@ List<RankedRoom> _rank(
     return s >= 40 && s <= 150 ? 0 : 1;
   }
 
-  // Own room, then free for the whole stretch, then nearness, then size.
-  return byName.values.toList()..sort((a, b) {
+  // The class's own room leads when free for the whole stretch; then rooms
+  // free for longer, then ordinary sizes.
+  bool own(RankedRoom r) =>
+      r.room.name == anchorRoom && r.freeIn.length == stretch.length;
+  return near..sort((a, b) {
     for (final c in [
-      (place(a) == 0 ? 0 : 1).compareTo(place(b) == 0 ? 0 : 1),
+      (own(a) ? 0 : 1).compareTo(own(b) ? 0 : 1),
       b.freeIn.length.compareTo(a.freeIn.length),
-      place(a).compareTo(place(b)),
       size(a.room).compareTo(size(b.room)),
     ]) {
       if (c != 0) return c;

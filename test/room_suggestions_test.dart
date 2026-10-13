@@ -71,13 +71,10 @@ void main() {
     final before = out.firstWhere((s) => s.kind == SuggestionKind.beforeClass);
     expect(before.blocks, [kRoomBlocks[0]]);
     expect(before.sameRoom?.name, 'N8618');
-    expect(before.reason, contains('N8618'));
-    expect(before.rooms.map((r) => r.room.name), [
-      'N8618',
-      'N8402',
-      'N9101',
-      'S1101',
-    ]);
+    expect(before.anchorRoom, 'N8618');
+    // Other buildings are never suggested.
+    expect(before.rooms.map((r) => r.room.name), ['N8618', 'N8402']);
+    expect(before.building, '北8');
   });
 
   test('a gap between classes is one stretch; whole-stretch rooms first', () {
@@ -104,7 +101,9 @@ void main() {
     // A305 is free for all of 3-8, so it beats rooms free for part of it.
     expect(gap.rooms.first.room.name, '理科楼A305');
     expect(gap.rooms.first.freeIn.length, 3);
-    expect(gap.reason, contains('理科楼A402'));
+    expect(gap.anchorRoom, '理科楼A402');
+    // Only 理科楼 rooms: N9201 is in another building.
+    expect(gap.rooms.map((r) => r.room.name), isNot(contains('N9201')));
   });
 
   test('past blocks and non-study rooms are left out', () {
@@ -127,6 +126,17 @@ void main() {
       expect(s.blocks, isNot(contains(kRoomBlocks[1])));
       expect(s.rooms.map((r) => r.room.name), ['N8101']);
     }
+  });
+
+  test('nothing free in the building means no suggestion rooms', () {
+    final out = run(
+      [cls('Java', '计算机机房103-A', 3, 4)],
+      {
+        kRoomBlocks[0]: [room('N3101', building: '北3')],
+      },
+    );
+    final s = out.single;
+    expect(s.rooms, isEmpty);
   });
 
   test('a day off suggests the next block', () {
