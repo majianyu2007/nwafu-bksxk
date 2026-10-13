@@ -54,10 +54,11 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     });
   }
 
-  void _login() {
-    Navigator.of(
+  Future<void> _login() async {
+    final ok = await Navigator.of(
       context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const EduLoginPage()));
+    ).push<bool>(MaterialPageRoute(builder: (_) => const EduLoginPage()));
+    if (ok == true && mounted) await _sync();
   }
 
   Future<void> _sync() async {
@@ -298,10 +299,17 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
                         '${data == null ? '' : '\n显示的是上次保存的课表。'}',
                     icon: Icons.cloud_off_outlined,
                     error: true,
-                    action: TextButton(
-                      onPressed: state.loading ? null : _sync,
-                      child: const Text('重试'),
-                    ),
+                    // An expired login cannot be fixed by syncing again.
+                    action: error.kind == AppErrorKind.sessionExpired ||
+                            error.kind == AppErrorKind.account
+                        ? TextButton(
+                            onPressed: _login,
+                            child: const Text('重新登录'),
+                          )
+                        : TextButton(
+                            onPressed: state.loading ? null : _sync,
+                            child: const Text('重试'),
+                          ),
                   ),
                 if (data == null)
                   _Welcome(

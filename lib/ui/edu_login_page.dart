@@ -29,7 +29,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
   bool _deviceKey = false;
   String _unlockLabel = '指纹/面容';
   bool _usedDeviceKey = false;
-  bool _remember = false;
+  bool _remember = true;
   bool _trustDevice = false;
   bool _busy = false;
   bool _finished = false;

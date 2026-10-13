@@ -780,7 +780,9 @@ class CasClient {
   }
 
   Future<Response<String>> _guard(Future<Response<String>> Function() f) async {
-    requireSupportedPlatform();
+    // On web only the browser-session bridge may carry requests; the
+    // password/passkey login itself is refused in [login].
+    if (kIsWeb) requireBrowserSessionBridge();
     try {
       return await f();
     } on DioException catch (e) {
