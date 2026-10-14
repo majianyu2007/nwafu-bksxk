@@ -651,9 +651,10 @@ class CourseCell extends StatelessWidget {
             boxShadow: glow && !other
                 ? [
                     BoxShadow(
-                      color: color.withValues(alpha: ongoing ? 0.35 : 0.18),
-                      blurRadius: ongoing ? 18 : 10,
-                      offset: const Offset(0, 4),
+                      color: color.withValues(alpha: ongoing ? 0.32 : 0.16),
+                      blurRadius: ongoing ? 16 : 10,
+                      spreadRadius: -2,
+                      offset: const Offset(0, 3),
                     ),
                   ]
                 : null,
@@ -666,11 +667,9 @@ class CourseCell extends StatelessWidget {
               decoration: BoxDecoration(
                 color: fill,
                 gradient: tokens.enabled ? sheenGradient(tokens, fill) : null,
-                border: glow && !other
-                    ? Border.all(
-                        color: color.withValues(alpha: ongoing ? 0.55 : 0.3),
-                      )
-                    : null,
+                // No outline: on a clipped rounded cell a square border
+                // leaves stray lines along the top and bottom edges. The
+                // glow is the shadow above plus the stronger tint.
               ),
               child: InkWell(
                 onTap: open,
@@ -845,25 +844,32 @@ class _CellText extends StatelessWidget {
           height: 1.2,
           fontWeight: FontWeight.w500,
         );
-        // Clip rather than overflow if a very long name meets the row cap.
+        // Content taller than the cell (very long names, large text) is cut
+        // off at the cell edge instead of throwing an overflow stripe.
         return ClipRect(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              head,
-              for (final line in lines)
-                // A short room code ("N9308") is one unit: shrink it a
-                // little onto one line rather than split it. Long names
-                // ("计算机机房202-B") wrap normally instead of going tiny.
-                metrics.dense &&
-                        _textWidth(line, metaStyle) <= box.maxWidth / 0.8
-                    ? FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text(line, style: metaStyle, maxLines: 1),
-                      )
-                    : Text(line, style: metaStyle),
-            ],
+          child: OverflowBox(
+            alignment: Alignment.topLeft,
+            minHeight: 0,
+            maxHeight: double.infinity,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                head,
+                for (final line in lines)
+                  // A short room code ("N9308") is one unit: shrink it a
+                  // little onto one line rather than split it. Long names
+                  // ("计算机机房202-B") wrap normally instead of going tiny.
+                  metrics.dense &&
+                          _textWidth(line, metaStyle) <= box.maxWidth / 0.8
+                      ? FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(line, style: metaStyle, maxLines: 1),
+                        )
+                      : Text(line, style: metaStyle),
+              ],
+            ),
           ),
         );
       },

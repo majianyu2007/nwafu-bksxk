@@ -214,7 +214,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Icon(
-                Icons.fingerprint,
+                unlockIcon(label),
                 size: 48,
                 color: Theme.of(context).colorScheme.primary,
               ),
@@ -502,7 +502,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                               onPressed: _busy
                                   ? null
                                   : () => _submit(deviceKey: true),
-                              icon: const Icon(Icons.fingerprint),
+                              icon: Icon(unlockIcon(_unlockLabel)),
                               label: Padding(
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 12,

@@ -87,7 +87,7 @@ class _DeviceSignInSettingState extends ConsumerState<DeviceSignInSetting> {
     if (!signedIn) return const SizedBox.shrink();
     final bound = ref.watch(deviceKeyBoundProvider).value;
     return SwitchListTile(
-      secondary: const Icon(Icons.fingerprint),
+      secondary: Icon(unlockIcon(_label)),
       title: Text('$_label登录'),
       subtitle: Text(
         !_supported
@@ -116,9 +116,9 @@ class CampusAccessSetting extends ConsumerWidget {
       }
     });
     final (icon, text) = switch (s.route) {
-      CampusRoute.direct => (Icons.lan_outlined, '校园网直连'),
+      CampusRoute.direct => (Icons.lan_outlined, '选课系统可直连'),
       CampusRoute.vpn => (Icons.vpn_lock_outlined, '校外访问（VPN）'),
-      CampusRoute.unreachable => (Icons.cloud_off_outlined, '连不上学校服务器'),
+      CampusRoute.unreachable => (Icons.cloud_off_outlined, '选课系统连不上（需校园网）'),
       CampusRoute.unknown => (Icons.travel_explore_outlined, '尚未检测'),
     };
     return Column(
@@ -128,7 +128,7 @@ class CampusAccessSetting extends ConsumerWidget {
           title: Text(text),
           subtitle: Text(
             s.message ??
-                '在校外时自动通过学校 VPN 连接，账号密码与统一身份认证相同',
+                '只有选课系统需要校园网；在校外时自动通过学校 VPN 连接选课系统，账号密码与统一身份认证相同',
           ),
           trailing: s.busy
               ? const SizedBox.square(

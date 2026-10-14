@@ -1,6 +1,7 @@
 /// One switch every campus HTTP client consults: while the embedded VPN is
-/// up, requests to *.nwafu.edu.cn go through its local proxy; otherwise they
-/// connect directly. Other hosts (GitHub update checks, OCR) never use it.
+/// up, requests to the campus-only hosts (the course selection system) go
+/// through its local proxy; everything else, including the unified identity
+/// and ehall which answer from the internet, connects directly.
 library;
 
 import 'package:dio/dio.dart';
@@ -16,8 +17,10 @@ class CampusProxy {
   /// `127.0.0.1:<port>` while the VPN runs, else null.
   String? address;
 
-  static bool isCampusHost(String host) =>
-      host == 'nwafu.edu.cn' || host.endsWith('.nwafu.edu.cn');
+  /// Hosts only reachable on the campus network.
+  static const campusOnlyHosts = {'bksxk.nwafu.edu.cn'};
+
+  static bool isCampusHost(String host) => campusOnlyHosts.contains(host);
 
   /// The `findProxy` answer for [uri].
   String route(Uri uri) {

@@ -135,6 +135,7 @@ class _ProfileCard extends ConsumerWidget {
     final selection = ref.watch(signedInAccountsProvider);
     final route = ref.watch(campusAccessProvider).route;
     final bound = ref.watch(deviceKeyBoundProvider).value ?? false;
+    final unlock = ref.watch(unlockKindProvider).value;
 
     if (!session.signedIn || account == null) {
       return GlassCard(
@@ -221,8 +222,8 @@ class _ProfileCard extends ConsumerWidget {
                 ok: selection.isNotEmpty,
               ),
               _StatusChip(
-                icon: Icons.fingerprint,
-                label: bound ? '快捷登录已开' : '快捷登录未开',
+                icon: unlock?.icon ?? Icons.fingerprint,
+                label: '${unlock?.label ?? '快捷'}登录${bound ? '已开' : '未开'}',
                 ok: bound,
               ),
               _StatusChip(
@@ -230,9 +231,9 @@ class _ProfileCard extends ConsumerWidget {
                     ? Icons.vpn_lock_outlined
                     : Icons.lan_outlined,
                 label: switch (route) {
-                  CampusRoute.direct => '校园网',
-                  CampusRoute.vpn => '校外访问中',
-                  CampusRoute.unreachable => '连不上学校',
+                  CampusRoute.direct => '选课可直连',
+                  CampusRoute.vpn => '选课走 VPN',
+                  CampusRoute.unreachable => '选课需校园网',
                   CampusRoute.unknown => '网络未检测',
                 },
                 ok: route == CampusRoute.direct || route == CampusRoute.vpn,

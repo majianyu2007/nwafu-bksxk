@@ -34,11 +34,11 @@ Future<bool> defaultDirectProbe(String url) async {
   }
 }
 
-/// Hosts that must answer for the direct route to count.
-const kCampusProbeUrls = [
-  'https://authserver.nwafu.edu.cn/authserver/login',
-  'https://ehall.nwafu.edu.cn/',
-];
+/// Hosts that must answer for the direct route to count. Only the course
+/// selection system is campus-only; the unified identity, ehall, the library
+/// and 一网通办 all answer from the internet, so probing them would report
+/// 校园网直连 on mobile data.
+const kCampusProbeUrls = ['https://bksxk.nwafu.edu.cn/'];
 
 /// One retry: a cold start (DNS, wake from sleep) often fails the first
 /// probe, and starting the VPN on campus would only fail at the gateway.

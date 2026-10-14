@@ -4,15 +4,17 @@ import 'package:nwafu_bksxk/data/vpn/campus_route.dart';
 import 'package:nwafu_bksxk/data/vpn/vpn_bridge.dart';
 
 void main() {
-  test('only campus hosts go through the VPN proxy', () {
+  test('only the campus-only selection host goes through the VPN', () {
     final p = CampusProxy.instance;
     addTearDown(() => p.address = null);
     p.address = null;
     expect(p.route(Uri.parse('https://ehall.nwafu.edu.cn/x')), 'DIRECT');
     p.address = '127.0.0.1:5555';
+    // ehall and the AuthServer answer from the internet: never proxied.
+    expect(p.route(Uri.parse('https://ehall.nwafu.edu.cn/x')), 'DIRECT');
     expect(
-      p.route(Uri.parse('https://ehall.nwafu.edu.cn/x')),
-      'PROXY 127.0.0.1:5555',
+      p.route(Uri.parse('https://authserver.nwafu.edu.cn/')),
+      'DIRECT',
     );
     expect(
       p.route(Uri.parse('https://bksxk.nwafu.edu.cn/')),
@@ -26,7 +28,7 @@ void main() {
     expect(await campusReachableDirectly((_) async => true), isTrue);
     expect(
       await campusReachableDirectly(
-        (url) async => !url.contains('ehall'),
+        (url) async => !url.contains('bksxk'),
       ),
       isFalse,
     );

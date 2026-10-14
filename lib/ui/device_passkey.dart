@@ -110,7 +110,7 @@ Future<String?> _askDeviceName(BuildContext context, String label) {
   return showDialog<String>(
     context: context,
     builder: (context) => AlertDialog(
-      icon: const Icon(Icons.fingerprint),
+      icon: Icon(unlockIcon(label)),
       title: Text('开启$label登录'),
       content: Column(
         mainAxisSize: MainAxisSize.min,

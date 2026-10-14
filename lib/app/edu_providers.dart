@@ -11,6 +11,7 @@ import 'dart:convert';
 
 import 'package:cookie_jar/cookie_jar.dart' show CookieJar, PersistCookieJar;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show IconData, Icons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/crypto/passkey.dart';
@@ -215,10 +216,23 @@ class EduSessionController extends StateNotifier<EduState> {
     final epoch = ++_epoch;
     _pending = null;
     _relogin = null;
-    state = const EduState(phase: EduPhase.signedOut);
-    final reminders = _ref.read(classReminderProvider.notifier).reschedule();
+    // Signing in again as the same student keeps the account, cookies and
+    // offline data until the new login succeeds: a failed or cancelled
+    // attempt must not take the cached timetable away.
+    final same = state.account?.username == username;
+    _resumeOnCancel = same ? state : null;
+    if (!same) state = const EduState(phase: EduPhase.signedOut);
+    final reminders = same
+        ? Future<void>.value()
+        : _ref.read(classReminderProvider.notifier).reschedule();
     await _serial(() async {
       if (!_current(epoch)) return;
+      if (same) {
+        // A fresh AuthServer login; the ehall cookies stay until it works.
+        await _client.cas.clearSession();
+        _bindClient();
+        return;
+      }
       final old = _client;
       final oldAccount =
           _ref.read(_eduClientAccountProvider) ?? previousAccount;
@@ -369,6 +383,7 @@ class EduSessionController extends StateNotifier<EduState> {
 
   Future<void> _finish(_PendingEduLogin p) async {
     if (!_current(p.epoch)) throw _cancelled;
+    _resumeOnCancel = null;
     p.client.ehall.reset();
     p.client.portal.reset();
     var account = EduAccount(
@@ -569,8 +584,22 @@ class EduSessionController extends StateNotifier<EduState> {
     }
   });
 
-  Future<void> cancelLogin() =>
-      _pending == null && state.signedIn ? Future.value() : logout();
+  /// The signed-in state a same-account login attempt started from; a
+  /// cancelled attempt goes back to it instead of signing out.
+  EduState? _resumeOnCancel;
+
+  Future<void> cancelLogin() {
+    final resume = _resumeOnCancel;
+    if (resume != null) {
+      _resumeOnCancel = null;
+      ++_epoch;
+      _pending = null;
+      state = resume;
+      _bindClient();
+      return Future.value();
+    }
+    return _pending == null && state.signedIn ? Future.value() : logout();
+  }
 
   Future<void> logout() async {
     final signedInAs = state.signedIn ? state.account?.username : null;
@@ -634,6 +663,26 @@ class _PendingEduLogin {
 
 /// Fingerprint / Face ID gate for the bound passkey.
 final deviceUnlockProvider = Provider<DeviceUnlock>((ref) => DeviceUnlock());
+
+/// How this device confirms the user (面容 / 指纹 / …), detected once: the
+/// label and icon every fingerprint/Face ID control shows.
+final unlockKindProvider = FutureProvider<({String label, IconData icon})>((
+  ref,
+) async {
+  final label = await ref.read(deviceUnlockProvider).label();
+  return (
+    label: label,
+    icon: unlockIcon(label),
+  );
+});
+
+/// The icon for a [DeviceUnlock.label]: a face for 面容, a fingerprint for
+/// 指纹, a lock for the device passcode.
+IconData unlockIcon(String label) => switch (label) {
+  '面容' => Icons.face_retouching_natural,
+  '指纹' => Icons.fingerprint,
+  _ => Icons.lock_outline,
+};
 
 /// Whether this install holds a bound passkey for the signed-in account.
 /// The one place every screen reads it from; bind/unbind invalidate it.

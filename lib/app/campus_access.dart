@@ -90,7 +90,7 @@ class CampusAccessController extends StateNotifier<CampusAccessState> {
         state = state.copyWith(
           route: CampusRoute.unreachable,
           busy: false,
-          message: vpnAvailable ? '当前无法直连校园网' : '当前无法直连校园网，此版本未内置校外访问',
+          message: vpnAvailable ? '选课系统只能在校园网访问' : '选课系统只能在校园网访问，此版本未内置校外访问',
         );
       }
       return;
