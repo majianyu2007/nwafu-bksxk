@@ -16,6 +16,7 @@ import '../data/academic_calendar.dart' show schoolDate;
 import '../data/edu_models.dart';
 import '../data/room_suggestions.dart';
 import '../data/timetable_logic.dart';
+import 'edu_login_page.dart';
 import 'layout.dart';
 import 'widgets.dart';
 import 'widgets/glass.dart';
@@ -40,6 +41,7 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
   final _need = <RoomBlock>{};
   String? _building;
   bool _studyOnly = true;
+  bool _longStreakOnly = false;
   final _search = TextEditingController();
   final _rooms = <RoomBlock, List<FreeRoom>>{};
   final _errors = <RoomBlock, AppError>{};
@@ -51,13 +53,22 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
   void initState() {
     super.initState();
     _date = schoolDate(ref.read(clockProvider).value ?? DateTime.now());
-    _load();
+    if (ref.read(eduSessionProvider).signedIn) {
+      _load();
+    }
   }
 
   @override
   void dispose() {
     _search.dispose();
     super.dispose();
+  }
+
+  Future<void> _login() async {
+    final ok = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => const EduLoginPage()));
+    if (ok == true && mounted) await _load(force: true);
   }
 
   String _key(RoomBlock b) {
@@ -67,6 +78,7 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
 
   /// Queries every block of [_date] at once; each fills in as it arrives.
   Future<void> _load({bool force = false}) async {
+    if (!ref.read(eduSessionProvider).signedIn) return;
     final request = ++_request;
     setState(() {
       _rooms.clear();
@@ -94,7 +106,7 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
             if (!mounted || request != _request) return;
             setState(() => _rooms[b] = rooms);
           } catch (e) {
-            _cache.remove(key);
+            if (_cache[key]?.rooms == future) _cache.remove(key);
             if (!mounted || request != _request) return;
             setState(
               () => _errors[b] = e is AppError
@@ -110,14 +122,17 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
     ]);
   }
 
-  /// Which loaded blocks [name] is free in.
-  Set<RoomBlock> _freeBlocks(String name) => {
-    for (final e in _rooms.entries)
-      if (e.value.any((r) => r.name == name)) e.key,
-  };
-
   @override
   Widget build(BuildContext context) {
+    ref.listen<String?>(
+      eduSessionProvider.select((s) => s.signedIn ? s.account?.username : null),
+      (prev, next) {
+        if (prev != next) {
+          _cache.clear();
+          if (next != null) _load(force: true);
+        }
+      },
+    );
     final signedIn = ref.watch(eduSessionProvider).signedIn;
     final timetable = ref.watch(timetableProvider).data;
     final now = ref.watch(clockProvider).value ?? DateTime.now();
@@ -136,6 +151,15 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
             home: homeBuilding(timetable, _rooms),
           );
 
+    final freeBlocksByRoom = <String, Set<RoomBlock>>{};
+    for (final entry in _rooms.entries) {
+      for (final r in entry.value) {
+        (freeBlocksByRoom[r.name] ??= <RoomBlock>{}).add(entry.key);
+      }
+    }
+    Set<RoomBlock> blocksOf(String name) =>
+        freeBlocksByRoom[name] ?? const <RoomBlock>{};
+
     return AuroraBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -144,7 +168,22 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
           backgroundColor: Colors.transparent,
         ),
         body: !signedIn
-            ? const Center(child: Text('登录统一身份认证后可查询'))
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const EmptyState(
+                      icon: Icons.meeting_room_outlined,
+                      title: '登录统一身份认证后可查询',
+                      subtitle: '结合你的课表自动推荐课间与课前最顺路的空教室',
+                    ),
+                    FilledButton(
+                      onPressed: _login,
+                      child: const Text('去登录'),
+                    ),
+                  ],
+                ),
+              )
             : RefreshIndicator(
                 onRefresh: () => _load(force: true),
                 child: ListView(
@@ -160,8 +199,8 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
                     ),
                     const SizedBox(height: 14),
                     if (timetable != null)
-                      ..._suggestionSection(context, suggestions),
-                    ..._browse(context, timetable),
+                      ..._suggestionSection(context, suggestions, blocksOf),
+                    ..._browse(context, timetable, now),
                   ],
                 ),
               ),
@@ -176,6 +215,7 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
   List<Widget> _suggestionSection(
     BuildContext context,
     List<RoomSuggestion> suggestions,
+    Set<RoomBlock> Function(String) freeBlocks,
   ) {
     final theme = Theme.of(context);
     if (suggestions.isEmpty) {
@@ -207,7 +247,7 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
           child: _SuggestionCard(
             suggestion: s,
             time: _stretchTime(s.blocks),
-            freeBlocks: _freeBlocks,
+            freeBlocks: freeBlocks,
             onRoom: _showRoomDay,
           ),
         ),
@@ -230,28 +270,61 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
   // 全部空教室
   // ---------------------------------------------------------------------------
 
-  List<Widget> _browse(BuildContext context, TermTimetable? timetable) {
+  List<Widget> _browse(
+    BuildContext context,
+    TermTimetable? timetable,
+    DateTime now,
+  ) {
     final theme = Theme.of(context);
     final loaded = _rooms.isNotEmpty;
-    // Every room free in at least one block, once.
+    // Precompute O(N) lookup maps once instead of O(N^2 log N) linear scans.
     final all = <String, FreeRoom>{};
-    for (final list in _rooms.values) {
-      for (final r in list) {
+    final freeBlocksByRoom = <String, Set<RoomBlock>>{};
+    final freeNamesByBlock = <RoomBlock, Set<String>>{};
+    for (final entry in _rooms.entries) {
+      final names = freeNamesByBlock[entry.key] = <String>{};
+      for (final r in entry.value) {
         all.putIfAbsent(r.name, () => r);
+        names.add(r.name);
+        (freeBlocksByRoom[r.name] ??= <RoomBlock>{}).add(entry.key);
       }
     }
+    Set<RoomBlock> blocksOf(String name) =>
+        freeBlocksByRoom[name] ?? const <RoomBlock>{};
+    final anchorBlock = () {
+      if (_need.isNotEmpty) {
+        return kRoomBlocks.firstWhere((b) => _need.contains(b));
+      }
+      if (timetable != null && _date == schoolDate(now)) {
+        final cst = now.toUtc().add(const Duration(hours: 8));
+        return currentOrNextBlock(
+              cst.hour * 60 + cst.minute,
+              (p) => timetable.period(p, on: _date)?.end,
+            ) ??
+            kRoomBlocks.first;
+      }
+      return kRoomBlocks.first;
+    }();
     final q = _search.text.trim().toUpperCase();
     final shown =
         all.values
             .where((r) => !_studyOnly || isStudyRoom(r))
             .where((r) => _building == null || r.building == _building)
             .where((r) => q.isEmpty || r.name.toUpperCase().contains(q))
-            .where((r) => _freeBlocks(r.name).containsAll(_need))
+            .where((r) => blocksOf(r.name).containsAll(_need))
+            .where(
+              (r) =>
+                  !_longStreakOnly ||
+                  consecutiveFreeRun(
+                        r.name,
+                        anchorBlock,
+                        freeNamesByBlock,
+                      ).count >=
+                      2,
+            )
             .toList()
           ..sort((a, b) {
-            final f = _freeBlocks(
-              b.name,
-            ).length.compareTo(_freeBlocks(a.name).length);
+            final f = blocksOf(b.name).length.compareTo(blocksOf(a.name).length);
             return f != 0 ? f : a.name.compareTo(b.name);
           });
     final groups = <String, List<FreeRoom>>{};
@@ -290,10 +363,20 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
           Expanded(
             child: TextField(
               controller: _search,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
                 hintText: '教室名，如 N8 或 理科楼',
                 isDense: true,
+                suffixIcon: q.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: '清空',
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          _search.clear();
+                          setState(() {});
+                        },
+                      ),
               ),
               onChanged: (_) => setState(() {}),
             ),
@@ -308,23 +391,36 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
       ),
       Padding(
         padding: const EdgeInsets.fromLTRB(4, 6, 4, 6),
-        child: Row(
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          alignment: WrapAlignment.spaceBetween,
           children: [
-            Expanded(
-              child: Text(
-                !loaded
-                    ? '正在查询…'
-                    : _need.isEmpty
-                    ? '${shown.length} 间这天有空'
-                    : '${shown.length} 间在所选时段都空着',
-                style: theme.textTheme.bodySmall,
-              ),
+            Text(
+              !loaded
+                  ? '正在查询…'
+                  : _need.isEmpty
+                  ? '${shown.length} 间这天有空'
+                  : '${shown.length} 间在所选时段都空着',
+              style: theme.textTheme.bodySmall,
             ),
-            FilterChip(
-              label: const Text('只看普通教室'),
-              selected: _studyOnly,
-              visualDensity: VisualDensity.compact,
-              onSelected: (v) => setState(() => _studyOnly = v),
+            Wrap(
+              spacing: 6,
+              children: [
+                FilterChip(
+                  label: Text('${anchorBlock.label}起连空≥2节'),
+                  selected: _longStreakOnly,
+                  visualDensity: VisualDensity.compact,
+                  onSelected: (v) => setState(() => _longStreakOnly = v),
+                ),
+                FilterChip(
+                  label: const Text('只看普通教室'),
+                  selected: _studyOnly,
+                  visualDensity: VisualDensity.compact,
+                  onSelected: (v) => setState(() => _studyOnly = v),
+                ),
+              ],
             ),
           ],
         ),
@@ -355,7 +451,7 @@ class _FreeRoomsPageState extends ConsumerState<FreeRoomsPage> {
                   ? _open.remove(e.key)
                   : _open.add(e.key),
             ),
-            freeBlocks: _freeBlocks,
+            freeBlocks: blocksOf,
             onRoom: _showRoomDay,
           ),
     ];

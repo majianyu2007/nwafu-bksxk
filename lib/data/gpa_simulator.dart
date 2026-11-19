@@ -41,9 +41,69 @@ class GpaSimulationResult {
 /// Converts a 0–100 score to a 4.0-scale grade point (NWAFU linear/capped rule:
 /// < 60 → 0.0, 60–90 → (score - 50) / 10, >= 90 → 4.0).
 double scoreToGpa(double score) {
-  if (score < 60) return 0.0;
+  if (!score.isFinite || score < 60) return 0.0;
   if (score >= 90) return 4.0;
   return double.parse(((score - 50) / 10).toStringAsFixed(2));
+}
+
+/// Inverse of [scoreToGpa]: minimum 0–100 score needed to achieve [gp]
+/// (clamped to `[60, 90]` for `gp` in `(0, 4]`, or `0` for `<= 0`).
+double gpaToEstimatedScore(double gp) {
+  if (!gp.isFinite || gp <= 0) return 0;
+  if (gp >= 4.0) return 90;
+  return (gp * 10 + 50).clamp(60, 90).toDouble();
+}
+
+/// Result of reverse-calculating the required average GPA over upcoming credits
+/// to hit a desired cumulative GPA target (e.g. 3.60 for 保研 / 3.40 奖学金).
+class TargetGpaPlan {
+  const TargetGpaPlan({
+    required this.targetGpa,
+    required this.currentGpa,
+    required this.currentCredits,
+    required this.upcomingCredits,
+    required this.requiredGpa,
+  });
+
+  final double targetGpa;
+  final double currentGpa;
+  final double currentCredits;
+  final double upcomingCredits;
+  final double requiredGpa;
+
+  bool get alreadyReached => requiredGpa <= 0;
+  bool get achievable => requiredGpa <= 4.0;
+  double get estimatedScore => gpaToEstimatedScore(requiredGpa);
+}
+
+/// Computes the average GPA required across [upcomingCredits] to move from
+/// ([currentGpa], [currentCredits]) to [targetGpa].
+TargetGpaPlan? planTargetGpa({
+  required double currentGpa,
+  required double currentCredits,
+  required double upcomingCredits,
+  required double targetGpa,
+}) {
+  if (!currentGpa.isFinite ||
+      !currentCredits.isFinite ||
+      !upcomingCredits.isFinite ||
+      !targetGpa.isFinite ||
+      upcomingCredits <= 0 ||
+      targetGpa <= 0 ||
+      targetGpa > 4.0) {
+    return null;
+  }
+  final neededPoints =
+      targetGpa * (currentCredits + upcomingCredits) -
+      currentGpa * currentCredits;
+  final required = neededPoints / upcomingCredits;
+  return TargetGpaPlan(
+    targetGpa: targetGpa,
+    currentGpa: currentGpa,
+    currentCredits: currentCredits,
+    upcomingCredits: upcomingCredits,
+    requiredGpa: required,
+  );
 }
 
 /// Computes baseline vs simulated GPA from existing [records], optional
@@ -87,10 +147,10 @@ GpaSimulationResult simulateGpa({
   }
 
   for (final c in hypothetical) {
-    if (c.credit <= 0) continue;
+    if (!c.credit.isFinite || c.credit <= 0 || !c.gradePoint.isFinite) continue;
     simGpSum += c.gradePoint * c.credit;
     simGpCred += c.credit;
-    if (c.score != null) {
+    if (c.score != null && c.score!.isFinite) {
       simScoreSum += c.score! * c.credit;
       simScoreCred += c.credit;
     }

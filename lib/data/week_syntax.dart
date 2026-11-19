@@ -21,30 +21,41 @@ List<int> parseWeeks(String text, {int maxWeek = 60}) {
       .replaceAll('（', '(')
       .replaceAll('）', ')');
 
-  // A trailing filter after the last 周 applies to every part.
+  // A trailing parity filter applies to every comma-separated part when no
+  // earlier part already carries its own 周 or parity tag.
   String? globalParity;
-  final tail = RegExp(r'周\(?([单双])\)?$').firstMatch(s);
-  // Only when 周 appears once (`1-8,10-16周(单)`); in `1-8周,10-16周(单)`
-  // the filter belongs to its own part.
-  if (tail != null && s.indexOf('周') == tail.start) {
-    globalParity = tail[1];
-    s = '${s.substring(0, tail.start)}周';
+  final tail = RegExp(
+    r'(?:周(?:\(([单双])周?\)|([单双])周?)|\(([单双])周?\)|([单双])周)$',
+  ).firstMatch(s);
+  if (tail != null) {
+    final before = s.substring(0, tail.start);
+    if (!before.contains('周') &&
+        !before.contains('单') &&
+        !before.contains('双')) {
+      globalParity = tail[1] ?? tail[2] ?? tail[3] ?? tail[4];
+      s = before;
+    }
   }
 
   final part = RegExp(
-    r'^第?(\d+)(?:-(\d+))?(?:\(?([单双])\)?)?周?(?:\(?([单双])\)?)?$',
+    r'^第?(\d+)(?:-(\d+))?(?:(?:\(([单双])周?\)|([单双]))?周?(?:\(([单双])周?\)|([单双]))?)$',
   );
   final out = <int>{};
   for (final raw in s.split(',')) {
     if (raw.isEmpty) continue;
     final m = part.firstMatch(raw);
     if (m == null) throw FormatException('无法识别的周次：$raw');
+    final p1 = m[3] ?? m[4];
+    final p2 = m[5] ?? m[6];
+    if (p1 != null && p2 != null && p1 != p2) {
+      throw FormatException('单双周冲突：$raw');
+    }
     final a = int.parse(m[1]!);
     final b = m[2] == null ? a : int.parse(m[2]!);
     if (a < 1 || b < a || b > maxWeek) {
       throw FormatException('周次超出范围：$raw');
     }
-    final parity = m[3] ?? m[4] ?? globalParity;
+    final parity = p1 ?? p2 ?? globalParity;
     for (var w = a; w <= b; w++) {
       if (parity == '单' && w.isEven) continue;
       if (parity == '双' && w.isOdd) continue;

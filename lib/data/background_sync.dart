@@ -208,10 +208,12 @@ List<ExamReminderPlan> planExamReminders(
 }) {
   final horizon = now.add(Duration(days: days));
   final out = <ExamReminderPlan>[];
+  final seenIds = <int>{};
   for (final e in exams) {
     final slot = examSlot(e);
     if (slot == null || !slot.start.isAfter(now)) continue;
-    final name = e.kind.isEmpty ? e.courseName : '${e.courseName}（${e.kind}）';
+    final cleanName = e.courseName.replaceFirst(RegExp(r'^【[^】]*】'), '').trim();
+    final name = e.kind.isEmpty ? cleanName : '$cleanName（${e.kind}）';
     final hhmm = _hhmm(slot.start);
     final where = [
       if (e.room.isNotEmpty) e.room,
@@ -237,9 +239,11 @@ List<ExamReminderPlan> planExamReminders(
     ];
     for (final c in candidates) {
       if (!c.at.isAfter(now) || c.at.isAfter(horizon)) continue;
+      final id = examReminderId(e, slot, c.tag);
+      if (!seenIds.add(id)) continue;
       out.add(
         ExamReminderPlan(
-          id: examReminderId(e, slot, c.tag),
+          id: id,
           at: c.at,
           slot: slot,
           title: c.title,
@@ -257,7 +261,10 @@ int examReminderId(ExamEntry e, ExamSlot slot, String tag) {
   final s =
       'exam:${e.courseName}:${e.kind}:${slot.start.toIso8601String()}:$tag';
   for (final unit in s.codeUnits) {
-    hash = ((hash ^ unit) * 0x01000193) & 0x3fffffff;
+    hash ^= unit;
+    final low = (hash & 0xffff) * 0x01000193;
+    final high = ((hash >>> 16) * 0x01000193) & 0xffff;
+    hash = (low + (high << 16)) & 0x3fffffff;
   }
   return (1 << 30) | hash;
 }

@@ -1,16 +1,36 @@
 import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 
 import 'package:web/web.dart' as web;
 
 typedef NotificationTapCallback = void Function(String? payload);
 
 class BrowserNotifications {
-  bool get supported => true;
-  String get permission => web.Notification.permission;
+  bool get supported {
+    try {
+      return globalContext.has('Notification');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String get permission {
+    if (!supported) return 'denied';
+    try {
+      return web.Notification.permission;
+    } catch (_) {
+      return 'denied';
+    }
+  }
 
   Future<bool> requestPermission() async {
-    final result = await web.Notification.requestPermission().toDart;
-    return result.toDart == 'granted';
+    if (!supported) return false;
+    try {
+      final result = await web.Notification.requestPermission().toDart;
+      return result.toDart == 'granted';
+    } catch (_) {
+      return false;
+    }
   }
 
   void show({
@@ -20,7 +40,7 @@ class BrowserNotifications {
     String? payload,
     NotificationTapCallback? onTap,
   }) {
-    if (permission != 'granted') return;
+    if (!supported || permission != 'granted') return;
     try {
       final notification = web.Notification(
         title,

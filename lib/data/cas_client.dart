@@ -176,7 +176,9 @@ class CasClient {
   Future<void> _ensureFingerprint() async {
     if (kIsWeb) return;
     try {
-      final cookies = await _jar.loadForRequest(Uri.parse(kAuthServer));
+      final cookies = await _jar.loadForRequest(
+        Uri.parse('$kAuthServer/authserver/login'),
+      );
       if (cookies.any((c) => c.name == 'MULTIFACTOR_BROWSER_FINGERPRINT')) {
         return;
       }
@@ -215,7 +217,7 @@ class CasClient {
   /// Explicit sign-in must not silently reuse another account's CASTGC.
   /// Keep only the trusted-device marker; logout still removes everything.
   Future<void> clearSession() async {
-    final uri = Uri.parse(kAuthServer);
+    final uri = Uri.parse('$kAuthServer/authserver/login');
     final cookies = await _jar.loadForRequest(uri);
     final trusted = cookies
         .where((c) => c.name == 'MULTIFACTOR_BROWSER_FINGERPRINT')
@@ -999,7 +1001,10 @@ AppError classifyLoginFailure(String html) {
         dotAll: true,
       ).firstMatch(html)?[1]?.trim() ??
       '';
-  if (tip.contains('锁定') || html.contains('LOCK')) {
+  if (tip.contains('锁定') ||
+      tip.toUpperCase().contains('LOCK') ||
+      html.contains('ACCOUNT_LOCKED') ||
+      html.contains('accountLocked')) {
     return AppError(
       AppErrorKind.account,
       message: '账号已被锁定',

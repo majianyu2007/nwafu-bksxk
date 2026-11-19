@@ -145,6 +145,7 @@ class PlanController extends StateNotifier<PlanState> {
   final Ref _ref;
   final String accountId;
   Timer? _timer;
+  bool _checking = false;
 
   SessionScope get _scope => _ref.read(sessionScopeProvider(accountId));
 
@@ -168,10 +169,13 @@ class PlanController extends StateNotifier<PlanState> {
   }
 
   Future<void> _check() async {
+    if (_checking || !mounted || !state.armed) return;
     final batch = _ref.read(sessionControllerProvider(accountId)).activeBatch;
     if (batch == null) return;
+    _checking = true;
     try {
       final open = await _scope.auth.isBatchOpen(batch.code);
+      if (!mounted) return;
       state = state.copyWith(batchOpen: open, lastCheckedAt: DateTime.now());
       if (open && state.armed) {
         _scope.engine.openGate(grabNow: true);
@@ -180,7 +184,10 @@ class PlanController extends StateNotifier<PlanState> {
         state = state.copyWith(armed: false, message: '轮次已开放，已开始提交');
       }
     } catch (_) {
+      if (!mounted || !state.armed) return;
       state = state.copyWith(message: '检查开放状态失败，稍后重试');
+    } finally {
+      _checking = false;
     }
   }
 
@@ -192,8 +199,11 @@ class PlanController extends StateNotifier<PlanState> {
 }
 
 final planControllerOfProvider =
-    StateNotifierProvider.family<PlanController, PlanState, String>(
-        (ref, id) => PlanController(ref, id));
+    StateNotifierProvider.family<PlanController, PlanState, String>((ref, id) {
+      // Rebuild & dispose whenever the account's session scope is torn down.
+      ref.watch(sessionScopeProvider(id));
+      return PlanController(ref, id);
+    });
 
 /// The shown account's plan state.
 final planStateProvider = Provider<PlanState>((ref) {

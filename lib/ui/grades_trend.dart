@@ -35,20 +35,31 @@ class GpaPoint {
   final double gpa;
   final double credits;
 
-  /// `2025-2026-1` → `25秋`, `2025-2026-2` → `26春`.
+  /// `2025-2026-1` → `25秋`, `2025-2026-2` → `26春`, `2025-2026-3` → `26夏`.
   String get shortLabel {
     final m = RegExp(r'^(\d{4})-(\d{4})-(\d)').firstMatch(termCode);
     if (m == null) return termName.isEmpty ? termCode : termName;
-    final first = m[3] == '1';
-    final year = (first ? m[1]! : m[2]!).substring(2);
-    return '$year${first ? '秋' : '春'}';
+    final term = m[3];
+    final year = (term == '1' ? m[1]! : m[2]!).substring(2);
+    final season = switch (term) {
+      '1' => '秋',
+      '3' => '夏',
+      _ => '春',
+    };
+    return '$year$season';
   }
 }
 
 class GpaTrend extends StatefulWidget {
-  const GpaTrend({super.key, required this.records, this.hidden = false});
+  const GpaTrend({
+    super.key,
+    required this.records,
+    this.hidden = false,
+    this.onTermSelected,
+  });
   final List<GradeRecord> records;
   final bool hidden;
+  final ValueChanged<String>? onTermSelected;
 
   /// Credit-weighted GPA per term, oldest first. Records without a grade
   /// point or with no credit do not count.
@@ -76,11 +87,30 @@ class GpaTrend extends StatefulWidget {
 
 class _GpaTrendState extends State<GpaTrend> {
   int? _selected;
+  late List<GpaPoint> _points;
+
+  @override
+  void initState() {
+    super.initState();
+    _points = GpaTrend.points(widget.records);
+  }
+
+  @override
+  void didUpdateWidget(covariant GpaTrend oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.records != widget.records) {
+      _points = GpaTrend.points(widget.records);
+    }
+  }
+
+  void _selectIndex(int? idx) {
+    if (idx != _selected) setState(() => _selected = idx);
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final points = GpaTrend.points(widget.records);
+    final points = _points;
     if (points.length < 2) return const SizedBox.shrink();
     final selected = (_selected ?? points.length - 1).clamp(
       0,
@@ -91,7 +121,9 @@ class _GpaTrendState extends State<GpaTrend> {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         int nearest(Offset local) {
-          final step = (width - 2 * _GpaPainter.padX) / (points.length - 1);
+          final usable = width - 2 * _GpaPainter.padX;
+          if (usable <= 1 || points.length <= 1) return 0;
+          final step = usable / (points.length - 1);
           return ((local.dx - _GpaPainter.padX) / step).round().clamp(
             0,
             points.length - 1,
@@ -99,14 +131,20 @@ class _GpaTrendState extends State<GpaTrend> {
         }
 
         return MouseRegion(
-          onHover: (e) => setState(() => _selected = nearest(e.localPosition)),
-          onExit: (_) => setState(() => _selected = null),
+          cursor: widget.onTermSelected != null
+              ? SystemMouseCursors.click
+              : MouseCursor.defer,
+          onHover: (e) => _selectIndex(nearest(e.localPosition)),
+          onExit: (_) => _selectIndex(null),
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTapDown: (d) =>
-                setState(() => _selected = nearest(d.localPosition)),
+            onTapDown: (d) {
+              final idx = nearest(d.localPosition);
+              _selectIndex(idx);
+              widget.onTermSelected?.call(points[idx].termCode);
+            },
             onHorizontalDragUpdate: (d) =>
-                setState(() => _selected = nearest(d.localPosition)),
+                _selectIndex(nearest(d.localPosition)),
             child: CustomPaint(
               size: Size(width, 132),
               painter: _GpaPainter(
@@ -250,6 +288,8 @@ class _GpaPainter extends CustomPainter {
       canvas.drawCircle(c, r, Paint()..color = line);
     }
 
+    if (size.width <= 2 * padX || points.length < 2) return;
+    var lastPaintedRight = -100.0;
     for (var i = 0; i < points.length; i++) {
       // Thin the axis labels when there are many terms.
       final every = (points.length / 6).ceil();
@@ -265,8 +305,14 @@ class _GpaPainter extends CustomPainter {
           ),
         ),
       )..layout();
-      final x = (at(i).dx - tp.width / 2).clamp(0.0, size.width - tp.width);
+      final maxLeft = (size.width - tp.width).clamp(0.0, double.infinity);
+      final x = (at(i).dx - tp.width / 2).clamp(0.0, maxLeft);
+      if (x < lastPaintedRight + 4 && i != selected) {
+        tp.dispose();
+        continue;
+      }
       tp.paint(canvas, Offset(x, size.height - padBottom + 6));
+      lastPaintedRight = x + tp.width;
       tp.dispose();
     }
   }
@@ -276,6 +322,8 @@ class _GpaPainter extends CustomPainter {
       old.points != points ||
       old.selected != selected ||
       old.line != line ||
+      old.grid != grid ||
+      old.ink != ink ||
       old.showValues != showValues ||
       old.surface != surface;
 }

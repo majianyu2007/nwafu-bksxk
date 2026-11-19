@@ -71,11 +71,22 @@ class CapacityBar extends StatelessWidget {
     final ratio = capacity <= 0 ? 1.0 : (selected / capacity).clamp(0.0, 1.0);
     final remaining = capacity - selected;
     final full = remaining <= 0;
-    final barColor = full
-        ? scheme.error
-        : remaining <= 3
-            ? Colors.orange
-            : scheme.primary;
+    final oversubscribed = capacity > 0 && selected > capacity;
+    final oddsPct = oversubscribed
+        ? ((capacity / selected) * 100).round().clamp(1, 99)
+        : null;
+    final barColor = oversubscribed
+        ? (oddsPct! < 35 ? scheme.error : Colors.deepOrange)
+        : full
+            ? scheme.error
+            : remaining <= 3
+                ? Colors.orange
+                : scheme.primary;
+    final summaryText = oversubscribed
+        ? '约 $oddsPct% 中签  $selected/$capacity'
+        : full
+            ? '已满 $selected/$capacity'
+            : '余 $remaining  $selected/$capacity';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -91,11 +102,10 @@ class CapacityBar extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          '${label == null ? '' : '$label '}'
-          '${full ? '已满 $selected/$capacity' : '余 $remaining  $selected/$capacity'}',
+          '${label == null ? '' : '$label '}$summaryText',
           style: TextStyle(
             fontSize: 12,
-            color: full ? scheme.error : scheme.onSurfaceVariant,
+            color: full ? barColor : scheme.onSurfaceVariant,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -244,22 +254,27 @@ class DetailRow extends StatelessWidget {
 
 /// Shows a floating snackbar with a success/error accent.
 void showToast(BuildContext context, String message, {bool? success}) {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  if (messenger == null) return;
   final scheme = Theme.of(context).colorScheme;
-  final color = success == null
-      ? scheme.inverseSurface
-      : success
-          ? Colors.green.shade700
-          : scheme.error;
-  ScaffoldMessenger.of(context)
+  final (bg, fg) = switch (success) {
+    null => (scheme.inverseSurface, scheme.onInverseSurface),
+    true => (Colors.green.shade700, Colors.white),
+    false => (scheme.error, scheme.onError),
+  };
+  final availWidth = MediaQuery.sizeOf(context).width - 32;
+  messenger
     ..clearSnackBars()
-    ..showSnackBar(SnackBar(
-      content: Text(message),
-      backgroundColor: color,
-      behavior: SnackBarBehavior.floating,
-      width: math.min(560, MediaQuery.sizeOf(context).width - 32),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      duration: const Duration(seconds: 3),
-    ));
+    ..showSnackBar(
+      SnackBar(
+        content: Text(message, style: TextStyle(color: fg)),
+        backgroundColor: bg,
+        behavior: SnackBarBehavior.floating,
+        width: availWidth > 80 ? math.min(560, availWidth) : null,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 3),
+      ),
+    );
 }
 
 /// "HH:mm:ss".

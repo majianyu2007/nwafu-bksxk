@@ -208,18 +208,21 @@ class AdaptiveGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = constraints.maxWidth;
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
         final columns = columnsFor(width,
             minColumnWidth: minColumnWidth * layoutTextScale(context),
             maxColumns: maxColumns,
             spacing: spacing);
-        final itemWidth = (width - spacing * (columns - 1)) / columns;
+        final itemWidth =
+            ((width - spacing * (columns - 1)) / columns).floorToDouble();
         return Wrap(
           spacing: spacing,
           runSpacing: runSpacing,
           children: [
             for (final child in children)
-              SizedBox(width: itemWidth, child: child),
+              SizedBox(width: itemWidth > 0 ? itemWidth : width, child: child),
           ],
         );
       },
@@ -350,17 +353,20 @@ Future<T?> showAdaptiveSheet<T>(
   }
   return showDialog<T>(
     context: context,
-    builder: (context) => Dialog(
-      clipBehavior: Clip.antiAlias,
-      insetPadding: const EdgeInsets.all(24),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: maxWidth,
-          maxHeight: size.height * heightFraction,
+    builder: (context) {
+      final liveHeight = MediaQuery.sizeOf(context).height;
+      return Dialog(
+        clipBehavior: Clip.antiAlias,
+        insetPadding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: maxWidth,
+            maxHeight: liveHeight * heightFraction,
+          ),
+          child: builder(context),
         ),
-        child: builder(context),
-      ),
-    ),
+      );
+    },
   );
 }
 

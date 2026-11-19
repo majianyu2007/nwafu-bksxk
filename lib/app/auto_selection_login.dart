@@ -84,22 +84,22 @@ class AutoSelectionLogin extends StateNotifier<AutoSelectionLoginState> {
     if (id == null || _busy || state.running) return false;
     if (!force && _autoUsed) return false;
     if (_loginInFlight(id)) return false;
-    _autoUsed = true;
     _busy = true;
     try {
-      return await _run(id);
+      return await _run(id, consumeAutoBudget: !force);
     } finally {
       _busy = false;
     }
   }
 
-  Future<bool> _run(String id) async {
+  Future<bool> _run(String id, {required bool consumeAutoBudget}) async {
     final password = await _ref.read(storageProvider).eduPassword(id);
     if (!mounted) return false;
     if (password == null || password.isEmpty) {
       state = const AutoSelectionLoginState();
       return false;
     }
+    if (consumeAutoBudget) _autoUsed = true;
     final edu = _ref.read(eduSessionProvider.notifier);
     final epoch = edu.epoch;
     bool stillWanted() =>
@@ -116,7 +116,10 @@ class AutoSelectionLogin extends StateNotifier<AutoSelectionLoginState> {
         phase: AutoSelectionPhase.running,
         attempt: attempt,
       );
-      if (attempt > 1) await Future<void>.delayed(pause);
+      if (attempt > 1) {
+        await Future<void>.delayed(pause);
+        if (!stillWanted()) return _stop();
+      }
       try {
         final challenge = await _ref.read(anonymousAuthProvider).fetchCaptcha();
         final code = await _ref

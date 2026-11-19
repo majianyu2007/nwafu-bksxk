@@ -12,6 +12,7 @@ import '../../app/ui_prefs.dart';
 import '../../data/edu_models.dart';
 import '../../data/timetable_logic.dart';
 import '../../data/week_syntax.dart';
+import '../free_rooms_page.dart';
 import '../widgets.dart';
 import '../widgets/glass.dart';
 import 'timetable_style.dart';
@@ -140,13 +141,18 @@ class _CourseDetails extends ConsumerWidget {
             builder: (context) {
               final s = ordered[i];
               final color = colors.of(s);
-              final notes = [
-                for (final a in data.adjustments)
-                  if (a.courseName.isNotEmpty &&
-                      (s.displayName.contains(a.courseName) ||
-                          a.courseName.contains(s.displayName)))
-                    '${a.fromLabel} → ${a.toLabel}',
-              ];
+              final cleanSessionName = s.displayName.trim();
+              final notes = s.custom
+                  ? const <String>[]
+                  : [
+                      for (final a in data.adjustments)
+                        if (a.courseName.isNotEmpty &&
+                            a.courseName
+                                    .replaceFirst(RegExp(r'^【[^】]*】'), '')
+                                    .trim() ==
+                                cleanSessionName)
+                          '${a.fromLabel} → ${a.toLabel}',
+                    ];
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -220,6 +226,19 @@ class _CourseDetails extends ConsumerWidget {
                             showToast(context, '已复制教室：${s.room}');
                           },
                         ),
+                        IconButton(
+                          tooltip: '查附近空教室',
+                          icon: const Icon(Icons.meeting_room_outlined, size: 18),
+                          onPressed: () {
+                            final nav = Navigator.of(context);
+                            nav.pop();
+                            nav.push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const FreeRoomsPage(),
+                              ),
+                            );
+                          },
+                        ),
                       ],
                     )
                   else
@@ -263,8 +282,14 @@ class _CourseDetails extends ConsumerWidget {
                       children: [
                         OutlinedButton.icon(
                           onPressed: () {
-                            Navigator.pop(context);
-                            showCustomCourseEditor(context, data, existing: s);
+                            final nav = Navigator.of(context);
+                            final hostContext = nav.context;
+                            nav.pop();
+                            showCustomCourseEditor(
+                              hostContext,
+                              data,
+                              existing: s,
+                            );
                           },
                           icon: const Icon(Icons.edit_outlined),
                           label: const Text('编辑'),
@@ -494,6 +519,8 @@ class _CustomCourseEditorState extends ConsumerState<CustomCourseEditor> {
     return p.isEmpty ? 12 : p.last.clamp(1, 20);
   }
 
+  int get _maxWeek => widget.data.weekCount < 1 ? 20 : widget.data.weekCount;
+
   CustomCourseDraft _draft() => validateCustomCourse(
     id:
         widget.existing?.id ??
@@ -505,17 +532,32 @@ class _CustomCourseEditorState extends ConsumerState<CustomCourseEditor> {
     startPeriod: _start,
     endPeriod: _end,
     weeksText: _weeks.text,
-    maxWeek: widget.data.weekCount < 1 ? 30 : widget.data.weekCount,
+    maxWeek: _maxWeek,
     maxPeriod: _maxPeriod,
   );
+
+  void _setSelectedWeeks(Set<int> weeks) {
+    final sorted = weeks.toList()..sort();
+    setState(() {
+      _weeks.text = sorted.isEmpty ? '' : formatWeeks(sorted);
+      _errors = Map<String, String>.from(_errors)..remove('weeks');
+    });
+  }
 
   Future<void> _save() async {
     final draft = _draft();
     setState(() => _errors = draft.errors);
     if (!draft.ok) return;
     setState(() => _saving = true);
-    await ref.read(timetableProvider.notifier).addCustom(draft.session!);
-    if (mounted) Navigator.pop(context);
+    try {
+      await ref.read(timetableProvider.notifier).addCustom(draft.session!);
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        showToast(context, '保存失败：$e', success: false);
+      }
+    }
   }
 
   @override
@@ -524,8 +566,13 @@ class _CustomCourseEditorState extends ConsumerState<CustomCourseEditor> {
     final conflicts = draft.ok
         ? conflictsWith(widget.data, draft.session!, self: widget.existing?.id)
         : const <CourseSession>[];
-    final previewWeeks = tryParseWeeks(_weeks.text, maxWeek: 60);
+    final previewWeeks = tryParseWeeks(_weeks.text, maxWeek: _maxWeek);
+    final pickedSet = previewWeeks?.toSet() ?? const <int>{};
     final periods = [for (var p = 1; p <= _maxPeriod; p++) p];
+    final endPeriods = [for (var p = _start; p <= _maxPeriod; p++) p];
+    final maxW = _maxWeek;
+    final half = (maxW / 2).ceil();
+    final scheme = Theme.of(context).colorScheme;
     return TimetableSheet(
       title: widget.existing == null ? '添加课程' : '编辑课程',
       children: [
@@ -536,7 +583,11 @@ class _CustomCourseEditorState extends ConsumerState<CustomCourseEditor> {
             labelText: '课程名称',
             errorText: _errors['name'],
           ),
-          onChanged: (_) => setState(() {}),
+          onChanged: (_) => setState(() {
+            if (_errors.containsKey('name')) {
+              _errors = Map<String, String>.from(_errors)..remove('name');
+            }
+          }),
         ),
         const SizedBox(height: 12),
         TextField(
@@ -578,25 +629,105 @@ class _CustomCourseEditorState extends ConsumerState<CustomCourseEditor> {
                 onChanged: (v) => setState(() {
                   _start = v ?? _start;
                   if (_end < _start) _end = _start;
+                  _errors = Map<String, String>.from(_errors)..remove('period');
                 }),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: DropdownButtonFormField<int>(
-                key: ValueKey('end-period-$_end'),
-                initialValue: _end.clamp(1, _maxPeriod),
+                key: ValueKey('end-period-$_start-$_end'),
+                initialValue: _end.clamp(_start, _maxPeriod),
                 decoration: InputDecoration(
                   labelText: '结束节次',
                   errorText: _errors['period'],
                 ),
                 items: [
-                  for (final p in periods)
+                  for (final p in endPeriods)
                     DropdownMenuItem(value: p, child: Text('第 $p 节')),
                 ],
-                onChanged: (v) => setState(() => _end = v ?? _end),
+                onChanged: (v) => setState(() {
+                  _end = v ?? _end;
+                  _errors = Map<String, String>.from(_errors)..remove('period');
+                }),
               ),
             ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Text('上课周次（1–$maxW 周）', style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            ActionChip(
+              label: const Text('全周'),
+              onPressed: () =>
+                  _setSelectedWeeks({for (var w = 1; w <= maxW; w++) w}),
+            ),
+            ActionChip(
+              label: const Text('单周'),
+              onPressed: () => _setSelectedWeeks({
+                for (var w = 1; w <= maxW; w += 2) w,
+              }),
+            ),
+            ActionChip(
+              label: const Text('双周'),
+              onPressed: () => _setSelectedWeeks({
+                for (var w = 2; w <= maxW; w += 2) w,
+              }),
+            ),
+            ActionChip(
+              label: Text('1-$half周'),
+              onPressed: () =>
+                  _setSelectedWeeks({for (var w = 1; w <= half; w++) w}),
+            ),
+            if (half < maxW)
+              ActionChip(
+                label: Text('${half + 1}-$maxW周'),
+                onPressed: () => _setSelectedWeeks({
+                  for (var w = half + 1; w <= maxW; w++) w,
+                }),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (var w = 1; w <= maxW; w++)
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () {
+                  final next = Set<int>.from(pickedSet);
+                  if (!next.add(w)) next.remove(w);
+                  _setSelectedWeeks(next);
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 120),
+                  width: 36,
+                  height: 32,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: pickedSet.contains(w)
+                        ? scheme.primary
+                        : scheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '$w',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: pickedSet.contains(w)
+                          ? scheme.onPrimary
+                          : scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
         const SizedBox(height: 12),
@@ -610,7 +741,11 @@ class _CustomCourseEditorState extends ConsumerState<CustomCourseEditor> {
                 ? null
                 : '共 ${previewWeeks.length} 周：${formatWeeks(previewWeeks)}',
           ),
-          onChanged: (_) => setState(() {}),
+          onChanged: (_) => setState(() {
+            if (_errors.containsKey('weeks')) {
+              _errors = Map<String, String>.from(_errors)..remove('weeks');
+            }
+          }),
         ),
         if (conflicts.isNotEmpty) ...[
           const SizedBox(height: 12),

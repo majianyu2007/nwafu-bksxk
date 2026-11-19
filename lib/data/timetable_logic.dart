@@ -36,7 +36,7 @@ DateTime schoolInstant(DateTime date, int minutes) => DateTime.utc(
 extension TermTimetableTime on TermTimetable {
   /// 1-based teaching week of [date], or null outside the term.
   int? weekOf(DateTime date) {
-    final days = calendarDate(date).difference(firstMonday).inDays;
+    final days = calendarDate(date).difference(calendarDate(firstMonday)).inDays;
     if (days < 0 || days >= weekCount * 7) return null;
     return days ~/ 7 + 1;
   }
@@ -217,11 +217,15 @@ class ReminderRules {
 }
 
 /// Short building key for "is this another building": `N8618` → `N8`,
-/// `理科楼A402` → `理科楼`.
+/// `理科楼A402` → `理科楼`. Pure-digit room codes stay intact instead of
+/// collapsing to an empty string.
 String roomBuilding(String room) {
-  final code = RegExp(r'^([A-Za-z]+\d)').firstMatch(room.trim());
+  final t = room.trim();
+  if (t.isEmpty) return '';
+  final code = RegExp(r'^([A-Za-z]+\d)').firstMatch(t);
   if (code != null) return code.group(1)!.toUpperCase();
-  return room.trim().replaceFirst(RegExp(r'[A-Za-z]?\d.*$'), '');
+  final stripped = t.replaceFirst(RegExp(r'[A-Za-z]?\d.*$'), '').trim();
+  return stripped.isEmpty ? t : stripped;
 }
 
 /// Reminders for classes starting within [days] of [now]. Ids are stable for
@@ -253,10 +257,11 @@ List<ReminderPlan> planReminders(
   for (final o in upcoming) {
     final day = byDay[o.date]!..sort((a, b) => a.start.compareTo(b.start));
     final before = day.where((p) => !p.end.isAfter(o.start)).lastOrNull;
+    final hasEarlier = day.any((p) => p.start.isBefore(o.start));
     final gap = before == null ? null : o.start.difference(before.end);
     final adjacent = gap != null && gap <= const Duration(minutes: 30);
-    final room = o.session.room;
-    final prevRoom = before?.session.room ?? '';
+    final room = o.session.room.trim();
+    final prevRoom = before?.session.room.trim() ?? '';
 
     var reason = ReminderReason.normal;
     DateTime at;
@@ -270,7 +275,7 @@ List<ReminderPlan> planReminders(
         roomBuilding(room) != roomBuilding(prevRoom)) {
       reason = ReminderReason.moveBuilding;
       at = before!.end;
-    } else if (before == null && r.firstLead != null) {
+    } else if (before == null && !hasEarlier && r.firstLead != null) {
       reason = ReminderReason.firstOfDay;
       at = o.start.subtract(r.firstLead!);
     } else {
@@ -296,11 +301,15 @@ List<ReminderPlan> planReminders(
 }
 
 /// A notification id in a range of its own (2^30 + …) so it never collides
-/// with the immediate grab notifications, which count up from 0.
+/// with the immediate grab notifications, which count up from 0. Uses JS-safe
+/// 32-bit FNV-1a split multiplication so Web and Native agree identically.
 int reminderId(ClassOccurrence o) {
   var hash = 0x811c9dc5;
   for (final unit in '${o.session.id}:${o.date.toIso8601String()}'.codeUnits) {
-    hash = ((hash ^ unit) * 0x01000193) & 0x3fffffff;
+    hash ^= unit;
+    final low = (hash & 0xffff) * 0x01000193;
+    final high = ((hash >>> 16) * 0x01000193) & 0xffff;
+    hash = (low + (high << 16)) & 0x3fffffff;
   }
   return (1 << 30) | hash;
 }

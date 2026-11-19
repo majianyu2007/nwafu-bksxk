@@ -17,6 +17,16 @@ class AppTextScaler extends TextScaler {
   double scale(double fontSize) => system.scale(fontSize) * factor;
   @override
   double get textScaleFactor => scale(14) / 14;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AppTextScaler &&
+          other.system == system &&
+          (other.factor - factor).abs() < 1e-6;
+
+  @override
+  int get hashCode => Object.hash(system, (factor * 1000).round());
 }
 
 class AppTheme {
@@ -417,12 +427,15 @@ const List<Color> kCoursePalette = [
   Color(0xFF6366F1), // indigo
 ];
 
-/// Stable palette colour for [key] (FNV-1a, so it does not depend on Dart's
-/// per-run string hash).
+/// Stable palette colour for [key] (32-bit FNV-1a using JS-safe split multiply
+/// so Web and Native always pick identical colours).
 Color courseColorFor(String key) {
   var hash = 0x811c9dc5;
   for (final unit in key.codeUnits) {
-    hash = ((hash ^ unit) * 0x01000193) & 0x7fffffff;
+    hash ^= unit;
+    final low = (hash & 0xffff) * 0x01000193;
+    final high = ((hash >>> 16) * 0x01000193) & 0xffff;
+    hash = (low + (high << 16)) & 0x7fffffff;
   }
   return kCoursePalette[hash % kCoursePalette.length];
 }

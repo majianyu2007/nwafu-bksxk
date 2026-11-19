@@ -24,10 +24,17 @@ class GradesPage extends ConsumerStatefulWidget {
 }
 
 class _GradesPageState extends ConsumerState<GradesPage> {
+  final _searchCtrl = TextEditingController();
   String? _term;
   String _query = '';
   String _natureFilter = '全部';
   _GradeSort _sort = _GradeSort.term;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -60,7 +67,13 @@ class _GradesPageState extends ConsumerState<GradesPage> {
   Widget build(BuildContext context) {
     ref.listen<EduState>(eduSessionProvider, (previous, next) {
       if (next.account?.username != previous?.account?.username) {
-        setState(() => _term = null);
+        _searchCtrl.clear();
+        setState(() {
+          _term = null;
+          _query = '';
+          _natureFilter = '全部';
+          _sort = _GradeSort.term;
+        });
       }
       if (next.signedIn &&
           (!((previous?.signedIn) ?? false) ||
@@ -117,12 +130,16 @@ class _GradesPageState extends ConsumerState<GradesPage> {
         actions: [
           if (book != null && book.records.isNotEmpty)
             IconButton(
-              tooltip: 'GPA 模拟器',
+              tooltip: 'GPA 模拟器与目标反推',
               onPressed: () => showAdaptiveSheet<void>(
                 context,
                 scrollControlled: true,
                 maxWidth: 680,
-                builder: (_) => _GpaSimulatorSheet(records: book.records),
+                builder: (_) => _GpaSimulatorSheet(
+                  records: book.records,
+                  hidden: hidden,
+                  currentTermCredits: _estimateCurrentTermCredits(ref),
+                ),
               ),
               icon: const Icon(Icons.calculate_outlined),
             ),
@@ -235,6 +252,9 @@ class _GradesPageState extends ConsumerState<GradesPage> {
                                     child: GpaTrend(
                                       records: book.records,
                                       hidden: hidden,
+                                      onTermSelected: (code) => setState(() {
+                                        _term = _term == code ? null : code;
+                                      }),
                                     ),
                                   ),
                                 ),
@@ -280,11 +300,22 @@ class _GradesPageState extends ConsumerState<GradesPage> {
                               ),
                               const SizedBox(height: 12),
                               TextField(
-                                decoration: const InputDecoration(
+                                controller: _searchCtrl,
+                                decoration: InputDecoration(
                                   isDense: true,
-                                  prefixIcon: Icon(Icons.search, size: 18),
+                                  prefixIcon: const Icon(Icons.search, size: 18),
                                   hintText: '搜索课程名称',
-                                  border: OutlineInputBorder(),
+                                  border: const OutlineInputBorder(),
+                                  suffixIcon: _query.isEmpty
+                                      ? null
+                                      : IconButton(
+                                          tooltip: '清空',
+                                          icon: const Icon(Icons.clear, size: 18),
+                                          onPressed: () {
+                                            _searchCtrl.clear();
+                                            setState(() => _query = '');
+                                          },
+                                        ),
                                 ),
                                 onChanged: (v) =>
                                     setState(() => _query = v.trim()),
@@ -295,7 +326,12 @@ class _GradesPageState extends ConsumerState<GradesPage> {
                                 runSpacing: 6,
                                 crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
-                                  for (final n in const ['全部', '必修', '选修'])
+                                  for (final n in const [
+                                    '全部',
+                                    '必修',
+                                    '选修',
+                                    '任选',
+                                  ])
                                     ChoiceChip(
                                       label: Text(n),
                                       selected: _natureFilter == n,
@@ -349,10 +385,16 @@ class _GradesPageState extends ConsumerState<GradesPage> {
                               ),
                               const SizedBox(height: 8),
                               if (records.isEmpty)
-                                const _GradesMessage(
+                                _GradesMessage(
                                   icon: Icons.receipt_long_outlined,
                                   title: '暂无成绩记录',
-                                  description: '这个学期还没有成绩',
+                                  description:
+                                      (_query.isNotEmpty ||
+                                              _natureFilter != '全部')
+                                          ? '没有符合当前筛选条件的成绩'
+                                          : selectedTerm != null
+                                          ? '这个学期还没有成绩'
+                                          : '还没有已公布的成绩',
                                 ),
                             ] else if (!state.loading && state.error == null)
                               _GradesMessage(
@@ -387,7 +429,9 @@ class _GradesPageState extends ConsumerState<GradesPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            if (newTerm && selectedTerm == null)
+                            if (newTerm &&
+                                selectedTerm == null &&
+                                _sort == _GradeSort.term)
                               Padding(
                                 padding: const EdgeInsets.only(
                                   top: 16,
@@ -447,7 +491,10 @@ class _GradesPageState extends ConsumerState<GradesPage> {
                                       ),
                                     ),
                                     const SizedBox(width: 12),
-                                    Flexible(
+                                    ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 96,
+                                      ),
                                       child: HiddenValue(
                                         hidden: hidden,
                                         child: Text(
@@ -455,6 +502,8 @@ class _GradesPageState extends ConsumerState<GradesPage> {
                                               ? '未公布'
                                               : grade.scoreText,
                                           textAlign: TextAlign.end,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                           style: theme.textTheme.titleLarge
                                               ?.copyWith(
                                                 color: grade.passed
@@ -742,11 +791,36 @@ class _GradeDetail extends StatelessWidget {
   );
 }
 
-/// Interactive What-If GPA calculator: add hypothetical courses or exclude
-/// existing courses to see the live GPA and weighted-average delta.
+double _estimateCurrentTermCredits(WidgetRef ref) {
+  final tt = ref.read(timetableProvider).data;
+  if (tt == null) return 20;
+  final seen = <String, double>{};
+  for (final s in tt.sessions) {
+    if (s.custom || s.credit <= 0) continue;
+    final key = s.courseCode.isNotEmpty ? s.courseCode : s.displayName;
+    seen.putIfAbsent(key, () => s.credit);
+  }
+  for (final u in tt.unscheduled) {
+    if (u.credit <= 0) continue;
+    final key = u.code.isNotEmpty ? u.code : u.name;
+    seen.putIfAbsent(key, () => u.credit);
+  }
+  final total = seen.values.fold<double>(0, (a, b) => a + b);
+  return total > 0 ? total : 20;
+}
+
+/// Interactive What-If GPA calculator & Target GPA reverse planner: add
+/// hypothetical courses, exclude existing courses, or calculate the minimum
+/// average GPA needed over upcoming credits to reach a target GPA.
 class _GpaSimulatorSheet extends StatefulWidget {
-  const _GpaSimulatorSheet({required this.records});
+  const _GpaSimulatorSheet({
+    required this.records,
+    this.hidden = false,
+    this.currentTermCredits = 20,
+  });
   final List<GradeRecord> records;
+  final bool hidden;
+  final double currentTermCredits;
 
   @override
   State<_GpaSimulatorSheet> createState() => _GpaSimulatorSheetState();
@@ -756,21 +830,35 @@ class _GpaSimulatorSheetState extends State<_GpaSimulatorSheet> {
   final _name = TextEditingController();
   final _credit = TextEditingController(text: '2.0');
   final _score = TextEditingController(text: '90');
+  final _targetGpa = TextEditingController(text: '3.60');
+  late final TextEditingController _upcomingCreds = TextEditingController(
+    text: widget.currentTermCredits.toStringAsFixed(1),
+  );
   final _added = <SimulatedCourse>[];
   final _excluded = <int>{};
+  bool _showTargetPlanner = false;
 
   @override
   void dispose() {
     _name.dispose();
     _credit.dispose();
     _score.dispose();
+    _targetGpa.dispose();
+    _upcomingCreds.dispose();
     super.dispose();
   }
 
   void _addCourse() {
     final cred = double.tryParse(_credit.text.trim());
     final raw = double.tryParse(_score.text.trim());
-    if (cred == null || cred <= 0 || raw == null || raw < 0) return;
+    if (cred == null || !cred.isFinite || cred <= 0) {
+      showToast(context, '请输入大于 0 的学分', success: false);
+      return;
+    }
+    if (raw == null || !raw.isFinite || raw < 0 || raw > 100) {
+      showToast(context, '请输入 0–4.0 绩点或 0–100 百分制分数', success: false);
+      return;
+    }
     final isGpaDirect = raw <= 4.0;
     final gp = isGpaDirect ? raw : scoreToGpa(raw);
     final score = isGpaDirect ? null : raw.clamp(0.0, 100.0);
@@ -807,12 +895,19 @@ class _GpaSimulatorSheetState extends State<_GpaSimulatorSheet> {
         : delta < -0.0005
         ? scheme.error
         : scheme.onSurfaceVariant;
+    final plan = planTargetGpa(
+      currentGpa: res.simulatedGpa,
+      currentCredits: res.simulatedCredits,
+      upcomingCredits: double.tryParse(_upcomingCreds.text.trim()) ?? 0,
+      targetGpa: double.tryParse(_targetGpa.text.trim()) ?? 0,
+    );
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
 
     return SafeArea(
       child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.82,
+        height: MediaQuery.sizeOf(context).height * 0.85,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + bottomInset),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -825,6 +920,18 @@ class _GpaSimulatorSheetState extends State<_GpaSimulatorSheet> {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => setState(
+                      () => _showTargetPlanner = !_showTargetPlanner,
+                    ),
+                    icon: Icon(
+                      _showTargetPlanner
+                          ? Icons.flag_rounded
+                          : Icons.flag_outlined,
+                      size: 18,
+                    ),
+                    label: const Text('目标反推'),
                   ),
                   if (_added.isNotEmpty || _excluded.isNotEmpty)
                     TextButton(
@@ -845,46 +952,140 @@ class _GpaSimulatorSheetState extends State<_GpaSimulatorSheet> {
               GlassCard(
                 tint: scheme.primary,
                 padding: const EdgeInsets.all(14),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                child: HiddenValue(
+                  hidden: widget.hidden,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('模拟后均绩', style: theme.textTheme.bodySmall),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
                         children: [
-                          Text('模拟后均绩', style: theme.textTheme.bodySmall),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
-                            children: [
-                              Text(
-                                res.simulatedGpa.toStringAsFixed(3),
-                                style: theme.textTheme.headlineMedium?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  color: scheme.primary,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                deltaText,
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: deltaColor,
-                                ),
-                              ),
-                            ],
-                          ),
                           Text(
-                            '原均绩 ${res.baseGpa.toStringAsFixed(3)} · '
-                            '计入 ${res.simulatedCredits.toStringAsFixed(1)} 学分'
-                            '${res.simulatedAverage != null ? ' · 加权 ${res.simulatedAverage!.toStringAsFixed(2)}' : ''}',
-                            style: theme.textTheme.bodySmall,
+                            res.simulatedGpa.toStringAsFixed(3),
+                            style: theme.textTheme.headlineMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: scheme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            deltaText,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: deltaColor,
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                  ],
+                      Text(
+                        '原均绩 ${res.baseGpa.toStringAsFixed(3)} · '
+                        '计入 ${res.simulatedCredits.toStringAsFixed(1)} 学分'
+                        '${res.simulatedAverage != null ? ' · 加权 ${res.simulatedAverage!.toStringAsFixed(2)}' : ''}',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
                 ),
               ),
+              if (_showTargetPlanner) ...[
+                const SizedBox(height: 10),
+                GlassCard(
+                  tint: scheme.tertiary,
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _targetGpa,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                labelText: '目标总均绩',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _upcomingCreds,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                labelText: '后续学分',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        children: [
+                          for (final preset in const [
+                            ('3.40', '3.40'),
+                            ('3.60', '3.60'),
+                            ('3.80', '3.80'),
+                          ])
+                            ActionChip(
+                              visualDensity: VisualDensity.compact,
+                              label: Text('冲 ${preset.$1}'),
+                              onPressed: () {
+                                _targetGpa.text = preset.$2;
+                                setState(() {});
+                              },
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      if (plan == null)
+                        Text(
+                          '请输入 0–4.0 的目标均绩与大于 0 的后续学分',
+                          style: theme.textTheme.bodySmall,
+                        )
+                      else if (plan.alreadyReached)
+                        Text(
+                          '当前已超过目标 ${plan.targetGpa.toStringAsFixed(2)}！',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: Colors.green.shade700,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        )
+                      else if (!plan.achievable)
+                        Text(
+                          '需要均绩 ${plan.requiredGpa.toStringAsFixed(2)}（超过 4.0 上限），建议增加规划学分或调整目标。',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: scheme.error,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        )
+                      else
+                        Text(
+                          '接下来 ${plan.upcomingCredits.toStringAsFixed(1)} 学分平均需达到 '
+                          '${plan.requiredGpa.toStringAsFixed(2)} 绩点（约 ${plan.estimatedScore.toStringAsFixed(1)} 分）',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: scheme.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -971,7 +1172,8 @@ class _GpaSimulatorSheetState extends State<_GpaSimulatorSheet> {
                       style: theme.textTheme.labelLarge,
                     ),
                     for (var i = 0; i < widget.records.length; i++)
-                      if (widget.records[i].gradePoint != null)
+                      if (widget.records[i].gradePoint != null &&
+                          widget.records[i].credit > 0)
                         CheckboxListTile(
                           dense: true,
                           contentPadding: EdgeInsets.zero,
@@ -988,8 +1190,11 @@ class _GpaSimulatorSheetState extends State<_GpaSimulatorSheet> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          subtitle: Text(
-                            '${widget.records[i].credit} 学分 · 绩点 ${widget.records[i].gradePoint!.toStringAsFixed(2)}',
+                          subtitle: HiddenValue(
+                            hidden: widget.hidden,
+                            child: Text(
+                              '${widget.records[i].credit} 学分 · 绩点 ${widget.records[i].gradePoint!.toStringAsFixed(2)}',
+                            ),
                           ),
                         ),
                   ],

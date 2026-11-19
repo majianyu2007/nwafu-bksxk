@@ -71,12 +71,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _SettingsCategory(
       id: '课表与提醒',
       title: '课表与提醒',
-      subtitle: kIsWeb ? '视图密度、课程显示' : '视图密度、课前提醒、后台同步与日历',
+      subtitle: kIsWeb ? '视图密度、课程显示、导出 .ics' : '视图密度、课前提醒、后台同步与日历',
       icon: Icons.calendar_month_outlined,
       children: [
         _TimetableDisplay(),
         if (!kIsWeb) _ReminderSettings(),
-        if (!kIsWeb) SyncSettings(),
+        SyncSettings(),
       ],
     ),
     _SettingsCategory(
@@ -546,10 +546,32 @@ class _MinutesRow extends StatelessWidget {
   final String? zeroLabel;
   final ValueChanged<int> onChanged;
 
+  int _prevStep() {
+    if (value <= min) return min;
+    if (value > 30) {
+      final snapped = ((value - 1) ~/ 10) * 10;
+      return snapped.clamp(min, max);
+    }
+    if (value > 5) {
+      final snapped = ((value - 1) ~/ 5) * 5;
+      return snapped.clamp(min, max);
+    }
+    return min;
+  }
+
+  int _nextStep() {
+    if (value >= max) return max;
+    if (value >= 30) {
+      final snapped = ((value ~/ 10) + 1) * 10;
+      return snapped.clamp(min, max);
+    }
+    final snapped = ((value ~/ 5) + 1) * 5;
+    return snapped.clamp(min, max);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final step = value >= 30 ? 10 : 5;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
       child: Row(
@@ -565,9 +587,7 @@ class _MinutesRow extends StatelessWidget {
           ),
           IconButton.filledTonal(
             tooltip: '减少',
-            onPressed: value > min
-                ? () => onChanged((value - step).clamp(min, max))
-                : null,
+            onPressed: value > min ? () => onChanged(_prevStep()) : null,
             icon: const Icon(Icons.remove),
           ),
           SizedBox(
@@ -582,9 +602,7 @@ class _MinutesRow extends StatelessWidget {
           ),
           IconButton.filledTonal(
             tooltip: '增加',
-            onPressed: value < max
-                ? () => onChanged((value + step).clamp(min, max))
-                : null,
+            onPressed: value < max ? () => onChanged(_nextStep()) : null,
             icon: const Icon(Icons.add),
           ),
         ],
@@ -1388,6 +1406,7 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
                   child: FilledButton(
                     onPressed: () async {
                       final url = _url.text.trim();
+                      final prev = ref.read(ocrApiProvider);
                       final cfg = url.isEmpty
                           ? null
                           : OcrApiConfig(
@@ -1400,7 +1419,16 @@ class _OcrApiEditorState extends ConsumerState<_OcrApiEditor> {
                               responseField: _responseField.text.trim().isEmpty
                                   ? 'result'
                                   : _responseField.text.trim(),
+                              headers: prev?.headers ?? const {},
                             );
+                      if (cfg != null && !cfg.isValid) {
+                        showToast(
+                          context,
+                          '请输入以 http:// 或 https:// 开头的完整接口地址',
+                          success: false,
+                        );
+                        return;
+                      }
                       await ref.read(ocrApiProvider.notifier).set(cfg);
                       if (context.mounted) {
                         showToast(

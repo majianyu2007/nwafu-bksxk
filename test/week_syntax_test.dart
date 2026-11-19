@@ -23,12 +23,24 @@ void main() {
 
   test('a trailing filter applies to the whole list only when 周 is once', () {
     expect(parseWeeks('1-8,10-16周(双)'), [2, 4, 6, 8, 10, 12, 14, 16]);
+    expect(parseWeeks('1-8,10-16单周'), [1, 3, 5, 7, 11, 13, 15]);
+    expect(parseWeeks('1-8,10-16(双)'), [2, 4, 6, 8, 10, 12, 14, 16]);
+    expect(parseWeeks('1-6周(单周)'), [1, 3, 5]);
     expect(parseWeeks('1-4周,9-12周(单)'), [1, 2, 3, 4, 9, 11]);
     expect(parseWeeks('1-4单,6-8双周'), [1, 3, 6, 8]);
   });
 
   test('rejects garbage and out-of-range weeks', () {
-    for (final bad in ['', '周', 'abc', '5-3周', '0周', '1-99周', '2-2单周']) {
+    for (final bad in [
+      '',
+      '周',
+      'abc',
+      '5-3周',
+      '0周',
+      '1-99周',
+      '2-2单周',
+      '1-16(单)周(双)',
+    ]) {
       expect(() => parseWeeks(bad), throwsFormatException, reason: bad);
       expect(tryParseWeeks(bad), isNull, reason: bad);
     }

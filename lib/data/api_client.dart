@@ -183,16 +183,30 @@ class ApiClient {
     required bool allowRelogin,
     required Future<ApiResult> Function() retry,
   }) async {
+    final usedToken = token;
     Response resp;
     try {
       resp = await send();
     } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (auth && allowRelogin && (status == 401 || status == 403)) {
+        if (usedToken != null && token != null && token != usedToken) {
+          return retry();
+        }
+        final fresh = await _attemptRelogin();
+        if (fresh != null) return retry();
+      }
       throw AppError.fromDio(e);
     }
 
     final result = _parse(resp);
 
     if (auth && allowRelogin && _looksExpired(result, resp)) {
+      // Another concurrent request already refreshed the token; just retry
+      // with the fresh token instead of kicking it off with a duplicate login.
+      if (usedToken != null && token != null && token != usedToken) {
+        return retry();
+      }
       final fresh = await _attemptRelogin();
       if (fresh != null) {
         return retry();

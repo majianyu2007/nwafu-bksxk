@@ -434,11 +434,23 @@ class SessionManager {
     for (var attempt = 1;
         unlimited || attempt <= maxSilentReloginAttempts;
         attempt++) {
-      if (unlimited && attempt > 1) {
-        // Space unlimited retries out so the captcha endpoint's rate limit
-        // (which blocks the client outright) is not tripped.
+      // Stop immediately if credentials were cleared (explicit logout).
+      if (_loginName != name || _password != pw) {
+        lastFailure = '已退出登录';
+        return null;
+      }
+      if (attempt > 1) {
+        // Space retries out so the captcha endpoint's rate limit (which blocks
+        // the client outright) is not tripped.
         await Future<void>.delayed(
-            Duration(seconds: (2 * (attempt - 1)).clamp(2, 30)));
+          unlimited
+              ? Duration(seconds: (2 * (attempt - 1)).clamp(2, 30))
+              : const Duration(milliseconds: 250),
+        );
+        if (_loginName != name || _password != pw) {
+          lastFailure = '已退出登录';
+          return null;
+        }
       }
       try {
         final challenge = await _auth.fetchCaptcha();
@@ -467,7 +479,9 @@ class SessionManager {
           lastError = e.message;
         }
       } on AppError catch (e) {
-        if (e.kind == AppErrorKind.account) {
+        if (e.kind == AppErrorKind.account ||
+            e.kind == AppErrorKind.maintenanceOrThrottle ||
+            (unlimited && e.kind == AppErrorKind.campusNetwork)) {
           lastFailure = e.message;
           return null;
         }

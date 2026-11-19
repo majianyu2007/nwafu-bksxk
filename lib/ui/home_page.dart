@@ -424,10 +424,11 @@ class _NoticesCard extends ConsumerWidget {
 
   void _showNoticeDetail(BuildContext context, WidgetRef ref, Notice notice) {
     final info = ref.read(publicInfoServiceProvider);
+    final detailFuture = info.fetchNoticeDetail(notice.wid);
     showAdaptiveSheet<void>(
       context,
       builder: (_) => FutureBuilder<Notice?>(
-        future: info.fetchNoticeDetail(notice.wid),
+        future: detailFuture,
         builder: (context, snapshot) {
           final n = snapshot.data ?? notice;
           return _TextSheet(

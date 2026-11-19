@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/campus_access.dart';
+import '../app/degree_providers.dart';
 import '../app/edu_providers.dart';
 import '../app/providers.dart';
 import '../app/ui_prefs.dart';
@@ -187,9 +188,10 @@ class _ProfileCard extends ConsumerWidget {
     final session = ref.watch(eduSessionProvider);
     final account = session.account;
     final selection = ref.watch(signedInAccountsProvider);
-    final route = ref.watch(campusAccessProvider).route;
-    final bound = ref.watch(deviceKeyBoundProvider).value ?? false;
-    final unlock = ref.watch(unlockKindProvider).value;
+    final route = ref.watch(campusAccessProvider.select((s) => s.route));
+    final boundAsync = ref.watch(deviceKeyBoundProvider);
+    final bound = boundAsync.valueOrNull;
+    final unlock = ref.watch(unlockKindProvider).valueOrNull;
 
     if (!session.signedIn || account == null) {
       return GlassCard(
@@ -229,7 +231,7 @@ class _ProfileCard extends ConsumerWidget {
                 radius: 28,
                 backgroundColor: scheme.primaryContainer,
                 child: Text(
-                  name.characters.first,
+                  name.characters.firstOrNull ?? '?',
                   style: theme.textTheme.titleLarge?.copyWith(
                     color: scheme.onPrimaryContainer,
                     fontWeight: FontWeight.w700,
@@ -258,6 +260,12 @@ class _ProfileCard extends ConsumerWidget {
                   ],
                 ),
               ),
+              if (!kIsWeb || isFullCampusBridgeReady)
+                IconButton.filledTonal(
+                  tooltip: '一键图书馆入馆码',
+                  onPressed: () => showLibraryQrSheet(context),
+                  icon: const Icon(Icons.qr_code_2),
+                ),
             ],
           ),
           const SizedBox(height: 14),
@@ -299,19 +307,20 @@ class _ProfileCard extends ConsumerWidget {
                         },
                 )
               else ...[
-                _StatusChip(
-                  icon: unlock?.icon ?? Icons.fingerprint,
-                  label: '${unlock?.label ?? '快捷'}登录${bound ? '已开' : '未开'}',
-                  ok: bound,
-                  onTap: bound
-                      ? null
-                      : () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) =>
-                                const SettingsScreen(section: '账号与安全'),
+                if (unlock != null && bound != null)
+                  _StatusChip(
+                    icon: unlock.icon,
+                    label: '${unlock.label}登录${bound ? '已开' : '未开'}',
+                    ok: bound,
+                    onTap: bound
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  const SettingsScreen(section: '账号与安全'),
+                            ),
                           ),
-                        ),
-                ),
+                  ),
                 if (route != CampusRoute.unknown)
                   _StatusChip(
                     icon: route == CampusRoute.vpn
@@ -324,6 +333,14 @@ class _ProfileCard extends ConsumerWidget {
                       CampusRoute.unknown => '',
                     },
                     ok: route == CampusRoute.direct || route == CampusRoute.vpn,
+                    onTap: route == CampusRoute.unreachable
+                        ? () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  const SettingsScreen(section: '账号与安全'),
+                            ),
+                          )
+                        : null,
                   ),
               ],
             ],
@@ -401,6 +418,13 @@ class _ToolGrid extends ConsumerWidget {
       for (final t in meTools)
         if (!t.nativeOnly || !kIsWeb) t,
     ];
+    final degreePct = ref.watch(
+      degreeProvider.select((s) {
+        final plans = s.audit?.plans;
+        if (plans == null || plans.isEmpty) return null;
+        return (plans.first.progress * 100).round();
+      }),
+    );
     return GlassCard(
       padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
       child: LayoutBuilder(
@@ -409,36 +433,53 @@ class _ToolGrid extends ConsumerWidget {
           return Wrap(
             children: [
               for (final t in tools)
-                SizedBox(
-                  width: c.maxWidth / columns,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
-                    onTap: () => Navigator.of(
-                      context,
-                    ).push(MaterialPageRoute<void>(builder: (_) => t.open())),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      child: Column(
-                        children: [
-                          Badge(
-                            isLabelVisible:
-                                t.badge != null &&
-                                (ref.watch(t.badge!) ?? 0) > 0,
-                            label: t.badge == null
-                                ? null
-                                : Text('${ref.watch(t.badge!) ?? 0}'),
-                            child: Icon(
-                              t.icon,
-                              size: 28,
-                              color: theme.colorScheme.primary,
-                            ),
+                Builder(
+                  builder: (context) {
+                    final badgeCount =
+                        t.badge == null ? null : ref.watch(t.badge!);
+                    final microSub = switch (t.label) {
+                      '学业进度' when degreePct != null => '已修 $degreePct%',
+                      '消息' when (badgeCount ?? 0) > 0 => '$badgeCount 条待处理',
+                      _ => null,
+                    };
+                    return SizedBox(
+                      width: (c.maxWidth / columns).floorToDouble(),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(builder: (_) => t.open()),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Column(
+                            children: [
+                              Badge(
+                                isLabelVisible: (badgeCount ?? 0) > 0,
+                                label: badgeCount == null
+                                    ? null
+                                    : Text('$badgeCount'),
+                                child: Icon(
+                                  t.icon,
+                                  size: 28,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(t.label, style: theme.textTheme.bodySmall),
+                              if (microSub != null)
+                                Text(
+                                  microSub,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: theme.colorScheme.primary,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                            ],
                           ),
-                          const SizedBox(height: 6),
-                          Text(t.label, style: theme.textTheme.bodySmall),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
                 ),
             ],
           );
@@ -479,7 +520,7 @@ class _TodaySummaryCard extends ConsumerWidget {
     IconData icon;
     if (current != null) {
       icon = Icons.play_circle_outline;
-      headline = '正在上课 · ${current.session.courseName}';
+      headline = '正在上课 · ${current.session.displayName}';
       sub = [
         '第 ${current.session.startPeriod}–${current.session.endPeriod} 节',
         if (current.session.room.isNotEmpty) current.session.room,
@@ -488,10 +529,12 @@ class _TodaySummaryCard extends ConsumerWidget {
     } else if (next != null) {
       icon = Icons.schedule;
       final diffMin = next.start.difference(now).inMinutes;
-      final lead = diffMin < 60
+      final lead = diffMin <= 0
+          ? '即将上课'
+          : diffMin < 60
           ? '$diffMin 分钟后'
           : '${diffMin ~/ 60} 小时 ${diffMin % 60} 分后';
-      headline = '下节课 · ${next.session.courseName}';
+      headline = '下节课 · ${next.session.displayName}';
       sub = [
         lead,
         '第 ${next.session.startPeriod}–${next.session.endPeriod} 节',

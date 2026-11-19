@@ -146,9 +146,15 @@ class PortalItem {
     if (title.isEmpty) title = summary;
     if (title.isEmpty) {
       for (final v in row.values) {
-        if (v is String && _plain(v).length >= 4 && !v.startsWith('http')) {
-          title = _plain(v);
-          break;
+        if (v is String) {
+          final p = _plain(v);
+          if (p.length >= 4 &&
+              !p.startsWith('http') &&
+              !RegExp(r'^[\d\-\s:.T]+$').hasMatch(p) &&
+              !RegExp(r'^[0-9a-fA-F\-]{16,}$').hasMatch(p)) {
+            title = p;
+            break;
+          }
         }
       }
     }
@@ -174,12 +180,40 @@ class PortalItem {
     return '';
   }
 
-  /// Strips tags and squeezes whitespace; summaries are often HTML.
-  static String _plain(String s) => s
-      .replaceAll(RegExp(r'<[^>]*>'), ' ')
-      .replaceAll('&nbsp;', ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
+  /// Strips HTML tags, decodes common HTML entities, and squeezes whitespace.
+  static String _plain(String s) {
+    var out = s.replaceAll(RegExp(r'<[^>]*>'), ' ');
+    const named = {
+      '&nbsp;': ' ',
+      '&amp;': '&',
+      '&lt;': '<',
+      '&gt;': '>',
+      '&quot;': '"',
+      '&apos;': "'",
+      '&#39;': "'",
+      '&ldquo;': '“',
+      '&rdquo;': '”',
+      '&lsquo;': '‘',
+      '&rsquo;': '’',
+      '&mdash;': '—',
+      '&ndash;': '–',
+      '&hellip;': '…',
+    };
+    named.forEach((k, v) => out = out.replaceAll(k, v));
+    out = out.replaceAllMapped(RegExp(r'&#(\d+);'), (m) {
+      final cp = int.tryParse(m[1]!);
+      return cp != null && cp > 0 && cp <= 0x10FFFF
+          ? String.fromCharCode(cp)
+          : '';
+    });
+    out = out.replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]+);'), (m) {
+      final cp = int.tryParse(m[1]!, radix: 16);
+      return cp != null && cp > 0 && cp <= 0x10FFFF
+          ? String.fromCharCode(cp)
+          : '';
+    });
+    return out.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
 }
 
 /// An http(s) link from a row, resolved against [base] when relative.
@@ -243,7 +277,7 @@ class PortalService {
     if (kIsWeb && !isFullCampusBridgeReady) {
       throw AppError(
         AppErrorKind.schemaOrRedirect,
-        message: '请更新网页版桥接脚本（需 ≥ 1.4.0）',
+        message: '请更新网页版桥接脚本（需 ≥ 1.4.2）',
         hint: '旧版桥接脚本不支持一网通办消息接口，更新后刷新页面即可查看。',
       );
     }
@@ -461,10 +495,16 @@ class PortalService {
   /// (OA通知公告, 新闻焦点, …), as the ehall home page lists them.
   Future<List<PortalItem>> notices() async {
     final channels = await _newsCard('getConfiguredAndSubscribedChannel', {});
-    final ids = [
+    var ids = [
       for (final c in _list(channels['subscribedChannel']))
         if ('${c['wid'] ?? ''}'.isNotEmpty) '${c['wid']}',
     ];
+    if (ids.isEmpty) {
+      ids = [
+        for (final c in _list(channels['configuredChannel']))
+          if ('${c['wid'] ?? ''}'.isNotEmpty) '${c['wid']}',
+      ];
+    }
     final news = await _newsCard('getChannelNews', {
       'channelIds': ids.join(','),
       'programIds': '',
@@ -501,6 +541,13 @@ class PortalService {
 
     // One newehall request first so a re-login happens once, not in parallel.
     final unread = await guard('counts', unreadCount);
+    final firstErr = errors['counts'];
+    if (unread == null &&
+        firstErr != null &&
+        (firstErr.kind == AppErrorKind.sessionExpired ||
+            firstErr.kind == AppErrorKind.campusNetwork)) {
+      throw firstErr;
+    }
     final results = await Future.wait([
       guard('counts', taskCounts),
       guard('messages', messages),

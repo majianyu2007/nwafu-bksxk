@@ -151,7 +151,37 @@ void main() {
       [room('N8402'), room('理科楼A305', building: '理科楼')],
     ]);
     expect(dir.buildingOf('N8618'), '北8');
+    expect(dir.buildingOf(' N8618 '), '北8');
     expect(dir.buildingOf('理科楼A402'), '理科楼');
     expect(buildingKey('n9402'), 'N9');
+  });
+
+  test('morning-only class still suggests afternoon blocks after 16:00', () {
+    final lateAfternoon = DateTime.utc(2026, 10, 13, 8, 0); // 16:00 CST Tue
+    final out = run(
+      [cls('早八课', 'N8101', 1, 2)],
+      {
+        for (final b in kRoomBlocks) b: [room('N8101')],
+      },
+      now: lateAfternoon,
+    );
+    expect(out, isNotEmpty);
+    expect(out.single.blocks, contains(kRoomBlocks[3])); // 7-8 节 still active
+  });
+
+  test('consecutiveFreeRun counts unbroken streak from anchor block', () {
+    final freeNames = {
+      kRoomBlocks[0]: {'N8101'},
+      kRoomBlocks[1]: {'N8101', 'N8102'},
+      kRoomBlocks[2]: {'N8101'},
+      kRoomBlocks[3]: <String>{},
+      kRoomBlocks[4]: {'N8101'},
+    };
+    final r1 = consecutiveFreeRun('N8101', kRoomBlocks[0], freeNames);
+    expect(r1.count, 3);
+    expect(r1.lastBlock, kRoomBlocks[2]);
+    final r2 = consecutiveFreeRun('N8102', kRoomBlocks[1], freeNames);
+    expect(r2.count, 1);
+    expect(r2.lastBlock, kRoomBlocks[1]);
   });
 }

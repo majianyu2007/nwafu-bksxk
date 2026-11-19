@@ -52,13 +52,19 @@ class Account {
     'lastBatchCode': lastBatchCode,
   };
 
-  factory Account.fromJson(Map<String, dynamic> j) => Account(
-    id: j['id'] as String,
-    loginName: j['loginName'] as String,
-    displayName: (j['displayName'] as String?) ?? j['loginName'] as String,
-    studentCode: (j['studentCode'] as String?) ?? '',
-    lastBatchCode: (j['lastBatchCode'] as String?) ?? '',
-  );
+  factory Account.fromJson(Map<String, dynamic> j) {
+    final id = (j['id'] ?? j['loginName'] ?? '').toString();
+    final loginName = (j['loginName'] ?? id).toString();
+    return Account(
+      id: id,
+      loginName: loginName,
+      displayName: (j['displayName']?.toString().isNotEmpty ?? false)
+          ? j['displayName'].toString()
+          : loginName,
+      studentCode: j['studentCode']?.toString() ?? '',
+      lastBatchCode: j['lastBatchCode']?.toString() ?? '',
+    );
+  }
 }
 
 class Storage {
@@ -105,10 +111,16 @@ class Storage {
   List<Account> accounts() {
     final raw = _prefs.getString(_kAccounts);
     if (raw == null) return [];
-    final list = jsonDecode(raw) as List;
-    return list
-        .map((e) => Account.fromJson((e as Map).cast<String, dynamic>()))
-        .toList();
+    try {
+      final list = jsonDecode(raw);
+      if (list is! List) return [];
+      return [
+        for (final e in list)
+          if (e is Map) Account.fromJson(e.cast<String, dynamic>()),
+      ].where((a) => a.id.isNotEmpty).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<void> _saveAccounts(List<Account> list) async {

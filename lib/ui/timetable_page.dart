@@ -64,7 +64,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
 
   Future<void> _sync() async {
     if (!ref.read(eduSessionProvider).signedIn) {
-      _login();
+      await _login();
       return;
     }
     await ref
@@ -219,6 +219,18 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<String?>(
+      eduSessionProvider.select((s) => s.account?.username),
+      (prev, next) {
+        if (prev != next) {
+          setState(() {
+            _shownTerm = null;
+            _selectedWeek = null;
+            _selectedDay = null;
+          });
+        }
+      },
+    );
     final state = ref.watch(timetableProvider);
     final signedIn = ref.watch(eduSessionProvider).signedIn;
     final prefs = ref.watch(timetablePrefsProvider);
@@ -229,15 +241,15 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
         : ref.watch(examsProvider).asData?.value ?? const <ExamEntry>[];
     final data = state.data;
     final scheme = Theme.of(context).colorScheme;
+    final sameTerm = data != null && _shownTerm == data.term.code;
     final week = data == null
         ? 1
-        : ((_shownTerm == data.term.code ? _selectedWeek : null) ??
-                  data.displayWeek(now))
+        : ((sameTerm ? _selectedWeek : null) ?? data.displayWeek(now))
               .clamp(1, math.max(1, data.weekCount))
               .toInt();
     final currentWeek = data?.weekOf(schoolDate(now));
     final day =
-        _selectedDay ??
+        (sameTerm ? _selectedDay : null) ??
         (data != null && currentWeek == week ? schoolDate(now).weekday : 1);
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
@@ -743,12 +755,13 @@ class _TodayCard extends ConsumerWidget {
               .sessionsOn(week, today.weekday)
               .where(
                 (s) =>
-                    data.period(s.startPeriod) == null ||
-                    data.period(s.endPeriod) == null,
+                    data.period(s.startPeriod, on: today) == null ||
+                    data.period(s.endPeriod, on: today) == null,
               )
               .toList();
     final scheme = Theme.of(context).colorScheme;
     final theme = Theme.of(context);
+    final totalToday = status.today.length + unknownTimes.length;
     return GlassCard(
       tint: scheme.primary,
       tintAmount: 0.10,
@@ -770,7 +783,7 @@ class _TodayCard extends ConsumerWidget {
                 ? '今天没有已排课程'
                 : status.remaining == 0
                 ? '今天的课程已结束'
-                : '接下来',
+                : '下节预告',
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w800,
             ),
@@ -787,24 +800,24 @@ class _TodayCard extends ConsumerWidget {
             _TodayCourse(
               data: data,
               occurrence: next,
-              label: next.date == today ? '接下来' : '${dateLabel(next.date)} 下一课',
+              label: next.date == today ? '即将上课' : '${dateLabel(next.date)} 下一课',
               color: colors.of(next.session),
             ),
           if (current.isEmpty && next == null && unknownTimes.isEmpty)
             const Padding(
               padding: EdgeInsets.only(top: 8),
-              child: Text('接下来 8 天没有课'),
+              child: Text('未来一周没有课'),
             ),
           if (unknownTimes.isNotEmpty)
             Text(
               '今天有 ${unknownTimes.length} 门课缺少时间，'
               '以课表节次为准。',
             ),
-          if (status.today.isNotEmpty)
+          if (totalToday > 0)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                '今天 ${status.today.length} 节课，还剩 ${status.remaining} 节',
+                '今天 $totalToday 节课，还剩 ${status.remaining} 节',
                 style: theme.textTheme.bodySmall,
               ),
             ),
@@ -1002,10 +1015,13 @@ class _TermExtras extends ConsumerWidget {
             shape: const Border(),
             collapsedShape: const Border(),
             leading: const Icon(Icons.event_busy_outlined),
-            title: Text('未排时间课程 · ${data.unscheduled.length}'),
+            title: Text(
+              '未排时间课程 · ${data.unscheduled.length + invalid.length}',
+            ),
             childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             children: [
-              if (data.unscheduled.isEmpty) const Text('没有未排时间的课程'),
+              if (data.unscheduled.isEmpty && invalid.isEmpty)
+                const Text('没有未排时间的课程'),
               for (final course in data.unscheduled)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -1016,12 +1032,13 @@ class _TermExtras extends ConsumerWidget {
                       if (course.teacher.isNotEmpty) course.teacher,
                       if (course.weeksLabel.isNotEmpty)
                         '周次：${course.weeksLabel}',
-                      '${course.credit} 学分',
+                      if (course.credit > 0)
+                        '${course.credit == course.credit.roundToDouble() ? course.credit.toInt() : course.credit} 学分',
                     ].join(' · '),
                   ),
                 ),
               if (invalid.isNotEmpty) ...[
-                const Divider(),
+                if (data.unscheduled.isNotEmpty) const Divider(),
                 const Text('这些课没有固定上课时间，不在课表格子里：'),
                 for (final s in invalid)
                   ListTile(
@@ -1082,7 +1099,7 @@ class _TermExtras extends ConsumerWidget {
                     contentPadding: EdgeInsets.zero,
                     title: Text(s.displayName),
                     subtitle: Text(
-                      '${weekdayLabel(s.weekday)} ${timeLabel(data, s)} · ${s.weeksLabel}',
+                      '${weekdayLabel(s.weekday)} ${timeLabel(data, s, on: data.firstMonday)} · ${s.weeksLabel}',
                     ),
                     trailing: const Icon(Icons.edit_outlined),
                     onTap: () =>

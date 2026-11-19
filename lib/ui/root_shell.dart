@@ -14,8 +14,13 @@ import '../data/background.dart';
 import '../data/models.dart';
 import '../data/notifications.dart';
 import 'courses_page.dart';
+import 'degree_page.dart';
+import 'free_rooms_page.dart';
 import 'home_page.dart';
 import 'grades_page.dart';
+import 'library_page.dart';
+import 'portal_inbox_page.dart';
+import 'settings_page.dart';
 import 'timetable_page.dart';
 import 'layout.dart';
 import 'login_page.dart';
@@ -42,6 +47,7 @@ class _RootShellState extends ConsumerState<RootShell>
   int _courseIndex = 0;
   final _visitedTabs = <int>{0};
   final _onboarded = <String>{};
+  final _onboardingInFlight = <String>{};
   final _unsuccessfulChecked = <String>{};
   final _reloginShowing = <String>{};
 
@@ -89,17 +95,57 @@ class _RootShellState extends ConsumerState<RootShell>
   Future<void> _afterSignIn() async {
     final id = ref.read(activeAccountIdProvider);
     if (id == null || !mounted) return;
-    // Collect this account's monitor events from now on, not from the first
-    // time the Monitor tab builds.
-    ref.read(monitorLogOfProvider(id));
-    if (_onboarded.add(id)) {
-      final batches = ref.read(sessionControllerProvider(id)).batches;
-      if (batches.isNotEmpty && mounted) {
-        await showBatchPickDialog(context, ref);
+    if (!_onboardingInFlight.add(id)) return;
+    try {
+      // Collect this account's monitor events from now on, not from the first
+      // time the Monitor tab builds.
+      ref.read(monitorLogOfProvider(id));
+      if (_onboarded.add(id)) {
+        final batches = ref.read(sessionControllerProvider(id)).batches;
+        if (batches.isNotEmpty && mounted) {
+          await showBatchPickDialog(context, ref);
+        }
       }
+      if (!mounted) return;
+      if (_unsuccessfulChecked.add(id)) await _checkUnsuccessful(id);
+    } finally {
+      _onboardingInFlight.remove(id);
     }
+  }
+
+  Future<void> _openCommandPalette() async {
     if (!mounted) return;
-    if (_unsuccessfulChecked.add(id)) await _checkUnsuccessful(id);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => _CommandPaletteDialog(
+        onSelectTab: (tab, {int? courseSubTab}) {
+          Navigator.pop(ctx);
+          _selectPage(tab);
+          if (courseSubTab != null && mounted) {
+            setState(() => _courseIndex = courseSubTab);
+          }
+        },
+        onPushPage: (page) {
+          Navigator.pop(ctx);
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => page),
+          );
+        },
+        onToggleTheme: () {
+          Navigator.pop(ctx);
+          final cur = ref.read(themeControllerProvider).mode;
+          final next = cur == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+          ref.read(themeControllerProvider.notifier).setMode(next);
+          showToast(context, next == ThemeMode.dark ? '已切换到深色模式' : '已切换到浅色模式');
+        },
+        onSyncTimetable: () {
+          Navigator.pop(ctx);
+          _selectPage(0);
+          ref.read(timetableProvider.notifier).sync();
+          showToast(context, '正在同步课表…');
+        },
+      ),
+    );
   }
 
   /// The official grab page opens a 落选课程提醒 popup listing the rows the
@@ -359,6 +405,11 @@ class _RootShellState extends ConsumerState<RootShell>
           meta: isApple,
           control: !isApple,
         ): () => _stepTextScale(0),
+        SingleActivator(
+          LogicalKeyboardKey.keyK,
+          meta: isApple,
+          control: !isApple,
+        ): _openCommandPalette,
       },
       child: Focus(
         autofocus: true,
@@ -378,7 +429,11 @@ class _RootShellState extends ConsumerState<RootShell>
                 activeId: activeId,
                 onSwitch: _switchAccount,
                 onAdd: _addAccount,
-                onClose: (id) => leaveAccount(ref, id),
+                onClose: (id) async {
+                  _onboarded.remove(id);
+                  _unsuccessfulChecked.remove(id);
+                  await leaveAccount(ref, id);
+                },
               )
             : null;
         final content = SafeArea(
@@ -925,3 +980,209 @@ int notificationDestinationIndex(String? payload) => switch (payload) {
   'grades' => 3,
   _ => 0,
 };
+
+/// Global quick-jump command palette (`Cmd/Ctrl + K`).
+class _CommandPaletteDialog extends StatefulWidget {
+  const _CommandPaletteDialog({
+    required this.onSelectTab,
+    required this.onPushPage,
+    required this.onToggleTheme,
+    required this.onSyncTimetable,
+  });
+
+  final void Function(int tab, {int? courseSubTab}) onSelectTab;
+  final void Function(Widget page) onPushPage;
+  final VoidCallback onToggleTheme;
+  final VoidCallback onSyncTimetable;
+
+  @override
+  State<_CommandPaletteDialog> createState() => _CommandPaletteDialogState();
+}
+
+class _CommandPaletteDialogState extends State<_CommandPaletteDialog> {
+  final _ctrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final items = <({
+      IconData icon,
+      String title,
+      String subtitle,
+      String keywords,
+      VoidCallback onTap,
+    })>[
+      (
+        icon: Icons.calendar_today_outlined,
+        title: '课表',
+        subtitle: '查看本周课表、日视图与调课',
+        keywords: 'kb kebiao timetable schedule 课表',
+        onTap: () => widget.onSelectTab(0),
+      ),
+      (
+        icon: Icons.sync_rounded,
+        title: '立即同步课表',
+        subtitle: '从教务系统拉取最新课表',
+        keywords: 'sync refresh 同步 刷新 课表',
+        onTap: widget.onSyncTimetable,
+      ),
+      (
+        icon: Icons.search_rounded,
+        title: '选课查询',
+        subtitle: '浏览全校课程与教学班余量',
+        keywords: 'xk xuanke courses 选课 查询 课程',
+        onTap: () => widget.onSelectTab(1, courseSubTab: 0),
+      ),
+      (
+        icon: Icons.checklist_rounded,
+        title: '已选课程',
+        subtitle: '查看当前轮次已选列表与预览表',
+        keywords: 'selected yixuan 已选 退课',
+        onTap: () => widget.onSelectTab(1, courseSubTab: 1),
+      ),
+      (
+        icon: Icons.dashboard_outlined,
+        title: '选课概览',
+        subtitle: '查看轮次信息与选课通知',
+        keywords: 'overview 概览 轮次 通知',
+        onTap: () => widget.onSelectTab(1, courseSubTab: 2),
+      ),
+      (
+        icon: Icons.radar_rounded,
+        title: '抢课监控',
+        subtitle: '管理监控队列与开选突击模式',
+        keywords: 'monitor qiangke 监控 抢课 捡漏',
+        onTap: () => widget.onSelectTab(2),
+      ),
+      (
+        icon: Icons.assessment_outlined,
+        title: '成绩与 GPA 模拟',
+        subtitle: '查看历年成绩、均绩走势与目标反推',
+        keywords: 'grades gpa chengji 成绩 绩点 均绩 模拟',
+        onTap: () => widget.onSelectTab(3),
+      ),
+      (
+        icon: Icons.school_outlined,
+        title: '学业进度',
+        subtitle: '培养方案学分完成度与缺口',
+        keywords: 'degree xueye 学业 培养方案 学分 毕业',
+        onTap: () => widget.onPushPage(const DegreePage()),
+      ),
+      (
+        icon: Icons.meeting_room_outlined,
+        title: '空闲教室',
+        subtitle: '按课表智能推荐附近连空自习教室',
+        keywords: 'rooms kongjiaoshi 空教室 自习',
+        onTap: () => widget.onPushPage(const FreeRoomsPage()),
+      ),
+      (
+        icon: Icons.local_library_outlined,
+        title: '图书馆预约',
+        subtitle: '可视化平面图选座、研讨室预约与入馆码',
+        keywords: 'library tushuguan 图书馆 选座 研讨室 入馆码',
+        onTap: () => widget.onPushPage(const LibraryPage()),
+      ),
+      (
+        icon: Icons.mark_email_unread_outlined,
+        title: '校园消息',
+        subtitle: '一网通办未读消息、待办与通知公告',
+        keywords: 'inbox portal xiaoxi 消息 通知 待办',
+        onTap: () => widget.onPushPage(const PortalInboxPage()),
+      ),
+      (
+        icon: Icons.contrast_rounded,
+        title: '切换深浅色主题',
+        subtitle: '在浅色与深色外观间快速切换',
+        keywords: 'theme dark light 主题 深色 浅色 夜间',
+        onTap: widget.onToggleTheme,
+      ),
+      (
+        icon: Icons.settings_outlined,
+        title: '设置',
+        subtitle: '账号安全、提醒、外观缩放与校外 VPN',
+        keywords: 'settings shezhi 设置 vpn 缩放 提醒',
+        onTap: () => widget.onPushPage(const SettingsScreen()),
+      ),
+    ];
+
+    final q = _query.trim().toLowerCase();
+    final filtered = q.isEmpty
+        ? items
+        : items
+              .where(
+                (i) =>
+                    i.title.toLowerCase().contains(q) ||
+                    i.subtitle.toLowerCase().contains(q) ||
+                    i.keywords.toLowerCase().contains(q),
+              )
+              .toList();
+
+    return Dialog(
+      insetPadding: const EdgeInsets.all(24),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 520),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+              child: TextField(
+                controller: _ctrl,
+                autofocus: true,
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.bolt_rounded),
+                  hintText: '输入功能名快速直达（如：图书馆、空教室、成绩）',
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            _ctrl.clear();
+                            setState(() => _query = '');
+                          },
+                        ),
+                ),
+                onChanged: (v) => setState(() => _query = v),
+                onSubmitted: (_) {
+                  if (filtered.isNotEmpty) filtered.first.onTap();
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: filtered.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        '没有匹配的功能',
+                        style: TextStyle(color: scheme.onSurfaceVariant),
+                      ),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: filtered.length,
+                      itemBuilder: (context, i) {
+                        final item = filtered[i];
+                        return ListTile(
+                          leading: Icon(item.icon, color: scheme.primary),
+                          title: Text(item.title),
+                          subtitle: Text(item.subtitle),
+                          onTap: item.onTap,
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

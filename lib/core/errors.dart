@@ -8,6 +8,7 @@
 library;
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 /// The kind of failure, ordered roughly from environment → auth → server → data.
 enum AppErrorKind {
@@ -49,6 +50,12 @@ enum AppErrorKind {
   /// The server refuses because the student already holds this course (a
   /// different class), e.g. 该课程已存在预选课程结果中. Retrying cannot help.
   duplicateSelection,
+
+  /// Schedule time conflict with an already-held course.
+  timeConflict,
+
+  /// User or caller explicitly cancelled the request.
+  cancelled,
 
   /// A business rejection with a message we pass through verbatim.
   businessRejected,
@@ -121,15 +128,37 @@ class AppError implements Exception {
           raw: e,
         );
       case DioExceptionType.connectionError:
+        final msg = e.message ?? '';
+        if (kIsWeb &&
+            (msg.contains('XMLHttpRequest') ||
+                msg.toLowerCase().contains('cors') ||
+                msg.contains('connection errored'))) {
+          return AppError(
+            AppErrorKind.campusNetwork,
+            message: '浏览器无法直接访问校园服务器',
+            hint: '网页版受跨域限制，或未连接校园网。请安装并更新配套桥接脚本，或使用桌面/移动端。',
+            retryable: false,
+            raw: e,
+          );
+        }
         return AppError(
           AppErrorKind.campusNetwork,
-          message: '无法连接到选课服务器',
-          hint: '本系统仅在校园网内可用。请连接校园网，或使用 VPN 接入校园网后重试。',
+          message: '无法连接到校园服务器',
+          hint: '请确认已连接校园网，或在设置中开启校园 VPN 后重试。',
           retryable: true,
           raw: e,
         );
       case DioExceptionType.badResponse:
         final code = e.response?.statusCode ?? 0;
+        if (code == 429) {
+          return AppError(
+            AppErrorKind.maintenanceOrThrottle,
+            message: '请求过于频繁 (429)',
+            hint: '服务器正在限流，已暂停自动操作，稍后再试。',
+            retryable: false,
+            raw: e,
+          );
+        }
         if (code >= 500) {
           return AppError(
             AppErrorKind.serverError,
@@ -155,15 +184,16 @@ class AppError implements Exception {
           raw: e,
         );
       case DioExceptionType.cancel:
-        return AppError(AppErrorKind.unknown, message: '请求已取消', raw: e);
+        return AppError(AppErrorKind.cancelled, message: '请求已取消', raw: e);
       default:
         // Includes DioExceptionType.unknown and any future types.
-        // On web, CORS shows up here.
         final msg = e.message ?? '';
-        if (msg.contains('XMLHttpRequest') || msg.toLowerCase().contains('cors')) {
+        if (kIsWeb &&
+            (msg.contains('XMLHttpRequest') ||
+                msg.toLowerCase().contains('cors'))) {
           return AppError(
             AppErrorKind.campusNetwork,
-            message: '浏览器无法直接访问选课服务器',
+            message: '浏览器无法直接访问校园服务器',
             hint: '网页版受跨域限制。请安装配套的浏览器脚本，或使用桌面/移动端。',
             retryable: false,
             raw: e,
@@ -182,42 +212,100 @@ class AppError implements Exception {
   /// Classifies a business-level response (code != "1") by its message text.
   factory AppError.fromBusiness(String code, String msg, {Object? raw}) {
     final m = msg;
+    final lower = msg.toLowerCase();
     bool has(List<String> keys) => keys.any(m.contains);
 
     if (has(['验证码'])) {
-      return AppError(AppErrorKind.captcha,
-          message: msg.isEmpty ? '验证码错误' : msg, hint: '刷新验证码后重试。', serverCode: code, raw: raw);
+      return AppError(
+        AppErrorKind.captcha,
+        message: msg.isEmpty ? '验证码错误' : msg,
+        hint: '刷新验证码后重试。',
+        serverCode: code,
+        raw: raw,
+      );
     }
-    if (has(['密码', '账号', '学号', '不存在', '锁定', '冻结', '无权限', '不允许'])) {
-      return AppError(AppErrorKind.account,
-          message: msg, hint: '检查账号密码或选课资格。', serverCode: code, raw: raw);
+    if (has(['时间冲突', '上课时间冲突', '冲突'])) {
+      return AppError(
+        AppErrorKind.timeConflict,
+        message: msg,
+        hint: '该教学班与已选课程上课时间重叠，可换其他时段或先退选冲突课程。',
+        retryable: false,
+        serverCode: code,
+        raw: raw,
+      );
+    }
+    if (has(['登录', '会话', '重新登录']) || lower.contains('token')) {
+      return AppError(
+        AppErrorKind.sessionExpired,
+        message: msg.isEmpty ? '登录状态已失效' : msg,
+        hint: '请重新登录。',
+        serverCode: code,
+        raw: raw,
+      );
+    }
+    if (has(['密码', '账号', '学号', '锁定', '冻结'])) {
+      return AppError(
+        AppErrorKind.account,
+        message: msg,
+        hint: '检查账号密码或选课资格。',
+        serverCode: code,
+        raw: raw,
+      );
     }
     if (has(['维护', '繁忙', '频繁', '限流', '稍后', '拥挤', '排队'])) {
-      return AppError(AppErrorKind.maintenanceOrThrottle,
-          message: msg, hint: '系统繁忙或维护中，已暂停自动操作以免加重负载。', retryable: false, serverCode: code, raw: raw);
+      return AppError(
+        AppErrorKind.maintenanceOrThrottle,
+        message: msg,
+        hint: '系统繁忙或维护中，已暂停自动操作以免加重负载。',
+        retryable: false,
+        serverCode: code,
+        raw: raw,
+      );
     }
     if (has(['已存在', '已选', '重复', '已有'])) {
-      return AppError(AppErrorKind.duplicateSelection,
-          message: msg,
-          hint: '你已选了这门课的其他教学班；要换班请先退选原班级。',
-          retryable: false,
-          serverCode: code,
-          raw: raw);
+      return AppError(
+        AppErrorKind.duplicateSelection,
+        message: msg,
+        hint: '你已选了这门课的其他教学班；要换班请先退选原班级。',
+        retryable: false,
+        serverCode: code,
+        raw: raw,
+      );
     }
     if (has(['已满', '容量', '名额', '满员'])) {
-      return AppError(AppErrorKind.courseFull,
-          message: msg.isEmpty ? '名额已满' : msg, retryable: true, serverCode: code, raw: raw);
+      return AppError(
+        AppErrorKind.courseFull,
+        message: msg.isEmpty ? '名额已满' : msg,
+        retryable: true,
+        serverCode: code,
+        raw: raw,
+      );
     }
-    if (has(['未开放', '不在选课', '已结束', '轮次', '时间'])) {
-      return AppError(AppErrorKind.batchClosed,
-          message: msg, hint: '当前选课轮次未开放或已结束。', retryable: false, serverCode: code, raw: raw);
+    if (has(['未开放', '不在选课', '已结束', '轮次', '选课时间'])) {
+      return AppError(
+        AppErrorKind.batchClosed,
+        message: msg,
+        hint: '当前选课轮次未开放或已结束。',
+        retryable: false,
+        serverCode: code,
+        raw: raw,
+      );
     }
-    if (has(['登录', 'token', '会话', '超时', '重新登录'])) {
-      return AppError(AppErrorKind.sessionExpired,
-          message: msg.isEmpty ? '登录状态已失效' : msg, hint: '请重新登录。', serverCode: code, raw: raw);
+    if (has(['超时'])) {
+      return AppError(
+        AppErrorKind.sessionExpired,
+        message: msg,
+        hint: '请重新登录。',
+        serverCode: code,
+        raw: raw,
+      );
     }
-    return AppError(AppErrorKind.businessRejected,
-        message: msg.isEmpty ? '操作未成功 (code=$code)' : msg, serverCode: code, raw: raw);
+    return AppError(
+      AppErrorKind.businessRejected,
+      message: msg.isEmpty ? '操作未成功 (code=$code)' : msg,
+      serverCode: code,
+      raw: raw,
+    );
   }
 
   /// Classifies an HTML/non-JSON body where JSON was expected.

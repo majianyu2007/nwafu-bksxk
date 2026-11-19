@@ -416,6 +416,7 @@ class LibraryService {
   /// same silent re-login the EMAP apps use).
   final Future<bool> Function()? onLoginRequired;
   String? _token;
+  Future<String>? _loginInFlight;
 
   Dio get _dio => cas.dio;
 
@@ -429,13 +430,23 @@ class LibraryService {
     }
   }
 
-  Future<String> _login({bool retried = false}) async {
+  Future<String> _login({bool retried = false}) {
+    if (!retried && _loginInFlight != null) return _loginInFlight!;
+    final future = _doLogin(retried: retried);
+    if (!retried) {
+      _loginInFlight = future.whenComplete(() => _loginInFlight = null);
+      return _loginInFlight!;
+    }
+    return future;
+  }
+
+  Future<String> _doLogin({bool retried = false}) async {
     _requireBridgeOnWeb();
     final res = await cas.follow('$kLibraryOrigin/api/cas/cas');
     if (res.realUri.host == Uri.parse(kAuthServer).host && !retried) {
       // The AuthServer wants a login: the unified session has expired.
       if (!kIsWeb && await (onLoginRequired?.call() ?? Future.value(false))) {
-        return _login(retried: true);
+        return _doLogin(retried: true);
       }
       throw AppError(
         AppErrorKind.sessionExpired,
@@ -686,10 +697,17 @@ class LibraryService {
     }
   }
 
+  static bool _isFatalLibraryError(Object e) =>
+      e is AppError &&
+      (e.kind == AppErrorKind.sessionExpired ||
+          e.kind == AppErrorKind.campusNetwork ||
+          e.kind == AppErrorKind.schemaOrRedirect);
+
   /// Bookable dates for a seminar room: tries `/api/Seminar/date`, and falls
   /// back to `/api/Room/detail` (v2 seminar room flow used by NWAFU, reading
   /// `list[].date` with `status == 0` or `startDate`..`endDate`).
   Future<List<String>> seminarDates(String roomId) async {
+    _requireBridgeOnWeb();
     try {
       final r = await _post('/api/Seminar/date', {'build_id': roomId});
       final d = r['data'];
@@ -701,45 +719,61 @@ class LibraryService {
             .toList();
         if (list.isNotEmpty) return list;
       }
-    } catch (_) {
+    } catch (e) {
+      if (_isFatalLibraryError(e)) rethrow;
       // Fall through to v2 /api/Room/detail.
     }
     final now = DateTime.now().toUtc().add(const Duration(hours: 8));
-    final month = '${now.year}-${now.month.toString().padLeft(2, '0')}';
-    try {
-      final r = await _post('/api/Room/detail', {
-        'area_id': roomId,
-        'month': month,
-      });
-      final d = r['data'];
-      if (d is Map<String, dynamic>) {
-        final rawDays = d['list'] ?? d['days'] ?? d['date'] ?? d['dateList'];
-        if (rawDays is List) {
-          final list = <String>[];
-          for (final item in rawDays) {
-            if (item is Map) {
-              final status = '${item['status'] ?? '0'}';
-              if (status != '0' && status != '1') continue;
-              final s = '${item['date'] ?? item['day'] ?? ''}'.trim();
-              if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s)) list.add(s);
-            } else {
-              final s = '$item'.trim();
-              if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s)) list.add(s);
+    final months = <String>[
+      '${now.year}-${now.month.toString().padLeft(2, '0')}',
+      if (now.day >= 22) () {
+        final next = DateTime(now.year, now.month + 1, 1);
+        return '${next.year}-${next.month.toString().padLeft(2, '0')}';
+      }(),
+    ];
+    final found = <String>{};
+    for (final month in months) {
+      try {
+        final r = await _post('/api/Room/detail', {
+          'area_id': roomId,
+          'month': month,
+        });
+        final d = r['data'];
+        if (d is Map<String, dynamic>) {
+          final rawDays = d['list'] ?? d['days'] ?? d['date'] ?? d['dateList'];
+          if (rawDays is List) {
+            for (final item in rawDays) {
+              if (item is Map) {
+                final status = '${item['status'] ?? '0'}';
+                if (status != '0' && status != '1') continue;
+                final s = '${item['date'] ?? item['day'] ?? ''}'.trim();
+                if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s)) found.add(s);
+              } else {
+                final s = '$item'.trim();
+                if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s)) found.add(s);
+              }
             }
           }
-          if (list.isNotEmpty) return list;
+          if (found.isEmpty) {
+            final start = DateTime.tryParse('${d['startDate'] ?? ''}');
+            final end = DateTime.tryParse('${d['endDate'] ?? ''}');
+            if (start != null && end != null && !end.isBefore(start)) {
+              final days = end.difference(start).inDays.clamp(0, 14);
+              for (var i = 0; i <= days; i++) {
+                found.add(_day(start.add(Duration(days: i))));
+              }
+            }
+          }
         }
-        final start = DateTime.tryParse('${d['startDate'] ?? ''}');
-        final end = DateTime.tryParse('${d['endDate'] ?? ''}');
-        if (start != null && end != null && !end.isBefore(start)) {
-          final days = end.difference(start).inDays.clamp(0, 14);
-          return [
-            for (var i = 0; i <= days; i++) _day(start.add(Duration(days: i))),
-          ];
-        }
+      } catch (e) {
+        if (_isFatalLibraryError(e)) rethrow;
       }
-    } catch (_) {
-      // Fall through to default 7-day window.
+    }
+    if (found.isNotEmpty) {
+      final todayStr = _day(now);
+      final sorted = found.where((d) => d.compareTo(todayStr) >= 0).toList()
+        ..sort();
+      if (sorted.isNotEmpty) return sorted;
     }
     return [for (var i = 0; i < 7; i++) _day(now.add(Duration(days: i)))];
   }
@@ -751,6 +785,7 @@ class LibraryService {
     required String areaId,
     required String day,
   }) async {
+    _requireBridgeOnWeb();
     try {
       final r = await _post('/api/Seminar/seminar', {
         'room': roomId,
@@ -761,7 +796,8 @@ class LibraryService {
       if (d is Map<String, dynamic> && d.isNotEmpty) {
         return LibrarySeminarDay.fromJson(day, d);
       }
-    } catch (_) {
+    } catch (e) {
+      if (_isFatalLibraryError(e)) rethrow;
       // Fall back to /api/Room/detail (v2 flow).
     }
     final month = day.length >= 7 ? day.substring(0, 7) : day;
@@ -771,8 +807,20 @@ class LibraryService {
     });
     final d = r['data'];
     if (d is Map<String, dynamic>) {
+      // In `/api/Room/detail`, `list` is the monthly calendar `[{date, status}]`,
+      // NOT daily booked time ranges — remove it unless items actually look
+      // like time-range slots.
+      final cleaned = Map<String, dynamic>.from(d);
+      final rawList = cleaned['list'];
+      if (rawList is List &&
+          rawList.isNotEmpty &&
+          rawList.first is Map &&
+          (rawList.first as Map).containsKey('date') &&
+          !(rawList.first as Map).containsKey('start_time')) {
+        cleaned.remove('list');
+      }
       return LibrarySeminarDay.fromJson(day, {
-        ...d,
+        ...cleaned,
         'start_time': d['spaceOpenTime'] ?? d['start_time'] ?? '08:00',
         'end_time': d['spaceCloseTime'] ?? d['end_time'] ?? '22:00',
         'min_time': d['minTime'] ?? d['min_time'] ?? 60,

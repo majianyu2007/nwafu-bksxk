@@ -604,7 +604,8 @@ class EduSessionController extends StateNotifier<EduState> {
   Future<void> logout() async {
     final signedInAs = state.signedIn ? state.account?.username : null;
     final previousAccount = state.account?.username ?? _pending?.username;
-    ++_epoch;
+    final logoutEpoch = ++_epoch;
+    _resumeOnCancel = null;
     _pending = null;
     _relogin = null;
     state = const EduState(phase: EduPhase.signedOut);
@@ -621,6 +622,7 @@ class EduSessionController extends StateNotifier<EduState> {
     // Cancellation is queued after any in-flight replacement schedule.
     final reminders = _ref.read(classReminderProvider.notifier).reschedule();
     await _serial(() async {
+      if (!_current(logoutEpoch)) return;
       final account =
           _ref.read(_eduClientAccountProvider) ?? previousAccount;
       await _client.close(clearCookies: true);
@@ -732,7 +734,6 @@ class TimetableState {
 class TimetableController extends StateNotifier<TimetableState> {
   TimetableController(this._ref, this._accountId)
     : _session = _ref.read(eduSessionProvider.notifier),
-      _epoch = _ref.read(eduSessionProvider.notifier)._epoch,
       super(const TimetableState()) {
     _loadCached();
   }
@@ -740,12 +741,14 @@ class TimetableController extends StateNotifier<TimetableState> {
   final Ref _ref;
   final String? _accountId;
   final EduSessionController _session;
-  final int _epoch;
   int _request = 0;
   Storage get _storage => _ref.read(storageProvider);
 
-  bool _current(int request) =>
-      mounted && request == _request && _session._current(_epoch);
+  bool _current(int request, int sessionEpoch) =>
+      mounted &&
+      request == _request &&
+      _session._current(sessionEpoch) &&
+      _ref.read(eduSessionProvider).account?.username == _accountId;
 
   void _loadCached() {
     final id = _accountId;
@@ -793,14 +796,26 @@ class TimetableController extends StateNotifier<TimetableState> {
     final id = _accountId;
     if (id == null || (state.loading && term == null)) return;
     final request = ++_request;
+    final sessionEpoch = _session._epoch;
     final ehall = _ref.read(eduClientProvider).ehall;
     final session = _ref.read(eduSessionProvider.notifier);
     state = state.copyWith(loading: true, clearError: true);
+    void clearIfStale() {
+      if (mounted && request == _request && state.loading) {
+        state = state.copyWith(loading: false);
+      }
+    }
     try {
       final target = term ?? await ehall.currentTerm();
-      if (!_current(request)) return;
+      if (!_current(request, sessionEpoch)) {
+        clearIfStale();
+        return;
+      }
       final fresh = await ehall.timetable(target);
-      if (!_current(request)) return;
+      if (!_current(request, sessionEpoch)) {
+        clearIfStale();
+        return;
+      }
       var terms = state.terms;
       try {
         terms = await ehall.terms();
@@ -808,8 +823,11 @@ class TimetableController extends StateNotifier<TimetableState> {
       } on AppError {
         if (terms.isEmpty) terms = [target];
       }
-      if (!_current(request)) return;
-      await session._cacheFor(id, () => _current(request), () async {
+      if (!_current(request, sessionEpoch)) {
+        clearIfStale();
+        return;
+      }
+      await session._cacheFor(id, () => _current(request, sessionEpoch), () async {
         // Diff against the cached copy before it is overwritten.
         try {
           await _ref.read(eduSyncCoreProvider).recordTimetable(id, fresh);
@@ -818,13 +836,19 @@ class TimetableController extends StateNotifier<TimetableState> {
         await _storage.setEduCurrentTerm(id, jsonEncode(target.toJson()));
         await _storage.setEduLastSync(id, DateTime.now());
       });
-      if (!_current(request)) return;
+      if (!_current(request, sessionEpoch)) {
+        clearIfStale();
+        return;
+      }
       state = TimetableState(data: _withCustom(fresh), terms: terms);
       _ref.read(timetableChangesProvider.notifier).reload();
       unawaited(_ref.read(classReminderProvider.notifier).reschedule());
       _ref.read(calendarSyncProvider.notifier).schedule();
     } catch (e) {
-      if (!_current(request)) return;
+      if (!_current(request, sessionEpoch)) {
+        clearIfStale();
+        return;
+      }
       if (silent) {
         state = state.copyWith(loading: false);
         return;
@@ -909,11 +933,12 @@ class TimetableController extends StateNotifier<TimetableState> {
     final id = _accountId;
     if (id == null) return;
     final request = _request;
+    final sessionEpoch = _session._epoch;
     await _ref
         .read(eduSessionProvider.notifier)
         ._cacheFor(
           id,
-          () => _current(request),
+          () => _current(request, sessionEpoch),
           () => _storage.setCustomSessions(
             id,
             t.term.code,
@@ -922,7 +947,7 @@ class TimetableController extends StateNotifier<TimetableState> {
             ]),
           ),
         );
-    if (!_current(request)) return;
+    if (!_current(request, sessionEpoch)) return;
     state = state.copyWith(data: t.copyWith(sessions: sessions));
     unawaited(_ref.read(classReminderProvider.notifier).reschedule());
   }
@@ -1078,7 +1103,10 @@ class ClassReminderController extends StateNotifier<int> {
     }
     final t = _ref.read(timetableProvider).data;
     final service = _ref.read(eduNotificationsProvider);
-    if (state <= 0 || t == null || identity == null) {
+    final storage = _ref.read(storageProvider);
+    final wantClass = state > 0;
+    final wantExam = storage.examReminders();
+    if ((!wantClass && !wantExam) || t == null || identity == null) {
       await service.cancelClassReminders();
       if (mounted && generation == _generation) {
         _ref.read(reminderStatusProvider.notifier).state = null;
@@ -1087,20 +1115,21 @@ class ClassReminderController extends StateNotifier<int> {
     }
     final lead = state;
     final now = _ref.read(eduNowProvider)();
-    final storage = _ref.read(storageProvider);
     final first = storage.firstClassReminderMinutes();
-    final plans = planReminders(
-      t,
-      now,
-      rules: ReminderRules(
-        lead: Duration(minutes: lead),
-        firstLead: first > 0 ? Duration(minutes: first) : null,
-        skipSameRoom: storage.reminderSkipSameRoom(),
-        moveBuilding: storage.reminderBuildingChange(),
-      ),
-      days: 7,
-    );
-    final examPlans = storage.examReminders()
+    final plans = wantClass
+        ? planReminders(
+            t,
+            now,
+            rules: ReminderRules(
+              lead: Duration(minutes: lead),
+              firstLead: first > 0 ? Duration(minutes: first) : null,
+              skipSameRoom: storage.reminderSkipSameRoom(),
+              moveBuilding: storage.reminderBuildingChange(),
+            ),
+            days: 7,
+          )
+        : const <ReminderPlan>[];
+    final examPlans = wantExam
         ? planExamReminders(
             cachedExams(storage, identity, t.term.code),
             now,
@@ -1108,7 +1137,7 @@ class ClassReminderController extends StateNotifier<int> {
           )
         : const <ExamReminderPlan>[];
     _fired.retainAll({
-      ...t.upcoming(now, days: 7).map(reminderId),
+      if (wantClass) ...t.upcoming(now, days: 7).map(reminderId),
       ...examPlans.map((p) => p.id),
     });
     final all = [
@@ -1255,7 +1284,6 @@ class GradesState {
 class GradesController extends StateNotifier<GradesState> {
   GradesController(this._ref, this._accountId)
     : _session = _ref.read(eduSessionProvider.notifier),
-      _epoch = _ref.read(eduSessionProvider.notifier)._epoch,
       super(
         GradesState(
           book: _accountId == null
@@ -1268,31 +1296,49 @@ class GradesController extends StateNotifier<GradesState> {
   final Ref _ref;
   final String? _accountId;
   final EduSessionController _session;
-  final int _epoch;
   int _request = 0;
 
-  bool _current(int request) =>
-      mounted && request == _request && _session._current(_epoch);
+  bool _current(int request, int sessionEpoch) =>
+      mounted &&
+      request == _request &&
+      _session._current(sessionEpoch) &&
+      _ref.read(eduSessionProvider).account?.username == _accountId;
 
   Future<void> sync({bool silent = false}) async {
     final id = _accountId;
     if (id == null || state.loading) return;
     final request = ++_request;
+    final sessionEpoch = _session._epoch;
     final storage = _ref.read(storageProvider);
     final session = _ref.read(eduSessionProvider.notifier);
     state = GradesState(book: state.book, loading: true);
+    void clearIfStale() {
+      if (mounted && request == _request && state.loading) {
+        state = GradesState(book: state.book, error: state.error);
+      }
+    }
     try {
       final book = await _ref.read(eduClientProvider).ehall.grades();
-      if (!_current(request)) return;
-      await session._cacheFor(id, () => _current(request), () async {
+      if (!_current(request, sessionEpoch)) {
+        clearIfStale();
+        return;
+      }
+      await session._cacheFor(id, () => _current(request, sessionEpoch), () async {
         try {
           await _ref.read(eduSyncCoreProvider).recordGrades(id, book);
         } catch (_) {}
         await storage.setEduGrades(id, book.encode());
       });
-      if (_current(request)) state = GradesState(book: book);
+      if (_current(request, sessionEpoch)) {
+        state = GradesState(book: book);
+      } else {
+        clearIfStale();
+      }
     } catch (e) {
-      if (!_current(request)) return;
+      if (!_current(request, sessionEpoch)) {
+        clearIfStale();
+        return;
+      }
       if (silent) {
         state = GradesState(book: state.book, error: state.error);
         return;

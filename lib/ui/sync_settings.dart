@@ -32,7 +32,6 @@ class SyncSettings extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(syncPrefsProvider);
     final ctrl = ref.read(syncPrefsProvider.notifier);
-    final reminderLead = ref.watch(classReminderProvider);
     final status = ref.watch(reminderStatusProvider);
     final changes = ref.watch(timetableChangesProvider);
     final calendar = ref.watch(calendarSyncProvider);
@@ -42,66 +41,73 @@ class SyncSettings extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ListTile(
-          leading: const Icon(Icons.sync),
-          title: const Text('自动更新'),
-          subtitle: Text(
-            backgroundRefreshSupported
-                ? '在后台更新课表和成绩'
-                : '应用打开或在托盘时更新课表和成绩',
+        if (!kIsWeb) ...[
+          ListTile(
+            leading: const Icon(Icons.sync),
+            title: const Text('自动更新'),
+            subtitle: Text(
+              backgroundRefreshSupported
+                  ? '在后台更新课表和成绩'
+                  : '应用打开或在托盘时更新课表和成绩',
+            ),
+            trailing: DropdownButton<int>(
+              value: _intervals.contains(prefs.intervalHours)
+                  ? prefs.intervalHours
+                  : 12,
+              underline: const SizedBox.shrink(),
+              items: [
+                for (final h in _intervals)
+                  DropdownMenuItem(
+                    value: h,
+                    child: Text(h == 0 ? '关闭' : '每 $h 小时'),
+                  ),
+              ],
+              onChanged: (v) {
+                if (v != null) ctrl.setInterval(v);
+              },
+            ),
           ),
-          trailing: DropdownButton<int>(
-            value: _intervals.contains(prefs.intervalHours)
-                ? prefs.intervalHours
-                : 12,
-            underline: const SizedBox.shrink(),
-            items: [
-              for (final h in _intervals)
-                DropdownMenuItem(
-                  value: h,
-                  child: Text(h == 0 ? '关闭' : '每 $h 小时'),
-                ),
-            ],
-            onChanged: (v) {
-              if (v != null) ctrl.setInterval(v);
+          SwitchListTile(
+            secondary: const Icon(Icons.edit_calendar_outlined),
+            title: const Text('课表变动提醒'),
+            subtitle: const Text('调课、换教室时通知'),
+            value: prefs.timetableAlerts,
+            onChanged: ctrl.setTimetableAlerts,
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.grade_outlined),
+            title: const Text('新成绩提醒'),
+            subtitle: const Text('出新成绩时通知'),
+            value: prefs.gradeAlerts,
+            onChanged: ctrl.setGradeAlerts,
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.assignment_outlined),
+            title: const Text('考试提醒'),
+            subtitle: const Text('考试前一晚 20:00 和开考前 1 小时提醒'),
+            value: prefs.examReminders,
+            onChanged: (v) async {
+              if (v &&
+                  !await ref
+                      .read(eduNotificationsProvider)
+                      .requestPermission()) {
+                if (context.mounted) _toast(context, '未获得通知权限，请在系统设置开启');
+                return;
+              }
+              await ctrl.setExamReminders(v);
             },
           ),
-        ),
-        SwitchListTile(
-          secondary: const Icon(Icons.edit_calendar_outlined),
-          title: const Text('课表变动提醒'),
-          subtitle: const Text('调课、换教室时通知'),
-          value: prefs.timetableAlerts,
-          onChanged: ctrl.setTimetableAlerts,
-        ),
-        SwitchListTile(
-          secondary: const Icon(Icons.grade_outlined),
-          title: const Text('新成绩提醒'),
-          subtitle: const Text('出新成绩时通知'),
-          value: prefs.gradeAlerts,
-          onChanged: ctrl.setGradeAlerts,
-        ),
-        SwitchListTile(
-          secondary: const Icon(Icons.assignment_outlined),
-          title: const Text('考试提醒'),
-          subtitle: Text(
-            reminderLead > 0
-                ? '考试前一晚 20:00 和开考前 1 小时提醒'
-                : '需先开启「课前提醒」；考试前一晚 20:00 和开考前 1 小时提醒',
-          ),
-          value: prefs.examReminders,
-          onChanged: ctrl.setExamReminders,
-        ),
-        if (status != null)
-          ListTile(
-            leading: const Icon(Icons.alarm_on_outlined),
-            title: Text(status.text),
-            subtitle: _isAndroid
-                ? Text(status.exact ? '使用精确闹钟' : '提醒可能晚几分钟')
-                : null,
-            dense: true,
-          ),
-        if (_isAndroid) const _ExactAlarmTile(),
+          if (status != null)
+            ListTile(
+              leading: const Icon(Icons.alarm_on_outlined),
+              title: Text(status.text),
+              subtitle: _isAndroid
+                  ? Text(status.exact ? '使用精确闹钟' : '提醒可能晚几分钟')
+                  : null,
+              dense: true,
+            ),
+          if (_isAndroid) const _ExactAlarmTile(),
+        ],
         ListTile(
           leading: const Icon(Icons.history),
           title: const Text('最近课表变动'),
@@ -112,12 +118,13 @@ class SyncSettings extends ConsumerWidget {
             builder: (_) => const _ChangeLogDialog(),
           ),
         ),
-        const Divider(height: 1),
-        SwitchListTile(
-          secondary: const Icon(Icons.calendar_month_outlined),
-          title: const Text('系统日历同步'),
-          subtitle: Text(
-            calendarSupported
+        if (!kIsWeb) ...[
+          const Divider(height: 1),
+          SwitchListTile(
+            secondary: const Icon(Icons.calendar_month_outlined),
+            title: const Text('系统日历同步'),
+            subtitle: Text(
+              calendarSupported
                 ? '写入单独的「西农课表」日历'
                 : '仅支持 Android 和 iOS，其他平台可导出 .ics',
           ),
@@ -198,6 +205,7 @@ class SyncSettings extends ConsumerWidget {
                 : () => ref.read(calendarSyncProvider.notifier).syncNow(),
           ),
         ],
+        ],
         ListTile(
           leading: const Icon(Icons.ios_share),
           title: const Text('导出 .ics'),
@@ -209,8 +217,8 @@ class SyncSettings extends ConsumerWidget {
             secondary: const Icon(Icons.key_outlined),
             title: const Text('后台使用本设备通行密钥'),
             subtitle: const Text(
-              '后台重新登录时直接使用本设备的通行密钥，不弹指纹/面容'
-              '关闭时，没有保存密码就跳过后台更新',
+              '后台重新登录时直接使用本设备的通行密钥，不弹指纹/面容。'
+              '关闭时，没有保存密码就跳过后台更新。',
             ),
             isThreeLine: true,
             value: prefs.backgroundUseDeviceKey,
@@ -255,11 +263,36 @@ class SyncSettings extends ConsumerWidget {
   }
 }
 
-class _ExactAlarmTile extends ConsumerWidget {
+class _ExactAlarmTile extends ConsumerStatefulWidget {
   const _ExactAlarmTile();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ExactAlarmTile> createState() => _ExactAlarmTileState();
+}
+
+class _ExactAlarmTileState extends ConsumerState<_ExactAlarmTile>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      ref.invalidate(exactAlarmProvider);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final exact = ref.watch(exactAlarmProvider).valueOrNull;
     if (exact == null) return const SizedBox.shrink();
     return ListTile(
@@ -271,6 +304,7 @@ class _ExactAlarmTile extends ConsumerWidget {
           ? null
           : () async {
               await ref.read(eduNotificationsProvider).requestExactAlarms();
+              if (!mounted) return;
               ref.invalidate(exactAlarmProvider);
               await ref.read(classReminderProvider.notifier).reschedule();
             },
@@ -351,10 +385,10 @@ class _ChangeLogDialog extends ConsumerWidget {
     final theme = Theme.of(context);
     return AlertDialog(
       title: const Text('最近课表变动'),
-      content: SizedBox(
-        width: 420,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420, maxHeight: 420),
         child: changes.isEmpty
-            ? const Text('最近 20 次课表变动')
+            ? const Text('暂无课表变动记录')
             : ListView.separated(
                 shrinkWrap: true,
                 itemCount: changes.length,

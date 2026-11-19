@@ -51,4 +51,35 @@ void main() {
     expect(excluded.simulatedGpa, closeTo(4.0, 1e-6));
     expect(excluded.simulatedCredits, 2.0);
   });
+
+  test('planTargetGpa reverse-calculates required average GPA and score', () {
+    final plan = planTargetGpa(
+      currentGpa: 3.4,
+      currentCredits: 60,
+      upcomingCredits: 20,
+      targetGpa: 3.55,
+    )!;
+    // (3.55 * 80 - 3.4 * 60) / 20 = (284 - 204) / 20 = 4.0
+    expect(plan.requiredGpa, closeTo(4.0, 1e-6));
+    expect(plan.achievable, isTrue);
+    expect(plan.estimatedScore, closeTo(90.0, 1e-6));
+
+    final impossible = planTargetGpa(
+      currentGpa: 3.0,
+      currentCredits: 100,
+      upcomingCredits: 10,
+      targetGpa: 3.8,
+    )!;
+    expect(impossible.achievable, isFalse);
+
+    expect(
+      planTargetGpa(
+        currentGpa: double.nan,
+        currentCredits: 10,
+        upcomingCredits: 10,
+        targetGpa: 3.5,
+      ),
+      isNull,
+    );
+  });
 }

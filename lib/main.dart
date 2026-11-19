@@ -4,6 +4,7 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:fluid_glass/fluid_glass.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -48,9 +49,28 @@ void debugShiftClock(int minutes) =>
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final storage = await Storage.open();
-  await AppBackground.instance.init();
-  await NotificationService.instance.init();
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    if (kDebugMode) {
+      debugPrint('Uncaught platform error: $error\n$stack');
+    }
+    return true;
+  };
+
+  final prefs = await SharedPreferences.getInstance();
+  final storage = Storage(prefs);
+  try {
+    await AppBackground.instance.init();
+  } catch (e) {
+    if (kDebugMode) debugPrint('AppBackground init skipped: $e');
+  }
+  try {
+    await NotificationService.instance.init();
+  } catch (e) {
+    if (kDebugMode) debugPrint('NotificationService init skipped: $e');
+  }
   if (!kIsWeb) {
     unawaited(FluidGlass.ensureInitialized().catchError((Object _) {}));
   }
@@ -58,23 +78,15 @@ Future<void> main() async {
   final container = ProviderContainer(
     overrides: [
       storageProvider.overrideWithValue(storage),
-      sharedPreferencesProvider.overrideWithValue(
-        await SharedPreferences.getInstance(),
-      ),
+      sharedPreferencesProvider.overrideWithValue(prefs),
     ],
   );
   if (kDebugMode) debugContainer = container;
-  // Pre-warm the ONNX captcha solver so the first captcha is recognised
-  // without a cold-start pause. On the web the model is a 14 MB download, so
-  // it starts after the first frame instead of competing with the app's own
-  // scripts and fonts on a cold cache.
-  if (kIsWeb) {
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => container.read(captchaSolverProvider).warmUp(),
-    );
-  } else {
-    container.read(captchaSolverProvider).warmUp();
-  }
+  // Pre-warm the ONNX captcha solver after the first frame so cold start stays
+  // snappy on every platform (on Web it is also a 14 MB download).
+  WidgetsBinding.instance.addPostFrameCallback(
+    (_) => container.read(captchaSolverProvider).warmUp(),
+  );
 
   runApp(
     UncontrolledProviderScope(container: container, child: const NwafuXkApp()),
@@ -87,8 +99,6 @@ class NwafuXkApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(themeControllerProvider);
-    final textScale = ref.watch(textScaleProvider);
-    final scaleMode = ref.watch(uiScaleModeProvider);
     final glass = ref.watch(glassEnabledProvider);
 
     return DynamicColorBuilder(
@@ -96,28 +106,14 @@ class NwafuXkApp extends ConsumerWidget {
         return MaterialApp(
           title: '西农教务助手',
           debugShowCheckedModeBanner: false,
-          builder: (context, child) {
-            final media = MediaQuery.of(context);
-            final systemScale = media.textScaler.scale(14) / 14;
-            final adaptive = computeAdaptiveScale(
-              media.size,
-              scaleMode,
-              systemScale: systemScale,
-            );
-            final currentTheme = Theme.of(context);
-            return MediaQuery(
-              data: media.copyWith(
-                textScaler: AppTextScaler(
-                  media.textScaler,
-                  textScale * adaptive.factor,
-                ),
-              ),
-              child: Theme(
-                data: currentTheme.copyWith(visualDensity: adaptive.density),
-                child: child!,
-              ),
-            );
-          },
+          locale: const Locale('zh', 'CN'),
+          supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          builder: (context, child) => _AdaptiveShellBuilder(child: child!),
           themeMode: theme.mode,
           theme: AppTheme.build(
             brightness: Brightness.light,
@@ -135,6 +131,43 @@ class NwafuXkApp extends ConsumerWidget {
           home: const RootShell(),
         );
       },
+    );
+  }
+}
+
+/// Applies adaptive scaling + text scale inside [MaterialApp.builder] without
+/// rebuilding [MaterialApp] or both [ThemeData] objects when scale settings
+/// change.
+class _AdaptiveShellBuilder extends ConsumerWidget {
+  const _AdaptiveShellBuilder({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final textScale = ref.watch(textScaleProvider);
+    final scaleMode = ref.watch(uiScaleModeProvider);
+    final media = MediaQuery.of(context);
+    final systemScale = media.textScaler.scale(14) / 14;
+    final adaptive = computeAdaptiveScale(
+      media.size,
+      scaleMode,
+      systemScale: systemScale,
+    );
+    final currentTheme = Theme.of(context);
+    final scaledMedia = media.copyWith(
+      textScaler: AppTextScaler(
+        media.textScaler,
+        textScale * adaptive.factor,
+      ),
+    );
+    return MediaQuery(
+      data: scaledMedia,
+      child: Theme(
+        data: currentTheme.visualDensity == adaptive.density
+            ? currentTheme
+            : currentTheme.copyWith(visualDensity: adaptive.density),
+        child: child,
+      ),
     );
   }
 }

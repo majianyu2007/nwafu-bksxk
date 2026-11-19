@@ -160,4 +160,35 @@ void main() {
     );
     expect(d.added.single.termCode, '2026-2027-1');
   });
+
+  test('same-term retake attempt does not trigger repeated phantom grade alerts', () {
+    final book = GradeBook(
+      records: const [
+        GradeRecord(
+          termCode: '2025-2026-1',
+          termName: '2025秋',
+          courseName: '大学物理',
+          courseCode: 'P1',
+          credit: 3,
+          scoreText: '52',
+          score: 52,
+          attempt: '初修',
+        ),
+        GradeRecord(
+          termCode: '2025-2026-1',
+          termName: '2025秋',
+          courseName: '大学物理',
+          courseCode: 'P1',
+          credit: 3,
+          scoreText: '78',
+          score: 78,
+          attempt: '补考',
+        ),
+      ],
+      summary: const GradeSummary(),
+      syncedAt: DateTime.utc(2026, 3, 1),
+    );
+    final diff = newGrades(book, book);
+    expect(diff.isEmpty, isTrue);
+  });
 }

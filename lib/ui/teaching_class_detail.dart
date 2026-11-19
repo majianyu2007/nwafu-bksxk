@@ -56,21 +56,24 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
 
     _loading = true;
     Future(() async {
+      if (!mounted) return;
       try {
         final course = ref.read(courseServiceProvider);
-
-        final fresh = await course.fetchTeachingClassDetail(
-            tc: widget.tc, batchCode: batchCode);
-        if (fresh != null && mounted) {
-          setState(() => _tc = fresh);
-        }
-
-        if (widget.tc.courseNumber.isNotEmpty && mounted) {
-          final detail = await course.fetchCourseDetail(widget.tc.courseNumber);
-          if (mounted) {
-            setState(() => _courseDetail = detail);
-          }
-        }
+        await Future.wait([
+          course
+              .fetchTeachingClassDetail(tc: widget.tc, batchCode: batchCode)
+              .then((fresh) {
+                if (fresh != null && mounted) {
+                  setState(() => _tc = fresh);
+                }
+              }),
+          if (widget.tc.courseNumber.isNotEmpty)
+            course.fetchCourseDetail(widget.tc.courseNumber).then((detail) {
+              if (mounted) {
+                setState(() => _courseDetail = detail);
+              }
+            }),
+        ]);
       } catch (_) {
         // Ignore — fall back to local data.
       } finally {
@@ -187,7 +190,11 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
         ),
 
       if (_tc.hasCapacityInfo) ...[
-        _CapacityBlock(tc: _tc),
+        _CapacityBlock(
+          tc: _tc,
+          volunteerRound:
+              ref.read(sessionProvider).activeBatch?.isVolunteerRound ?? false,
+        ),
         const SizedBox(height: 16),
       ],
 
@@ -267,18 +274,14 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
         ),
       );
     }
-    final parts = <String>[];
-    // queryjxb.do's teacherNameList carries the title: "武春芳(副教授)|工号|".
     final withTitle = _tc.teacherWithTitle;
-    if (withTitle.isNotEmpty && withTitle != _tc.teacherName) {
-      parts.add(withTitle);
+    if (withTitle.isEmpty || withTitle == _tc.teacherName) {
+      return const SizedBox.shrink();
     }
-    if (_departmentName.isNotEmpty) parts.add(_departmentName);
-    if (parts.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(left: 30, bottom: 8),
       child: Text(
-        parts.join('  '),
+        withTitle,
         style: TextStyle(
             fontSize: 13,
             color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -354,8 +357,9 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
 }
 
 class _CapacityBlock extends StatelessWidget {
-  const _CapacityBlock({required this.tc});
+  const _CapacityBlock({required this.tc, this.volunteerRound = false});
   final TeachingClass tc;
+  final bool volunteerRound;
 
   @override
   Widget build(BuildContext context) {
@@ -367,7 +371,10 @@ class _CapacityBlock extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
       ),
       child: CapacityBar(
-          selected: tc.numberOfSelected, capacity: tc.classCapacity),
+        selected: volunteerRound ? tc.firstVolunteers : tc.numberOfSelected,
+        capacity: tc.classCapacity,
+        label: volunteerRound ? '第一志愿' : null,
+      ),
     );
   }
 }

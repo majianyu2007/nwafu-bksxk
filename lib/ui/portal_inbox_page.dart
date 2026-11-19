@@ -44,6 +44,9 @@ class PortalInboxPage extends ConsumerStatefulWidget {
 }
 
 class _PortalInboxPageState extends ConsumerState<PortalInboxPage> {
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
   @override
   void initState() {
     super.initState();
@@ -54,12 +57,43 @@ class _PortalInboxPageState extends ConsumerState<PortalInboxPage> {
     });
   }
 
-  Future<void> _login() => Navigator.of(
-    context,
-  ).push<bool>(MaterialPageRoute(builder: (_) => const EduLoginPage()));
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _login() async {
+    final ok = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => const EduLoginPage()));
+    if (ok == true && mounted) {
+      await ref.read(portalProvider.notifier).refresh();
+    }
+  }
+
+  List<PortalItem> _filter(List<PortalItem> items) {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return items;
+    return [
+      for (final item in items)
+        if (item.title.toLowerCase().contains(q) ||
+            item.summary.toLowerCase().contains(q) ||
+            item.source.toLowerCase().contains(q))
+          item,
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<String?>(
+      eduSessionProvider.select((s) => s.signedIn ? s.account?.username : null),
+      (prev, next) {
+        if (next != null && next != prev) {
+          ref.read(portalProvider.notifier).refresh();
+        }
+      },
+    );
     final signedIn = ref.watch(eduSessionProvider.select((s) => s.signedIn));
     final state = ref.watch(portalProvider);
     final inbox = state.inbox;
@@ -125,9 +159,49 @@ class _PortalInboxPageState extends ConsumerState<PortalInboxPage> {
                         ),
                         const SizedBox(height: 12),
                       ],
+                      if (inbox == null &&
+                          !state.loading &&
+                          state.error == null)
+                        _Hint(
+                          icon: Icons.inbox_outlined,
+                          text: '尚未加载一网通办消息，下拉或点击刷新查看最新待办与公告。',
+                          action: FilledButton(
+                            onPressed: refresh,
+                            child: const Text('刷新消息'),
+                          ),
+                        ),
                       if (inbox != null) ...[
                         _Counts(inbox: inbox),
-                        const SizedBox(height: 20),
+                        if (inbox.errors['counts'] != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            '统计数字暂时未同步：${inbox.errors['counts']!.message}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.error,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: _searchCtrl,
+                          decoration: InputDecoration(
+                            isDense: true,
+                            prefixIcon: const Icon(Icons.search, size: 18),
+                            hintText: '搜索待办、消息或学校通知关键词（如：选课、奖学金）',
+                            suffixIcon: _query.isEmpty
+                                ? null
+                                : IconButton(
+                                    tooltip: '清空',
+                                    icon: const Icon(Icons.clear, size: 18),
+                                    onPressed: () {
+                                      _searchCtrl.clear();
+                                      setState(() => _query = '');
+                                    },
+                                  ),
+                          ),
+                          onChanged: (v) => setState(() => _query = v),
+                        ),
+                        const SizedBox(height: 14),
                         TwoColumn(
                           breakpoint: 840,
                           primaryFlex: 1,
@@ -137,9 +211,11 @@ class _PortalInboxPageState extends ConsumerState<PortalInboxPage> {
                             children: [
                               _Section(
                                 title: '待办',
-                                items: inbox.todos,
+                                items: _filter(inbox.todos),
                                 error: inbox.errors['todos'],
-                                empty: (inbox.todo ?? 0) > 0
+                                empty: _query.trim().isNotEmpty
+                                    ? '没有匹配的待办'
+                                    : (inbox.todo ?? 0) > 0
                                     ? '有 ${inbox.todo} 条待办，列表没取到，可以去一网通办看。'
                                     : '没有待办',
                                 more: Uri.parse(
@@ -148,9 +224,11 @@ class _PortalInboxPageState extends ConsumerState<PortalInboxPage> {
                               ),
                               _Section(
                                 title: '消息',
-                                items: inbox.messages,
+                                items: _filter(inbox.messages),
                                 error: inbox.errors['messages'],
-                                empty: (inbox.unread ?? 0) > 0
+                                empty: _query.trim().isNotEmpty
+                                    ? '没有匹配的消息'
+                                    : (inbox.unread ?? 0) > 0
                                     ? '有 ${inbox.unread} 条未读，列表没取到，可以去消息中心看。'
                                     : '没有消息',
                                 more: Uri.parse(
@@ -161,9 +239,11 @@ class _PortalInboxPageState extends ConsumerState<PortalInboxPage> {
                           ),
                           secondary: _Section(
                             title: '通知公告',
-                            items: inbox.notices,
+                            items: _filter(inbox.notices),
                             error: inbox.errors['notices'],
-                            empty: '暂时没有通知',
+                            empty: _query.trim().isNotEmpty
+                                ? '没有匹配的通知公告'
+                                : '暂时没有通知',
                             more: Uri.parse('$kEhallPortalOrigin/index.html'),
                           ),
                         ),
@@ -368,7 +448,8 @@ class _ErrorNote extends StatelessWidget {
                 spacing: 8,
                 children: [
                   TextButton(onPressed: onRetry, child: const Text('重试')),
-                  if (error.kind == AppErrorKind.sessionExpired)
+                  if (error.kind == AppErrorKind.sessionExpired ||
+                      error.kind == AppErrorKind.account)
                     TextButton(onPressed: onLogin, child: const Text('重新登录')),
                 ],
               ),

@@ -6,13 +6,34 @@ library;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
-class SimpleMarkdown extends StatelessWidget {
+class SimpleMarkdown extends StatefulWidget {
   const SimpleMarkdown(this.source, {super.key, this.onLink});
   final String source;
   final void Function(Uri uri)? onLink;
 
   @override
+  State<SimpleMarkdown> createState() => _SimpleMarkdownState();
+}
+
+class _SimpleMarkdownState extends State<SimpleMarkdown> {
+  final _recognizers = <TapGestureRecognizer>[];
+
+  void _disposeRecognizers() {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  @override
+  void dispose() {
+    _disposeRecognizers();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    _disposeRecognizers();
     final theme = Theme.of(context);
     final blocks = <Widget>[];
     final para = <String>[];
@@ -28,7 +49,7 @@ class SimpleMarkdown extends StatelessWidget {
       para.clear();
     }
 
-    for (final raw in source.replaceAll('\r\n', '\n').split('\n')) {
+    for (final raw in widget.source.replaceAll('\r\n', '\n').split('\n')) {
       final line = raw.trimRight();
       final heading = RegExp(r'^(#{1,6})\s+(.*)$').firstMatch(line);
       final bullet = RegExp(r'^(\s*)[-*+]\s+(.*)$').firstMatch(line);
@@ -62,9 +83,12 @@ class SimpleMarkdown extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  width: 18,
-                  child: Text(mark, style: theme.textTheme.bodyMedium),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 20),
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Text(mark, style: theme.textTheme.bodyMedium),
+                  ),
                 ),
                 Expanded(
                   child: _inline(context, text, theme.textTheme.bodyMedium),
@@ -110,6 +134,11 @@ class SimpleMarkdown extends StatelessWidget {
         );
       } else {
         final uri = Uri.tryParse(m[4]!);
+        TapGestureRecognizer? rec;
+        if (uri != null && widget.onLink != null) {
+          rec = TapGestureRecognizer()..onTap = () => widget.onLink!(uri);
+          _recognizers.add(rec);
+        }
         spans.add(
           TextSpan(
             text: m[3],
@@ -117,9 +146,7 @@ class SimpleMarkdown extends StatelessWidget {
               color: scheme.primary,
               decoration: TextDecoration.underline,
             ),
-            recognizer: uri == null || onLink == null
-                ? null
-                : (TapGestureRecognizer()..onTap = () => onLink!(uri)),
+            recognizer: rec,
           ),
         );
       }

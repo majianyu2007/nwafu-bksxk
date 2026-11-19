@@ -17,6 +17,7 @@ import '../core/errors.dart';
 import '../core/web_env.dart';
 import '../data/academic_calendar.dart' show schoolDate;
 import '../data/library_service.dart';
+import 'edu_login_page.dart';
 import 'layout.dart';
 import 'widgets.dart';
 import 'widgets/glass.dart';
@@ -57,11 +58,52 @@ final _memberProvider = FutureProvider.autoDispose<LibraryMember>(
   (ref) => ref.watch(libraryServiceProvider).member(),
 );
 
+/// Opens the Library entrance QR sheet from anywhere in the app (e.g. MePage).
+void showLibraryQrSheet(BuildContext context) {
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (context) => const SafeArea(child: _QrSheet()),
+  );
+}
+
 class LibraryPage extends ConsumerWidget {
   const LibraryPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final signedIn = ref.watch(eduSessionProvider.select((s) => s.signedIn));
+    if (!signedIn) {
+      return AuroraBackground(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            title: const Text('图书馆'),
+            backgroundColor: Colors.transparent,
+          ),
+          body: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const EmptyState(
+                  icon: Icons.local_library_outlined,
+                  title: '登录统一身份认证后使用图书馆预约',
+                  subtitle: '支持可视化楼层平面图选座、研讨室预约、签到与入馆码',
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const EduLoginPage(),
+                    ),
+                  ),
+                  child: const Text('去登录'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return DefaultTabController(
       length: 3,
       child: AuroraBackground(
@@ -74,7 +116,7 @@ class LibraryPage extends ConsumerWidget {
               IconButton(
                 tooltip: '入馆码',
                 icon: const Icon(Icons.qr_code_2),
-                onPressed: () => _showQr(context),
+                onPressed: () => showLibraryQrSheet(context),
               ),
               const SizedBox(width: 4),
             ],
@@ -105,14 +147,6 @@ class LibraryPage extends ConsumerWidget {
       ),
     );
   }
-
-  void _showQr(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => const SafeArea(child: _QrSheet()),
-    );
-  }
 }
 
 Widget _error(BuildContext context, Object e, VoidCallback retry) {
@@ -120,6 +154,9 @@ Widget _error(BuildContext context, Object e, VoidCallback retry) {
       ? e
       : AppError(AppErrorKind.unknown, message: '图书馆系统暂时不可用');
   final needsBridgeUpdate = kIsWeb && !isFullCampusBridgeReady;
+  final needsLogin =
+      err.kind == AppErrorKind.sessionExpired ||
+      err.kind == AppErrorKind.account;
   return ListView(
     children: [
       EmptyState(
@@ -140,6 +177,16 @@ Widget _error(BuildContext context, Object e, VoidCallback retry) {
                 onPressed: openWebBridgeInstaller,
                 icon: const Icon(Icons.download_outlined),
                 label: const Text('更新桥接脚本 (1.4.2)'),
+              ),
+            if (needsLogin && !kIsWeb)
+              FilledButton(
+                onPressed: () async {
+                  final ok = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(builder: (_) => const EduLoginPage()),
+                  );
+                  if (ok == true) retry();
+                },
+                child: const Text('重新登录'),
               ),
             TextButton(onPressed: retry, child: const Text('重试')),
           ],
@@ -716,6 +763,8 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
     }
   }
 
+  int _seatLoadSeq = 0;
+
   Future<void> _loadSeats() async {
     final dates = _dates;
     if (dates == null || dates.isEmpty) return;
@@ -728,6 +777,7 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
       return;
     }
     final slot = day.times[_slotIndex.clamp(0, day.times.length - 1)];
+    final seq = ++_seatLoadSeq;
     setState(() {
       _loadingSeats = true;
       _errorText = null;
@@ -737,13 +787,13 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
       final list = await ref
           .read(libraryServiceProvider)
           .seats(widget.area.id, day: day.day, slot: slot);
-      if (!mounted) return;
+      if (!mounted || seq != _seatLoadSeq) return;
       setState(() {
         _seats = list;
         _loadingSeats = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || seq != _seatLoadSeq) return;
       setState(() {
         _loadingSeats = false;
         _errorText = e is AppError ? e.message : '无法加载座位列表';
@@ -1549,10 +1599,13 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
     }
   }
 
+  int _dayLoadSeq = 0;
+
   Future<void> _loadDay() async {
     final dates = _dates;
     if (dates == null || dates.isEmpty) return;
     final day = dates[_dateIndex];
+    final seq = ++_dayLoadSeq;
     setState(() => _loadingDay = true);
     try {
       final info = await ref
@@ -1564,18 +1617,22 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
                 : widget.area.id,
             day: day,
           );
-      if (!mounted) return;
+      if (!mounted || seq != _dayLoadSeq) return;
       setState(() {
         _dayInfo = info;
         _loadingDay = false;
         _pickSmartWindow(info);
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || seq != _dayLoadSeq) return;
       setState(() {
         _loadingDay = false;
-        _errorText = e is AppError ? e.message : '无法加载研讨室时段信息';
       });
+      showToast(
+        context,
+        e is AppError ? e.message : '无法加载该日研讨室时段信息',
+        success: false,
+      );
     }
   }
 

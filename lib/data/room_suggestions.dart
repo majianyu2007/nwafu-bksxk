@@ -65,20 +65,25 @@ class RoomDirectory {
   /// are matched by prefix: `N8618` → a room starting with `N8`,
   /// `理科楼A402` → a room starting with `理科楼`.
   String? buildingOf(String room) {
-    final known = _rooms[room];
+    final trimmed = room.trim();
+    if (trimmed.isEmpty) return null;
+    final known = _rooms[trimmed];
     if (known != null) return known.building;
-    final prefix = _prefix(room);
+    final prefix = _prefix(trimmed);
     if (prefix == null) return null;
+    final upper = prefix.toUpperCase();
     for (final r in _rooms.values) {
-      if (r.name.startsWith(prefix)) return r.building;
+      if (r.name.toUpperCase().startsWith(upper)) return r.building;
     }
     return null;
   }
 
   String? campusOf(String room) {
-    final known = _rooms[room];
+    final trimmed = room.trim();
+    if (trimmed.isEmpty) return null;
+    final known = _rooms[trimmed];
     if (known != null) return known.campus;
-    final building = buildingOf(room);
+    final building = buildingOf(trimmed);
     if (building == null) return null;
     for (final r in _rooms.values) {
       if (r.building == building) return r.campus;
@@ -87,11 +92,35 @@ class RoomDirectory {
   }
 
   static String? _prefix(String room) {
-    final code = RegExp(r'^([A-Za-z]+\d)').firstMatch(room);
+    final trimmed = room.trim();
+    final code = RegExp(r'^([A-Za-z]+\d)').firstMatch(trimmed);
     if (code != null) return code.group(1)!.toUpperCase();
-    final base = room.replaceFirst(RegExp(r'[A-Za-z]?\d.*$'), '');
+    final base = trimmed.replaceFirst(RegExp(r'[A-Za-z]?\d.*$'), '');
     return base.length >= 2 ? base : null;
   }
+}
+
+/// Computes how many consecutive blocks starting at [startBlock] a room is
+/// continuously free for (returns `(count, lastBlock)`).
+({int count, RoomBlock? lastBlock}) consecutiveFreeRun(
+  String roomName,
+  RoomBlock startBlock,
+  Map<RoomBlock, Set<String>> freeNamesByBlock,
+) {
+  final idx = kRoomBlocks.indexOf(startBlock);
+  if (idx < 0) return (count: 0, lastBlock: null);
+  var count = 0;
+  RoomBlock? last;
+  for (var i = idx; i < kRoomBlocks.length; i++) {
+    final b = kRoomBlocks[i];
+    if (freeNamesByBlock[b]?.contains(roomName) == true) {
+      count++;
+      last = b;
+    } else {
+      break;
+    }
+  }
+  return (count: count, lastBlock: last);
 }
 
 /// Short building key used by the browse filter: `N8618` → `N8`, else the
@@ -201,20 +230,23 @@ List<RoomSuggestion> suggestRooms({
     final prev = sessions.where((s) => s.endPeriod < run.first.from).lastOrNull;
     final next = sessions.where((s) => s.startPeriod > run.last.to).firstOrNull;
     if (prev == null && next == null) continue;
+    // Filter past/unloaded blocks first so a long run (e.g. only morning class
+    // with afternoon blocks remaining) still yields active study suggestions.
+    var stretch = [
+      for (final b in run)
+        if (!past(b) && free.containsKey(b)) b,
+    ];
+    if (stretch.isEmpty) continue;
     // A long morning before the first class or evening after the last one
-    // is not one study session: keep the two blocks next to the class.
-    var stretch = run;
+    // is not one study session: keep the two blocks closest to the class/now.
     if (prev == null && stretch.length > 2) {
       stretch = stretch.sublist(stretch.length - 2);
     }
     if (next == null && stretch.length > 2) stretch = stretch.sublist(0, 2);
-    stretch = [
-      for (final b in stretch)
-        if (!past(b) && free.containsKey(b)) b,
-    ];
-    if (stretch.isEmpty) continue;
 
     final anchor = next ?? prev!;
+    final anchorRoom = anchor.room.trim();
+    final nextRoom = next?.room.trim() ?? '';
     final kind = prev == null
         ? SuggestionKind.beforeClass
         : next == null
@@ -224,14 +256,14 @@ List<RoomSuggestion> suggestRooms({
       stretch,
       free,
       dir,
-      anchorRoom: anchor.room.isEmpty ? null : anchor.room,
+      anchorRoom: anchorRoom.isEmpty ? null : anchorRoom,
     );
-    final same = next == null || next.room.isEmpty
+    final same = next == null || nextRoom.isEmpty
         ? null
         : ranked
               .where(
                 (r) =>
-                    r.room.name == next.room &&
+                    r.room.name == nextRoom &&
                     r.freeIn.length == stretch.length,
               )
               .firstOrNull
@@ -246,15 +278,15 @@ List<RoomSuggestion> suggestRooms({
           SuggestionKind.between => '$label 空档',
           _ => '$label 课后',
         },
-        reason: anchor.room.isEmpty
+        reason: anchorRoom.isEmpty
             ? '${next == null ? '上' : '下'}一节是${anchor.displayName}'
             : next != null
             ? '${periods(next)} ${next.displayName}'
             : '${periods(anchor)} ${anchor.displayName}',
         rooms: ranked.take(limit).toList(),
         sameRoom: same,
-        anchorRoom: anchor.room.isEmpty ? null : anchor.room,
-        building: anchor.room.isEmpty ? null : dir.buildingOf(anchor.room),
+        anchorRoom: anchorRoom.isEmpty ? null : anchorRoom,
+        building: anchorRoom.isEmpty ? null : dir.buildingOf(anchorRoom),
       ),
     );
   }
@@ -272,6 +304,7 @@ List<RoomSuggestion> suggestRooms({
           blocks: [b],
           title: '${b.label} 没课',
           reason: home == null ? '这天没有课' : '这天没有课，看看常去的$home',
+          building: home,
           rooms: _rank(
             [b],
             free,

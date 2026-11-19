@@ -100,8 +100,16 @@ class TimetableDiff {
   /// One line per change, e.g. `数据结构 周三 3-4节：教室 N8618→N8306`.
   List<String> lines() => [
     for (final c in changed)
-      '${c.after.displayName} ${slotLabel(c.before)}：'
-          '${c.changes.map((f) => '${f.label} ${f.before}→${f.after}').join('，')}',
+      () {
+        String fmt(FieldChange f) {
+          final b = f.before.isEmpty ? '无' : f.before;
+          final a = f.after.isEmpty ? '无' : f.after;
+          return '${f.label} $b→$a';
+        }
+
+        return '${c.after.displayName} ${slotLabel(c.before)}：'
+            '${c.changes.map(fmt).join('，')}';
+      }(),
     for (final s in added) '新增 ${s.displayName} ${slotLabel(s)}',
     for (final s in removed) '取消 ${s.displayName} ${slotLabel(s)}',
   ];
@@ -204,8 +212,9 @@ TimetableDiff diffTimetables(
     (pool[_slotKey(s)] ??= []).add(s);
   }
 
-  // Pass 1: same slot. Several sessions in one slot (split week ranges) are
-  // paired preferring identical weeks.
+  // Pass 1a: exact week matches in the same slot first so a split-week edit
+  // never steals an unchanged sibling session from the pool.
+  final unmatchedSlot = <CourseSession>[];
   for (final s in after) {
     final list = pool[_slotKey(s)];
     if (list == null || list.isEmpty) {
@@ -213,7 +222,24 @@ TimetableDiff diffTimetables(
       continue;
     }
     final i = list.indexWhere((o) => _sameWeeks(o.weeks, s.weeks));
-    final o = list.removeAt(i < 0 ? 0 : i);
+    if (i >= 0) {
+      final o = list.removeAt(i);
+      final f = _fieldChanges(o, s);
+      if (f.isNotEmpty) {
+        changed.add(SessionChange(before: o, after: s, changes: f));
+      }
+    } else {
+      unmatchedSlot.add(s);
+    }
+  }
+  // Pass 1b: remaining sessions in the same slot whose weeks changed.
+  for (final s in unmatchedSlot) {
+    final list = pool[_slotKey(s)];
+    if (list == null || list.isEmpty) {
+      leftAfter.add(s);
+      continue;
+    }
+    final o = list.removeAt(0);
     final f = _fieldChanges(o, s);
     if (f.isNotEmpty) {
       changed.add(SessionChange(before: o, after: s, changes: f));
@@ -275,7 +301,7 @@ class GradeDiff {
 }
 
 String _gradeKey(GradeRecord r) =>
-    '${r.termCode}|${r.courseCode}|${r.courseName}';
+    '${r.termCode}|${r.courseCode}|${r.courseName}|${r.attempt}';
 
 /// Compares [fresh] with [old]. With no previous book every record is
 /// "new"; callers that do not want a notification on first sync should

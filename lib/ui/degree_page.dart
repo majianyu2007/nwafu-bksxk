@@ -11,6 +11,7 @@ import '../core/errors.dart';
 import '../data/degree_audit.dart';
 import 'edu_login_page.dart';
 import 'layout.dart';
+import 'widgets.dart';
 import 'widgets/glass.dart';
 
 String creditText(double v) =>
@@ -25,6 +26,7 @@ class DegreePage extends ConsumerStatefulWidget {
 
 class _DegreePageState extends ConsumerState<DegreePage> {
   bool _onlyShort = false;
+  bool _includeSelected = false;
 
   @override
   void initState() {
@@ -39,9 +41,14 @@ class _DegreePageState extends ConsumerState<DegreePage> {
     });
   }
 
-  Future<void> _login() => Navigator.of(
-    context,
-  ).push<bool>(MaterialPageRoute(builder: (_) => const EduLoginPage()));
+  Future<void> _login() async {
+    final ok = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => const EduLoginPage()));
+    if (ok == true && mounted) {
+      await ref.read(degreeProvider.notifier).sync();
+    }
+  }
 
   Future<void> _sync() async {
     if (!ref.read(eduSessionProvider).signedIn) {
@@ -53,6 +60,14 @@ class _DegreePageState extends ConsumerState<DegreePage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<String?>(
+      eduSessionProvider.select((s) => s.signedIn ? s.account?.username : null),
+      (prev, next) {
+        if (next != null && next != prev) {
+          ref.read(degreeProvider.notifier).sync();
+        }
+      },
+    );
     final session = ref.watch(eduSessionProvider);
     final state = ref.watch(degreeProvider);
     final audit = session.signedIn ? state.audit : null;
@@ -64,6 +79,15 @@ class _DegreePageState extends ConsumerState<DegreePage> {
           backgroundColor: Colors.transparent,
           title: const Text('学业进度'),
         actions: [
+          if (audit != null)
+            IconButton(
+              tooltip: _includeSelected ? '切换回当前已修' : '按本学期全过预计进度',
+              isSelected: _includeSelected,
+              onPressed: () =>
+                  setState(() => _includeSelected = !_includeSelected),
+              icon: const Icon(Icons.auto_graph_outlined),
+              selectedIcon: const Icon(Icons.auto_graph),
+            ),
           if (audit != null)
             IconButton(
               tooltip: _onlyShort ? '显示全部课组' : '只看没修够的',
@@ -135,14 +159,22 @@ class _DegreePageState extends ConsumerState<DegreePage> {
                         ),
                       if (audit != null)
                         for (final plan in audit.plans) ...[
-                          _PlanHeader(plan: plan),
+                          _PlanHeader(
+                            plan: plan,
+                            includeSelected: _includeSelected,
+                          ),
                           const SizedBox(height: 12),
                           for (final g in plan.groups)
-                            if (!_onlyShort || g.short)
+                            if (!_onlyShort ||
+                                (_includeSelected
+                                    ? (g.missing - (g.selected ?? 0)) > 0.001
+                                    : g.short))
                               _GroupCard(
+                                key: ValueKey(g.id),
                                 group: g,
                                 depth: 0,
                                 onlyShort: _onlyShort,
+                                includeSelected: _includeSelected,
                               ),
                           const SizedBox(height: 20),
                         ],
@@ -166,8 +198,9 @@ class _DegreePageState extends ConsumerState<DegreePage> {
 }
 
 class _PlanHeader extends StatelessWidget {
-  const _PlanHeader({required this.plan});
+  const _PlanHeader({required this.plan, this.includeSelected = false});
   final DegreePlan plan;
+  final bool includeSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -175,6 +208,13 @@ class _PlanHeader extends StatelessWidget {
     final scheme = theme.colorScheme;
     final selected = plan.selected ?? 0;
     final goal = plan.goal;
+    final shownEarned = includeSelected ? plan.earned + selected : plan.earned;
+    final shownMissing = includeSelected
+        ? (plan.missing - selected).clamp(0.0, double.infinity).toDouble()
+        : plan.missing;
+    final shownProgress = goal <= 0
+        ? plan.progress
+        : (shownEarned / goal).clamp(0.0, 1.0);
     return GlassCard(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -185,6 +225,14 @@ class _PlanHeader extends StatelessWidget {
               Expanded(
                 child: Text(plan.name, style: theme.textTheme.titleMedium),
               ),
+              if (includeSelected)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: StatusPill(
+                    label: '含本学期预计',
+                    color: scheme.tertiary,
+                  ),
+                ),
               if (plan.kind.isNotEmpty)
                 Chip(
                   label: Text(plan.kind),
@@ -197,7 +245,7 @@ class _PlanHeader extends StatelessWidget {
             TextSpan(
               children: [
                 TextSpan(
-                  text: creditText(plan.earned),
+                  text: creditText(shownEarned),
                   style: theme.textTheme.displaySmall?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: scheme.primary,
@@ -212,10 +260,11 @@ class _PlanHeader extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _CreditBar(
-            earned: plan.earned,
-            selected: selected,
+            earned: shownEarned,
+            selected: includeSelected ? 0 : selected,
             goal: goal,
             height: 12,
+            passed: shownMissing <= 0 && goal > 0,
           ),
           const SizedBox(height: 10),
           Wrap(
@@ -223,13 +272,13 @@ class _PlanHeader extends StatelessWidget {
             runSpacing: 4,
             children: [
               Text(
-                plan.missing > 0
-                    ? '还差 ${creditText(plan.missing)} 学分'
-                    : '总学分已修够',
+                shownMissing > 0
+                    ? '${includeSelected ? '预计仍差' : '还差'} ${creditText(shownMissing)} 学分'
+                    : (includeSelected ? '本学期全过即修够总学分' : '总学分已修够'),
               ),
               if (plan.selected != null)
                 Text('本学期已选 ${creditText(selected)} 学分'),
-              Text('${(plan.progress * 100).toStringAsFixed(0)}%'),
+              Text('${(shownProgress * 100).toStringAsFixed(0)}%'),
             ],
           ),
           if (plan.computedAt.isNotEmpty) ...[
@@ -241,22 +290,26 @@ class _PlanHeader extends StatelessWidget {
           ],
           if (plan.shortLeaves.isNotEmpty) ...[
             const SizedBox(height: 12),
-            Text('还没修够', style: theme.textTheme.labelLarge),
+            Text(
+              includeSelected ? '本学期后预计仍差' : '还没修够',
+              style: theme.textTheme.labelLarge,
+            ),
             const SizedBox(height: 6),
             Wrap(
               spacing: 6,
               runSpacing: 6,
               children: [
                 for (final g in plan.shortLeaves)
-                  Chip(
-                    visualDensity: VisualDensity.compact,
-                    backgroundColor: scheme.secondaryContainer,
-                    side: BorderSide.none,
-                    label: Text(
-                      '${g.name} 差 ${creditText(g.missing)}',
-                      style: TextStyle(color: scheme.onSecondaryContainer),
+                  if (!includeSelected || (g.missing - (g.selected ?? 0)) > 0.001)
+                    Chip(
+                      visualDensity: VisualDensity.compact,
+                      backgroundColor: scheme.secondaryContainer,
+                      side: BorderSide.none,
+                      label: Text(
+                        '${g.name} 差 ${creditText(includeSelected ? (g.missing - (g.selected ?? 0)).clamp(0.0, double.infinity).toDouble() : g.missing)}',
+                        style: TextStyle(color: scheme.onSecondaryContainer),
+                      ),
                     ),
-                  ),
               ],
             ),
           ],
@@ -273,13 +326,13 @@ class _CreditBar extends StatelessWidget {
     required this.selected,
     required this.goal,
     this.height = 8,
-    this.short = false,
+    this.passed = false,
   });
   final double earned;
   final double selected;
   final double goal;
   final double height;
-  final bool short;
+  final bool passed;
 
   @override
   Widget build(BuildContext context) {
@@ -287,7 +340,9 @@ class _CreditBar extends StatelessWidget {
     final total = goal <= 0 ? 1.0 : goal;
     final a = (earned / total).clamp(0.0, 1.0);
     final b = ((earned + selected) / total).clamp(0.0, 1.0);
-    final color = goal > 0 && earned >= goal ? Colors.green : scheme.primary;
+    final color = passed || (goal > 0 && earned >= goal)
+        ? Colors.green
+        : scheme.primary;
     return ClipRRect(
       borderRadius: BorderRadius.circular(height),
       child: SizedBox(
@@ -315,13 +370,16 @@ class _CreditBar extends StatelessWidget {
 
 class _GroupCard extends StatefulWidget {
   const _GroupCard({
+    super.key,
     required this.group,
     required this.depth,
     required this.onlyShort,
+    this.includeSelected = false,
   });
   final DegreeGroup group;
   final int depth;
   final bool onlyShort;
+  final bool includeSelected;
 
   @override
   State<_GroupCard> createState() => _GroupCardState();
@@ -333,16 +391,25 @@ class _GroupCardState extends State<_GroupCard> {
   @override
   Widget build(BuildContext context) {
     final g = widget.group;
+    final inc = widget.includeSelected;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final sel = g.selected ?? 0;
+    final shownEarned = inc ? g.earned + sel : g.earned;
+    final shownMissing = inc
+        ? (g.missing - sel).clamp(0.0, double.infinity).toDouble()
+        : g.missing;
+    final isShort = inc ? shownMissing > 0.001 : g.short;
+    final isDone = !isShort && (g.goal > 0 || g.passed);
     final children = [
       for (final c in g.children)
-        if (!widget.onlyShort || c.short) c,
+        if (!widget.onlyShort ||
+            (inc ? (c.missing - (c.selected ?? 0)) > 0.001 : c.short))
+          c,
     ];
     final details = [
       if (g.nature.isNotEmpty) g.nature,
-      if (g.selected != null && g.selected! > 0)
-        '本学期已选 ${creditText(g.selected!)}',
+      if (sel > 0) '本学期已选 ${creditText(sel)}',
       if (g.openCourses != null && g.openCourses! > 0)
         '本学期可选 ${g.openCourses} 门',
     ];
@@ -354,7 +421,7 @@ class _GroupCardState extends State<_GroupCard> {
       child: GlassCard(
         radius: 16,
         padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-        tint: !g.short && (g.goal > 0 || g.passed) ? Colors.green : null,
+        tint: isDone ? Colors.green : null,
         tintAmount: 0.05,
         onTap: children.isEmpty ? null : () => setState(() => _open = !_open),
         child: Column(
@@ -372,13 +439,11 @@ class _GroupCardState extends State<_GroupCard> {
                 ),
                 Text(
                   g.goal > 0
-                      ? '${creditText(g.earned)} / ${creditText(g.goal)}'
-                      : creditText(g.earned),
+                      ? '${creditText(shownEarned)} / ${creditText(g.goal)}'
+                      : creditText(shownEarned),
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: !g.short && (g.goal > 0 || g.passed)
-                        ? Colors.green
-                        : scheme.primary,
+                    color: isDone ? Colors.green : scheme.primary,
                   ),
                 ),
                 if (children.isNotEmpty)
@@ -389,24 +454,22 @@ class _GroupCardState extends State<_GroupCard> {
             ),
             const SizedBox(height: 8),
             _CreditBar(
-              earned: g.earned,
-              selected: g.selected ?? 0,
+              earned: shownEarned,
+              selected: inc ? 0 : sel,
               goal: g.goal,
-              short: g.short,
+              passed: isDone,
             ),
             const SizedBox(height: 6),
             Text(
               [
-                if (g.short)
-                  '还差 ${creditText(g.missing)} 学分'
-                else if (g.goal > 0 || g.passed)
-                  '已修够',
+                if (isShort)
+                  '${inc ? '预计仍差' : '还差'} ${creditText(shownMissing)} 学分'
+                else if (isDone)
+                  (inc && g.short ? '本学期全过即修够' : '已修够'),
                 ...details,
               ].join(' · '),
               style: theme.textTheme.bodySmall?.copyWith(
-                color: !g.short && (g.goal > 0 || g.passed)
-                    ? Colors.green
-                    : scheme.onSurfaceVariant,
+                color: isDone ? Colors.green : scheme.onSurfaceVariant,
               ),
             ),
             if (_open && children.isNotEmpty) ...[
@@ -419,9 +482,11 @@ class _GroupCardState extends State<_GroupCard> {
                 children: [
                   for (final c in children)
                     _GroupCard(
+                      key: ValueKey(c.id),
                       group: c,
                       depth: widget.depth + 1,
                       onlyShort: widget.onlyShort,
+                      includeSelected: inc,
                     ),
                 ],
               ),

@@ -24,6 +24,7 @@ import 'home_widget_sync.dart';
 import 'notifications.dart';
 import 'secure_cookie_storage.dart';
 import 'storage.dart';
+import 'timetable_logic.dart';
 
 bool get backgroundRefreshSupported => Platform.isAndroid || Platform.isIOS;
 
@@ -113,22 +114,23 @@ Future<bool> runBackgroundRefresh() async {
       await updateHomeWidget(_cachedTimetable(storage, account.username));
       rethrow;
     }
+    // Merge user custom courses and week-1 override before pushing to widgets,
+    // calendar and OS reminders so background sync never wipes local edits.
+    final effective = _withLocalEdits(storage, account.username, result.timetable);
+    final exams =
+        result.exams ??
+        cachedExams(storage, account.username, effective.term.code);
     // Also reloads the iOS widget timeline (WidgetCenter) / Android widgets.
-    await updateHomeWidget(result.timetable);
+    await updateHomeWidget(effective);
+    await _rescheduleReminders(storage, notifications, effective, exams);
     if (storage.calendarSyncEnabled()) {
       try {
         await syncTimetableToCalendar(
           adapter: deviceCalendarAdapter(),
           storage: storage,
           accountId: account.username,
-          timetable: result.timetable,
-          exams:
-              result.exams ??
-              cachedExams(
-                storage,
-                account.username,
-                result.timetable.term.code,
-              ),
+          timetable: effective,
+          exams: exams,
         );
       } catch (_) {}
     }
@@ -139,13 +141,107 @@ Future<bool> runBackgroundRefresh() async {
   }
 }
 
+/// Applies the user's local week-1 override and custom courses on top of a
+/// server timetable (matching `TimetableController._withCustom`).
+TermTimetable _withLocalEdits(
+  Storage storage,
+  String accountId,
+  TermTimetable t,
+) {
+  var out = t;
+  final week1 = DateTime.tryParse(
+    storage.weekOneOverride(accountId, out.term.code) ?? '',
+  );
+  if (week1 != null) {
+    out = out.copyWith(
+      firstMonday: DateTime.utc(week1.year, week1.month, week1.day),
+    );
+  }
+  final raw = storage.customSessions(accountId, out.term.code);
+  if (raw != null) {
+    try {
+      final custom = [
+        for (final s in jsonDecode(raw) as List)
+          CourseSession.fromJson(s as Map<String, dynamic>),
+      ].where((s) => s.custom);
+      out = out.copyWith(sessions: [...out.sessions, ...custom]);
+    } catch (_) {}
+  }
+  return out;
+}
+
+/// Re-plans the rolling 7-day OS reminder window from the background isolate
+/// so reminders stay accurate after schedule changes or long periods without
+/// opening the app.
+Future<void> _rescheduleReminders(
+  Storage storage,
+  NotificationService notifications,
+  TermTimetable t,
+  List<ExamEntry> exams,
+) async {
+  if (!notifications.canSchedule) return;
+  try {
+    final lead = storage.classReminderMinutes();
+    final wantExam = storage.examReminders();
+    if (lead <= 0 && !wantExam) return;
+    final now = DateTime.now().toUtc();
+    final first = storage.firstClassReminderMinutes();
+    final classPlans = lead > 0
+        ? planReminders(
+            t,
+            now,
+            rules: ReminderRules(
+              lead: Duration(minutes: lead),
+              firstLead: first > 0 ? Duration(minutes: first) : null,
+              skipSameRoom: storage.reminderSkipSameRoom(),
+              moveBuilding: storage.reminderBuildingChange(),
+            ),
+            days: 7,
+          )
+        : const <ReminderPlan>[];
+    final examPlans = wantExam
+        ? planExamReminders(exams, now, days: 7)
+        : const <ExamReminderPlan>[];
+    final all = [
+      for (final p in classPlans)
+        (
+          id: p.id,
+          at: p.at,
+          title: _bgReminderTitle(p, lead),
+          body: _bgReminderBody(p.occurrence),
+        ),
+      for (final p in examPlans)
+        (id: p.id, at: p.at, title: p.title, body: p.body),
+    ]..sort((a, b) => a.at.compareTo(b.at));
+    await notifications.scheduleClassReminders(all);
+  } catch (_) {}
+}
+
+String _bgReminderTitle(ReminderPlan p, int lead) => switch (p.reason) {
+  ReminderReason.moveBuilding => '下课去换楼：${p.occurrence.session.displayName}',
+  ReminderReason.firstOfDay => '今日首节：${p.occurrence.session.displayName}',
+  ReminderReason.normal => '$lead 分钟后上课：${p.occurrence.session.displayName}',
+};
+
+String _bgReminderBody(ClassOccurrence o) {
+  final s = o.session;
+  final parts = <String>[
+    if (s.room.isNotEmpty) s.room,
+    '第 ${s.startPeriod}-${s.endPeriod} 节',
+  ];
+  return parts.join(' · ');
+}
+
 /// The cached timetable of the account's current term, if any.
 TermTimetable? _cachedTimetable(Storage storage, String accountId) {
   try {
     final raw = storage.eduCurrentTerm(accountId);
     if (raw == null) return null;
     final term = EduTerm.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-    return TermTimetable.decode(storage.eduTimetable(accountId, term.code));
+    final cached = TermTimetable.decode(
+      storage.eduTimetable(accountId, term.code),
+    );
+    return cached == null ? null : _withLocalEdits(storage, accountId, cached);
   } catch (_) {
     return null;
   }

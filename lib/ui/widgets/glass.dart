@@ -132,42 +132,53 @@ class GlassSurface extends StatelessWidget {
         padding == null ? child : Padding(padding: padding!, child: child);
 
     if (!t.enabled) {
-      Widget solid = DecoratedBox(
-        decoration: BoxDecoration(
-          color: fill,
-          borderRadius: borderRadius,
-        ),
-        child: inner,
-      );
-      if (shadow) {
-        solid = DecoratedBox(
+      final scheme = Theme.of(context).colorScheme;
+      final solidBorder = border
+          ? Border.all(
+              color: scheme.outlineVariant.withValues(alpha: 0.45),
+              width: 1,
+            )
+          : null;
+      return Material(
+        color: fill,
+        borderRadius: borderRadius,
+        clipBehavior: Clip.antiAlias,
+        child: DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: borderRadius,
-            boxShadow: t.shadow,
+            border: solidBorder,
+            boxShadow: shadow ? t.shadow : null,
           ),
-          child: solid,
-        );
-      }
-      return solid;
+          child: inner,
+        ),
+      );
     }
 
     final apple = isApplePlatform(context);
+    final uniform =
+        borderRadius.topLeft == borderRadius.topRight &&
+        borderRadius.topLeft == borderRadius.bottomLeft &&
+        borderRadius.topLeft == borderRadius.bottomRight;
     final radius = borderRadius.topLeft.x;
-    final shape = radius >= 999
+    final shape = !uniform
+        ? const RoundedRectangle(0)
+        : radius >= 999
         ? const Capsule()
         : RoundedRectangle(radius);
 
-    return RepaintBoundary(
-      child: LiquidPanel(
-        backdrop: nativeBackdrop,
-        shape: shape,
-        surfaceColor: apple ? fill.withValues(alpha: fill.a * 0.78) : fill,
-        blurRadius: apple ? t.blurSigma * 1.4 : t.blurSigma,
-        showHighlight: border,
-        showShadow: shadow,
-        child: inner,
-      ),
+    Widget panel = LiquidPanel(
+      backdrop: nativeBackdrop,
+      shape: shape,
+      surfaceColor: apple ? fill.withValues(alpha: fill.a * 0.78) : fill,
+      blurRadius: apple ? t.blurSigma * 1.4 : t.blurSigma,
+      showHighlight: border,
+      showShadow: shadow && uniform,
+      child: inner,
     );
+    if (!uniform) {
+      panel = ClipRRect(borderRadius: borderRadius, child: panel);
+    }
+    return RepaintBoundary(child: panel);
   }
 }
 

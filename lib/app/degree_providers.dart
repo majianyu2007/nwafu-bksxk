@@ -19,7 +19,6 @@ class DegreeState {
 class DegreeController extends StateNotifier<DegreeState> {
   DegreeController(this._ref, this._accountId)
     : _session = _ref.read(eduSessionProvider.notifier),
-      _epoch = _ref.read(eduSessionProvider.notifier).epoch,
       super(
         DegreeState(
           audit: _accountId == null
@@ -33,29 +32,46 @@ class DegreeController extends StateNotifier<DegreeState> {
   final Ref _ref;
   final String? _accountId;
   final EduSessionController _session;
-  final int _epoch;
   int _request = 0;
 
-  bool _current(int request) =>
-      mounted && request == _request && _session.isCurrent(_epoch);
+  bool _current(int request, int sessionEpoch) =>
+      mounted &&
+      request == _request &&
+      _session.isCurrent(sessionEpoch) &&
+      _ref.read(eduSessionProvider).account?.username == _accountId;
 
   /// Fetches the audit. A failure keeps the cached copy on screen.
   Future<void> sync() async {
     final id = _accountId;
     if (id == null || state.loading) return;
     final request = ++_request;
+    final sessionEpoch = _session.epoch;
     state = DegreeState(audit: state.audit, loading: true);
     try {
       final audit = await _ref.read(eduClientProvider).ehall.degreeAudit(id);
-      if (!_current(request)) return;
+      if (!_current(request, sessionEpoch)) {
+        if (mounted && request == _request) {
+          state = DegreeState(audit: state.audit);
+        }
+        return;
+      }
       await _session.cacheFor(
         id,
-        () => _current(request),
+        () => _current(request, sessionEpoch),
         () => _ref.read(storageProvider).setEduDegreeAudit(id, audit.encode()),
       );
-      if (_current(request)) state = DegreeState(audit: audit);
+      if (_current(request, sessionEpoch)) {
+        state = DegreeState(audit: audit);
+      } else if (mounted && request == _request) {
+        state = DegreeState(audit: state.audit);
+      }
     } catch (e) {
-      if (!_current(request)) return;
+      if (!_current(request, sessionEpoch)) {
+        if (mounted && request == _request) {
+          state = DegreeState(audit: state.audit);
+        }
+        return;
+      }
       state = DegreeState(
         audit: state.audit,
         error: e is AppError

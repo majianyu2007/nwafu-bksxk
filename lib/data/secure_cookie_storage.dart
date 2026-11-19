@@ -57,6 +57,7 @@ class SecureCookieStorage implements cj.Storage {
 
   @override
   Future<String?> read(String key) async {
+    await _pending;
     if (_closed) return null;
     final value = await _storage.eduCookie(accountId, key);
     if (_closed) return null;

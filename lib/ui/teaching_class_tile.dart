@@ -80,22 +80,26 @@ class TeachingClassTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(tc.displayTitle,
-                        style: const TextStyle(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 2),
-                    Text(
-                      tc.teachingPlace.isNotEmpty
-                          ? tc.teachingPlace
-                          : platform.isNotEmpty
-                              ? '$platform 网课，无固定上课时间'
-                              : '上课时间地点未安排',
-                      style: TextStyle(
-                          color: scheme.onSurfaceVariant, fontSize: 12),
-                    ),
-                  ],
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => showTeachingClassDetail(context, tc),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(tc.displayTitle,
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 2),
+                      Text(
+                        tc.teachingPlace.isNotEmpty
+                            ? tc.teachingPlace
+                            : platform.isNotEmpty
+                                ? '$platform 网课，无固定上课时间'
+                                : '上课时间地点未安排',
+                        style: TextStyle(
+                            color: scheme.onSurfaceVariant, fontSize: 12),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               if (tc.isHeld)

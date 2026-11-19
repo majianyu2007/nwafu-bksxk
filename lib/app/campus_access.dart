@@ -48,6 +48,13 @@ class CampusAccessState {
 
 final vpnBridgeProvider = Provider<VpnBridge>((ref) => createVpnBridge());
 
+/// Dedicated setting provider for "校外自动连接", avoiding invalidation of
+/// the root [storageProvider].
+final campusAutoVpnProvider = StateNotifierProvider<BoolSetting, bool>((ref) {
+  final s = ref.read(storageProvider);
+  return BoolSetting(s.campusVpnAuto(), s.setCampusVpnAuto);
+});
+
 final campusAccessProvider =
     StateNotifierProvider<CampusAccessController, CampusAccessState>(
       (ref) => CampusAccessController(ref),
@@ -63,6 +70,7 @@ class CampusAccessController extends StateNotifier<CampusAccessState> {
   final DirectProbe _probe;
   final VpnBridge _vpn;
   Future<void>? _checking;
+  int _opGen = 0;
 
   bool get vpnAvailable => !kIsWeb && _vpn.available;
 
@@ -72,28 +80,31 @@ class CampusAccessController extends StateNotifier<CampusAccessState> {
 
   Future<void> _check(bool userInitiated) async {
     if (kIsWeb) return;
+    final gen = ++_opGen;
     if (CampusProxy.instance.address != null) {
       final s = await _vpn.status();
+      if (!mounted || gen != _opGen) return;
       if (s.running) {
-        state = state.copyWith(route: CampusRoute.vpn);
+        state = state.copyWith(route: CampusRoute.vpn, busy: false);
         return;
       }
       CampusProxy.instance.address = null;
     }
     state = state.copyWith(busy: true, clearMessage: true);
     if (await campusReachableDirectly(_probe)) {
-      if (mounted) state = state.copyWith(route: CampusRoute.direct, busy: false);
+      if (mounted && gen == _opGen) {
+        state = state.copyWith(route: CampusRoute.direct, busy: false);
+      }
       return;
     }
-    final auto = _ref.read(storageProvider).campusVpnAuto();
+    if (!mounted || gen != _opGen) return;
+    final auto = _ref.read(campusAutoVpnProvider);
     if (!vpnAvailable || (!auto && !userInitiated)) {
-      if (mounted) {
-        state = state.copyWith(
-          route: CampusRoute.unreachable,
-          busy: false,
-          message: vpnAvailable ? '选课系统只能在校园网访问' : '选课系统只能在校园网访问，此版本未内置校外访问',
-        );
-      }
+      state = state.copyWith(
+        route: CampusRoute.unreachable,
+        busy: false,
+        message: vpnAvailable ? '选课系统只能在校园网访问' : '选课系统只能在校园网访问，此版本未内置校外访问',
+      );
       return;
     }
     await connect();
@@ -101,11 +112,23 @@ class CampusAccessController extends StateNotifier<CampusAccessState> {
 
   /// Starts the VPN with the unified identity password.
   Future<void> connect() async {
+    if (!vpnAvailable) {
+      if (mounted) {
+        state = state.copyWith(
+          route: CampusRoute.unreachable,
+          busy: false,
+          message: '当前平台未内置校外访问',
+        );
+      }
+      return;
+    }
+    final gen = ++_opGen;
     final account = _ref.read(eduSessionProvider).account;
     final storage = _ref.read(storageProvider);
     final password = account == null
         ? null
         : await storage.eduPassword(account.username);
+    if (!mounted || gen != _opGen) return;
     if (account == null || password == null || password.isEmpty) {
       state = state.copyWith(
         route: CampusRoute.unreachable,
@@ -115,27 +138,54 @@ class CampusAccessController extends StateNotifier<CampusAccessState> {
       return;
     }
     state = state.copyWith(busy: true, clearMessage: true, clearPending: true);
-    final dir = await getApplicationSupportDirectory();
-    final reply = await _vpn.start(
-      VpnConfig(
-        username: account.username,
-        password: password,
-        totpSecret: await storage.campusVpnTotp(account.username) ?? '',
-        clientDataPath: '${dir.path}/vpn_client_${account.username}.json',
-      ),
-    );
-    _apply(reply);
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final totp = await storage.campusVpnTotp(account.username) ?? '';
+      if (!mounted || gen != _opGen) return;
+      final reply = await _vpn.start(
+        VpnConfig(
+          username: account.username,
+          password: password,
+          totpSecret: totp,
+          clientDataPath: '${dir.path}/vpn_client_${account.username}.json',
+        ),
+      );
+      if (gen != _opGen) {
+        if (reply.running) unawaited(_vpn.stop());
+        return;
+      }
+      _apply(reply);
+    } catch (e) {
+      if (!mounted || gen != _opGen) return;
+      CampusProxy.instance.address = null;
+      state = CampusAccessState(
+        route: CampusRoute.unreachable,
+        message: '校外访问启动失败：$e',
+      );
+    }
   }
 
   /// Answers a captcha / SMS / TOTP step.
   Future<void> answer(String value) async {
     final p = state.pending;
     if (p == null || p.needs == null) return;
+    final gen = ++_opGen;
     state = state.copyWith(busy: true);
-    _apply(await _vpn.submit(p.needs!, value));
+    try {
+      final reply = await _vpn.submit(p.needs!, value);
+      if (gen != _opGen) {
+        if (reply.running) unawaited(_vpn.stop());
+        return;
+      }
+      _apply(reply);
+    } catch (e) {
+      if (!mounted || gen != _opGen) return;
+      state = state.copyWith(busy: false, message: '验证提交失败：$e');
+    }
   }
 
   Future<void> disconnect() async {
+    ++_opGen;
     CampusProxy.instance.address = null;
     await _vpn.stop();
     if (mounted) {
