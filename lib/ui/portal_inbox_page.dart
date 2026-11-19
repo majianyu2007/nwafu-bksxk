@@ -96,11 +96,11 @@ class _PortalInboxPageState extends ConsumerState<PortalInboxPage> {
                       if (!kPortalSupported)
                         _Hint(
                           icon: Icons.extension_outlined,
-                          text: '网页版查看学校消息需要 1.4.0 及以上版本的桥接脚本，更新后刷新页面即可。',
+                          text: '网页版查看学校消息需要 1.4.1 及以上版本的桥接脚本，更新后刷新页面即可。',
                           action: FilledButton.icon(
                             onPressed: openWebBridgeInstaller,
                             icon: const Icon(Icons.download_outlined),
-                            label: const Text('更新桥接脚本 (1.4.0)'),
+                            label: const Text('更新桥接脚本 (1.4.1)'),
                           ),
                         )
                       else if (!signedIn)

@@ -142,7 +142,9 @@ class LibrarySeatMap {
   });
 
   factory LibrarySeatMap.fromJson(Map<String, dynamic> j) => LibrarySeatMap(
-    freeUrl: _resolveUrl('${j['free'] ?? ''}'),
+    freeUrl: _resolveUrl(
+      '${j['free'] ?? j['img'] ?? j['map'] ?? j['thumb_img'] ?? j['background'] ?? ''}',
+    ),
     bookUrl: _resolveUrl('${j['book'] ?? ''}'),
     useUrl: _resolveUrl('${j['use'] ?? ''}'),
     leaveUrl: _resolveUrl('${j['leave'] ?? ''}'),
@@ -185,7 +187,12 @@ class LibrarySeat {
   });
 
   factory LibrarySeat.fromJson(Map<String, dynamic> j) {
-    double? d(Object? v) => v == null ? null : double.tryParse('$v');
+    double? d(Object? v) {
+      if (v == null) return null;
+      final cleaned = '$v'.replaceAll('%', '').trim();
+      return double.tryParse(cleaned);
+    }
+
     final inLabelRaw = j['in_label'];
     return LibrarySeat(
       id: '${j['id'] ?? ''}',
@@ -193,10 +200,10 @@ class LibrarySeat {
       name: '${j['name'] ?? j['no'] ?? ''}',
       status: '${j['status'] ?? ''}',
       statusName: '${j['status_name'] ?? j['statusName'] ?? ''}',
-      pointX: d(j['point_x']),
-      pointY: d(j['point_y']),
-      width: d(j['width']),
-      height: d(j['height']),
+      pointX: d(j['point_x'] ?? j['pointX'] ?? j['x']),
+      pointY: d(j['point_y'] ?? j['pointY'] ?? j['y']),
+      width: d(j['width'] ?? j['w']),
+      height: d(j['height'] ?? j['h']),
       inLabel: inLabelRaw == null || '$inLabelRaw' == '1' || inLabelRaw == true,
     );
   }
@@ -409,8 +416,8 @@ class LibraryService {
     if (kIsWeb && !isFullCampusBridgeReady) {
       throw AppError(
         AppErrorKind.schemaOrRedirect,
-        message: '请更新网页版桥接脚本（需 ≥ 1.4.0）',
-        hint: '旧版桥接脚本不支持图书馆接口，请点击更新脚本后刷新页面。',
+        message: '请更新网页版桥接脚本（需 ≥ 1.4.1）',
+        hint: '旧版桥接脚本不支持楼层平面图和研讨室预约接口，请点击更新脚本后刷新页面。',
       );
     }
   }
@@ -645,34 +652,84 @@ class LibraryService {
     return null;
   }
 
-  /// Bookable dates for a seminar room (`/api/Seminar/date`).
+  /// Bookable dates for a seminar room: tries `/api/Seminar/date`, and falls
+  /// back to `/api/Room/detail` (v2 seminar room flow used by NWAFU).
   Future<List<String>> seminarDates(String roomId) async {
-    final r = await _post('/api/Seminar/date', {'build_id': roomId});
+    try {
+      final r = await _post('/api/Seminar/date', {'build_id': roomId});
+      final d = r['data'];
+      if (d is List) {
+        final list = d
+            .map((e) => e is Map ? '${e['day'] ?? e['date'] ?? ''}' : '$e')
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList();
+        if (list.isNotEmpty) return list;
+      }
+    } catch (_) {
+      // Fall through to v2 /api/Room/detail.
+    }
+    final now = DateTime.now().toUtc().add(const Duration(hours: 8));
+    final month = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+    final r = await _post('/api/Room/detail', {
+      'area_id': roomId,
+      'month': month,
+    });
     final d = r['data'];
-    if (d is! List) return const [];
-    return d
-        .map((e) => e is Map ? '${e['day'] ?? ''}' : '$e')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
+    if (d is Map<String, dynamic>) {
+      final rawDays = d['days'] ?? d['date'] ?? d['dateList'] ?? d['list'];
+      if (rawDays is List) {
+        final list = rawDays
+            .map((e) => e is Map ? '${e['day'] ?? e['date'] ?? ''}' : '$e')
+            .map((s) => s.trim())
+            .where((s) => RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s))
+            .toList();
+        if (list.isNotEmpty) return list;
+      }
+      // Room is open; offer today + next 6 days as bookable dates.
+      return [
+        for (var i = 0; i < 7; i++) _day(now.add(Duration(days: i))),
+      ];
+    }
+    return const [];
   }
 
   /// Schedule and capacity constraints for a seminar room on [day].
+  /// Tries `/api/Seminar/seminar` and falls back to `/api/Room/detail`.
   Future<LibrarySeminarDay> seminarDay({
     required String roomId,
     required String areaId,
     required String day,
   }) async {
-    final r = await _post('/api/Seminar/seminar', {
-      'room': roomId,
-      'area': areaId,
-      'day': day,
+    try {
+      final r = await _post('/api/Seminar/seminar', {
+        'room': roomId,
+        'area': areaId,
+        'day': day,
+      });
+      final d = r['data'];
+      if (d is Map<String, dynamic> && d.isNotEmpty) {
+        return LibrarySeminarDay.fromJson(day, d);
+      }
+    } catch (_) {
+      // Fall back to /api/Room/detail (v2 flow).
+    }
+    final month = day.length >= 7 ? day.substring(0, 7) : day;
+    final r = await _post('/api/Room/detail', {
+      'area_id': roomId,
+      'month': month,
     });
     final d = r['data'];
-    return LibrarySeminarDay.fromJson(
-      day,
-      d is Map<String, dynamic> ? d : const {},
-    );
+    if (d is Map<String, dynamic>) {
+      return LibrarySeminarDay.fromJson(day, {
+        ...d,
+        'start_time': d['spaceOpenTime'] ?? d['start_time'] ?? '08:00',
+        'end_time': d['spaceCloseTime'] ?? d['end_time'] ?? '22:00',
+        'min_time': d['minTime'] ?? d['min_time'] ?? 60,
+        'max_time': d['maxTime'] ?? d['max_time'] ?? 240,
+      });
+    }
+    return LibrarySeminarDay.fromJson(day, const {});
   }
 
   /// Looks up a teammate by student card/id (`/api/Seminar/group`).

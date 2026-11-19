@@ -45,8 +45,8 @@ sandbox.unsafeWindow = sandbox.window;
 vm.runInNewContext(source, sandbox);
 
 assert.equal(sandbox.window.__bksxkBridgeReady, true);
-assert.equal(sandbox.window.__bksxkBridgeVersion, '1.4.0');
-assert.equal(attrs['data-bksxk-bridge-version'], '1.4.0');
+assert.equal(sandbox.window.__bksxkBridgeVersion, '1.4.1');
+assert.equal(attrs['data-bksxk-bridge-version'], '1.4.1');
 
 function send(method, url, body = null, headers = {}) {
   return new Promise((resolve) => {

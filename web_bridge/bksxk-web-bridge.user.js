@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         西农教务助手 · 网页版桥接 (NWAFU Web Bridge)
 // @namespace    cn.edu.nwafu.bksxk.webbridge
-// @version      1.4.0
+// @version      1.4.1
 // @description  让西农教务助手网页版访问学校接口：选课，以及用本浏览器里已登录的教务会话查看课表、成绩、考试、空教室、学业进度、消息与图书馆。教务登录在学校官方页面完成；仅在校园网内有效。
 // @author       nwafu-bksxk
 // @match        https://mjy.js.org/nwafu-bksxk/*
@@ -49,7 +49,7 @@
   // Signal to the app that the bridge is present (used to skip the install prompt).
   try {
     win.__bksxkBridgeReady = true;
-    win.__bksxkBridgeVersion = '1.4.0';
+    win.__bksxkBridgeVersion = '1.4.1';
     win.__bksxkEduSessionBridgeReady = true;
   } catch (e) { /* ignore */ }
 
@@ -60,7 +60,7 @@
     try {
       if (win.document && win.document.documentElement) {
         win.document.documentElement.setAttribute('data-bksxk-bridge-ready', 'true');
-        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.4.0');
+        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.4.1');
         win.document.documentElement.setAttribute('data-bksxk-edu-session-bridge-ready', 'true');
       }
     } catch (e) { /* ignore */ }

@@ -136,7 +136,7 @@ Widget _error(BuildContext context, Object e, VoidCallback retry) {
               FilledButton.icon(
                 onPressed: openWebBridgeInstaller,
                 icon: const Icon(Icons.download_outlined),
-                label: const Text('更新桥接脚本 (1.4.0)'),
+                label: const Text('更新桥接脚本 (1.4.1)'),
               ),
             TextButton(onPressed: retry, child: const Text('重试')),
           ],
@@ -640,6 +640,7 @@ class _SeatPickerSheet extends ConsumerStatefulWidget {
 class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
   List<LibraryBookDate>? _dates;
   LibrarySeatMap? _seatMap;
+  String? _mapError;
   String? _errorText;
   int _dateIndex = 0;
   int _slotIndex = 0;
@@ -668,11 +669,16 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
     setState(() {
       _dates = null;
       _errorText = null;
+      _mapError = null;
       _selectedSeat = null;
     });
     final lib = ref.read(libraryServiceProvider);
-    // Fetch floorplan map in parallel; failure gracefully falls back to list.
-    final mapFuture = lib.seatMap(widget.area.id).catchError((Object _) => null);
+    // Fetch floorplan map in parallel; record error rather than swallowing silently.
+    String? mapErr;
+    final mapFuture = lib.seatMap(widget.area.id).catchError((Object e) {
+      mapErr = e is AppError ? e.message : '楼层参考图暂不可用';
+      return null;
+    });
     try {
       final dates = await lib.seatDates(widget.area.id);
       final map = await mapFuture;
@@ -680,6 +686,7 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
       setState(() {
         _dates = dates;
         _seatMap = map;
+        _mapError = mapErr;
         _mapMode = map != null && map.hasImage;
         _dateIndex = 0;
         _slotIndex = 0;
@@ -717,10 +724,8 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
           .read(libraryServiceProvider)
           .seats(widget.area.id, day: day.day, slot: slot);
       if (!mounted) return;
-      final hasAnyCoords = list.any((s) => s.hasCoords);
       setState(() {
         _seats = list;
-        if (!hasAnyCoords) _mapMode = false;
         _loadingSeats = false;
       });
     } catch (e) {
@@ -782,10 +787,7 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
         ? dates[_dateIndex]
         : null;
     final allSeats = _seats ?? const <LibrarySeat>[];
-    final canShowMap =
-        _seatMap != null &&
-        _seatMap!.hasImage &&
-        allSeats.any((s) => s.hasCoords);
+    final canShowMap = _seatMap != null && _seatMap!.hasImage;
     final filtered = allSeats.where((s) {
       if (_freeOnly && !s.isFree) return false;
       if (_query.isNotEmpty &&
@@ -926,6 +928,15 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
                   ),
                 ],
                 const SizedBox(height: 8),
+                if (_mapError != null && !canShowMap) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      '平面图未加载：$_mapError（已切换为列表选座）',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                ],
                 if (!(_mapMode && canShowMap))
                   Row(
                     children: [
