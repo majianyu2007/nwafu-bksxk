@@ -134,7 +134,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
           _username.text.trim(),
           challenge,
           method,
-          _code.text.trim(),
+          method == MfaMethod.password ? _code.text : _code.text.trim(),
           trustDevice: _trustDevice,
         );
       } else if (deviceKey) {
@@ -666,7 +666,11 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                                   _ => '验证码',
                                 },
                               ),
-                              validator: (v) => v == null || v.trim().isEmpty
+                              validator: (v) =>
+                                  v == null ||
+                                      (method == MfaMethod.password
+                                          ? v.isEmpty
+                                          : v.trim().isEmpty)
                                   ? (method == MfaMethod.password
                                         ? '请输入认证密码'
                                         : '请输入验证码')

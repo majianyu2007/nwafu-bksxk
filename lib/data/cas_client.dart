@@ -295,18 +295,21 @@ class CasClient {
     if (trusted.isNotEmpty) await _jar.saveFromResponse(uri, trusted);
   }
 
+  static bool _isAllowedUrl(Uri uri) =>
+      uri.scheme == 'https' &&
+      uri.userInfo.isEmpty &&
+      (!uri.hasPort || uri.port == 443) &&
+      const {
+        'authserver.nwafu.edu.cn',
+        'ehall.nwafu.edu.cn',
+        // 一网通办 (messages, to-dos); see portal_service.dart.
+        'newehall.nwafu.edu.cn',
+        // 图书馆空间预约; see library_service.dart.
+        'booking-lib.nwafu.edu.cn',
+      }.contains(uri.host);
+
   static void _validateUrl(Uri uri) {
-    if (uri.scheme != 'https' ||
-        uri.userInfo.isNotEmpty ||
-        (uri.hasPort && uri.port != 443) ||
-        !const {
-          'authserver.nwafu.edu.cn',
-          'ehall.nwafu.edu.cn',
-          // 一网通办 (messages, to-dos); see portal_service.dart.
-          'newehall.nwafu.edu.cn',
-          // 图书馆空间预约; see library_service.dart.
-          'booking-lib.nwafu.edu.cn',
-        }.contains(uri.host)) {
+    if (!_isAllowedUrl(uri)) {
       throw AppError(
         AppErrorKind.schemaOrRedirect,
         message: '统一身份认证返回了不安全的跳转地址',
@@ -610,7 +613,9 @@ class CasClient {
     );
     final url = last.realUri.toString();
     if (url.contains('/reAuthCheck/reAuthLoginView.do')) {
-      throw CasMfaRequired(_parseMfaPage(last.data ?? '', service));
+      throw CasMfaRequired(
+        _parseMfaPage(last.data ?? '', service, pageUri: last.realUri),
+      );
     }
     if (url.contains('/authserver/login')) {
       throw classifyLoginFailure(last.data ?? '');
@@ -632,7 +637,9 @@ class CasClient {
     final wrapped = _withUri(res, finalUri);
     final url = finalUri.toString();
     if (url.contains('/reAuthCheck/reAuthLoginView.do')) {
-      throw CasMfaRequired(_parseMfaPage(res.data ?? '', service));
+      throw CasMfaRequired(
+        _parseMfaPage(res.data ?? '', service, pageUri: finalUri),
+      );
     }
     if (url.contains('/authserver/login')) {
       throw classifyLoginFailure(res.data ?? '');
@@ -640,7 +647,7 @@ class CasClient {
     _requireService(wrapped, service);
   }
 
-  CasMfaChallenge _parseMfaPage(String html, String service) {
+  CasMfaChallenge _parseMfaPage(String html, String service, {Uri? pageUri}) {
     final methods = <MfaMethod>[];
     for (final m in _mfaTagRe.allMatches(html)) {
       final attrs = _parseAttrs(m.group(0)!);
@@ -649,9 +656,19 @@ class CasClient {
       final method = MfaMethod.byCode(code);
       if (method != null && !methods.contains(method)) methods.add(method);
     }
-    String param(String key) =>
-        RegExp('["\']$key["\']\\s*:\\s*["\']([^"\']*)["\']').firstMatch(html)?[1] ??
-        '';
+    final reAuthParams = parseJsObject(html, 'reAuthParams');
+    final fallbackParams = reAuthParams.isEmpty
+        ? _parseLooseJsStringParams(html)
+        : const <String, String>{};
+    String param(String key) {
+      final raw = reAuthParams.containsKey(key)
+          ? reAuthParams[key]
+          : fallbackParams[key];
+      if (raw == null) return '';
+      if (raw is bool) return raw ? 'true' : 'false';
+      return raw.toString();
+    }
+
     if (methods.isEmpty) {
       final current = MfaMethod.byCode(param('reAuthType'));
       if (current != null) methods.add(current);
@@ -666,9 +683,12 @@ class CasClient {
     final name = _mfaUsernameRe.firstMatch(html)?[1];
     final isMultifactor = param('isMultifactor');
     final isSleepAccount = param('isSleepAccount');
-    final pageService = param('service');
+    final resolvedService =
+        normalizeCasServiceUrl(param('service')) ??
+        normalizeCasServiceUrl(pageUri?.queryParameters['service']) ??
+        service;
     return CasMfaChallenge(
-      service: pageService.isNotEmpty ? pageService : service,
+      service: resolvedService,
       methods: methods,
       userId: param('reAuthUserId'),
       displayName: name ?? '',
@@ -676,6 +696,330 @@ class CasClient {
       asksTrust: isSleepAccount.isEmpty || isSleepAccount == '0',
       salt: param('pwdEncryptSalt'),
     );
+  }
+
+  /// Normalizes a CAS `service` URL parsed from HTML/JS, rejecting corrupt
+  /// escapes or non-campus hosts so we never post an unregistered URL.
+  @visibleForTesting
+  static String? normalizeCasServiceUrl(String? raw) {
+    if (raw == null) return null;
+    var s = raw.trim();
+    if (s.isEmpty) return null;
+    s = s.replaceAll('&amp;', '&');
+    if (RegExp(r'^https?%3A%2F%2F', caseSensitive: false).hasMatch(s)) {
+      try {
+        s = Uri.decodeComponent(s);
+      } catch (_) {
+        return null;
+      }
+    }
+    if (s.contains(r'\')) return null;
+    final uri = Uri.tryParse(s);
+    if (uri == null || !_isAllowedUrl(uri)) return null;
+    return s;
+  }
+
+  /// Extracts a JS object literal assigned to [name] (e.g. `reAuthParams = {...}`)
+  /// and decodes JS/Thymeleaf string escapes (`\/`, `\u0026`, `\'`, etc.).
+  @visibleForTesting
+  static Map<String, dynamic> parseJsObject(String src, String name) {
+    final block = _extractJsObjectBlock(src, name);
+    if (block == null) return const {};
+    try {
+      final decoded = jsonDecode(block);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      // Fall through to JS-syntax parser (handles \' escapes, unquoted keys,
+      // single-quoted strings, comments, trailing commas, undefined).
+    }
+    return _parseJsObjectLiteral(block);
+  }
+
+  static String? _extractJsObjectBlock(String src, String name) {
+    final m = RegExp('\\b${RegExp.escape(name)}\\s*=\\s*\\{').firstMatch(src);
+    if (m == null) return null;
+    final start = m.end - 1;
+    var depth = 0;
+    var i = start;
+    while (i < src.length) {
+      final ch = src[i];
+      if (ch == '"' || ch == "'") {
+        i = _scanJsStringEnd(src, i);
+        continue;
+      }
+      if (ch == '/' && i + 1 < src.length) {
+        final next = src[i + 1];
+        if (next == '/') {
+          final nl = src.indexOf('\n', i + 2);
+          i = nl < 0 ? src.length : nl + 1;
+          continue;
+        }
+        if (next == '*') {
+          final end = src.indexOf('*/', i + 2);
+          i = end < 0 ? src.length : end + 2;
+          continue;
+        }
+      }
+      if (ch == '{') {
+        depth++;
+      } else if (ch == '}') {
+        depth--;
+        if (depth == 0) return src.substring(start, i + 1);
+      }
+      i++;
+    }
+    return null;
+  }
+
+  static int _scanJsStringEnd(String src, int start) {
+    final quote = src[start];
+    var i = start + 1;
+    while (i < src.length) {
+      final ch = src[i];
+      if (ch == r'\') {
+        i += 2;
+        continue;
+      }
+      if (ch == quote) return i + 1;
+      i++;
+    }
+    return src.length;
+  }
+
+  static int _skipJsSpaceAndComments(String src, int i) {
+    while (i < src.length) {
+      final code = src.codeUnitAt(i);
+      if (code <= 0x20 || code == 0xFEFF) {
+        i++;
+        continue;
+      }
+      if (code == 0x2F /* / */ && i + 1 < src.length) {
+        final next = src.codeUnitAt(i + 1);
+        if (next == 0x2F /* / */ ) {
+          final nl = src.indexOf('\n', i + 2);
+          i = nl < 0 ? src.length : nl + 1;
+          continue;
+        }
+        if (next == 0x2A /* * */ ) {
+          final end = src.indexOf('*/', i + 2);
+          i = end < 0 ? src.length : end + 2;
+          continue;
+        }
+      }
+      break;
+    }
+    return i;
+  }
+
+  static int _scanJsBalancedEnd(String src, int start, String open, String close) {
+    var depth = 0;
+    var i = start;
+    while (i < src.length) {
+      final ch = src[i];
+      if (ch == '"' || ch == "'") {
+        i = _scanJsStringEnd(src, i);
+        continue;
+      }
+      if (ch == '/' && i + 1 < src.length) {
+        final next = src[i + 1];
+        if (next == '/') {
+          final nl = src.indexOf('\n', i + 2);
+          i = nl < 0 ? src.length : nl + 1;
+          continue;
+        }
+        if (next == '*') {
+          final end = src.indexOf('*/', i + 2);
+          i = end < 0 ? src.length : end + 2;
+          continue;
+        }
+      }
+      if (ch == open) {
+        depth++;
+      } else if (ch == close) {
+        depth--;
+        if (depth == 0) return i + 1;
+      }
+      i++;
+    }
+    return src.length;
+  }
+
+  static Map<String, dynamic> _parseJsObjectLiteral(String block) {
+    final result = <String, dynamic>{};
+    var i = _skipJsSpaceAndComments(block, 0);
+    if (i >= block.length || block[i] != '{') return result;
+    i++;
+    while (i < block.length) {
+      i = _skipJsSpaceAndComments(block, i);
+      if (i >= block.length || block[i] == '}') break;
+      if (block[i] == ',') {
+        i++;
+        continue;
+      }
+      String? key;
+      if (block[i] == '"' || block[i] == "'") {
+        final quote = block[i];
+        final end = _scanJsStringEnd(block, i);
+        if (end <= i + 1 || block[end - 1] != quote) break;
+        key = unescapeJsString(block.substring(i + 1, end - 1));
+        i = end;
+      } else {
+        final keyStart = i;
+        while (i < block.length && _isJsIdentChar(block.codeUnitAt(i))) {
+          i++;
+        }
+        if (i == keyStart) {
+          i++;
+          continue;
+        }
+        key = block.substring(keyStart, i);
+      }
+      i = _skipJsSpaceAndComments(block, i);
+      if (i >= block.length || block[i] != ':') {
+        while (i < block.length && block[i] != ',' && block[i] != '}') {
+          i++;
+        }
+        continue;
+      }
+      i = _skipJsSpaceAndComments(block, i + 1);
+      if (i >= block.length) break;
+      final ch = block[i];
+      if (ch == '"' || ch == "'") {
+        final end = _scanJsStringEnd(block, i);
+        if (end > i + 1 && block[end - 1] == ch) {
+          result[key] = unescapeJsString(block.substring(i + 1, end - 1));
+        }
+        i = end;
+      } else if (ch == '{') {
+        i = _scanJsBalancedEnd(block, i, '{', '}');
+      } else if (ch == '[') {
+        i = _scanJsBalancedEnd(block, i, '[', ']');
+      } else {
+        final valStart = i;
+        while (i < block.length && block[i] != ',' && block[i] != '}') {
+          if (block[i] == '"' || block[i] == "'") {
+            i = _scanJsStringEnd(block, i);
+            continue;
+          }
+          if (block[i] == '/' &&
+              i + 1 < block.length &&
+              (block[i + 1] == '/' || block[i + 1] == '*')) {
+            break;
+          }
+          i++;
+        }
+        final token = block.substring(valStart, i).trim();
+        if (token == 'true') {
+          result[key] = true;
+        } else if (token == 'false') {
+          result[key] = false;
+        } else if (token == 'null' || token == 'undefined') {
+          result[key] = null;
+        } else {
+          final numVal = num.tryParse(token);
+          if (numVal != null) result[key] = numVal;
+        }
+      }
+    }
+    return result;
+  }
+
+  static bool _isJsIdentChar(int c) =>
+      (c >= 0x30 && c <= 0x39) ||
+      (c >= 0x41 && c <= 0x5A) ||
+      (c >= 0x61 && c <= 0x7A) ||
+      c == 0x5F /* _ */ ||
+      c == 0x24 /* $ */;
+
+  static final _looseJsParamRe = RegExp(
+    r'''(?:["'](\w+)["']|\b(\w+))\s*:\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')''',
+  );
+
+  static Map<String, String> _parseLooseJsStringParams(String html) {
+    final result = <String, String>{};
+    for (final m in _looseJsParamRe.allMatches(html)) {
+      final key = m.group(1) ?? m.group(2);
+      final raw = m.group(3) ?? m.group(4);
+      if (key != null && raw != null && !result.containsKey(key)) {
+        result[key] = unescapeJsString(raw);
+      }
+    }
+    return result;
+  }
+
+  @visibleForTesting
+  static String unescapeJsString(String raw) {
+    if (!raw.contains(r'\')) return raw;
+    final out = StringBuffer();
+    for (var i = 0; i < raw.length; i++) {
+      final ch = raw[i];
+      if (ch != r'\' || i + 1 >= raw.length) {
+        out.write(ch);
+        continue;
+      }
+      final next = raw[++i];
+      switch (next) {
+        case '/':
+          out.write('/');
+        case r'\':
+          out.write(r'\');
+        case '"':
+          out.write('"');
+        case "'":
+          out.write("'");
+        case 'n':
+          out.write('\n');
+        case 'r':
+          out.write('\r');
+        case 't':
+          out.write('\t');
+        case 'b':
+          out.write('\b');
+        case 'f':
+          out.write('\f');
+        case 'v':
+          out.write('\v');
+        case '0':
+          out.writeCharCode(0);
+        case '\r':
+          if (i + 1 < raw.length && raw[i + 1] == '\n') i++;
+        case '\n':
+          break;
+        case 'u':
+          if (i + 1 < raw.length && raw[i + 1] == '{') {
+            final close = raw.indexOf('}', i + 2);
+            if (close > i + 2) {
+              final cp = int.tryParse(raw.substring(i + 2, close), radix: 16);
+              if (cp != null && cp >= 0 && cp <= 0x10FFFF) {
+                out.writeCharCode(cp);
+                i = close;
+                break;
+              }
+            }
+          } else if (i + 4 < raw.length) {
+            final cp = int.tryParse(raw.substring(i + 1, i + 5), radix: 16);
+            if (cp != null) {
+              out.writeCharCode(cp);
+              i += 4;
+              break;
+            }
+          }
+          out.write('u');
+        case 'x':
+          if (i + 2 < raw.length) {
+            final cp = int.tryParse(raw.substring(i + 1, i + 3), radix: 16);
+            if (cp != null) {
+              out.writeCharCode(cp);
+              i += 2;
+              break;
+            }
+          }
+          out.write('x');
+        default:
+          out.write(next);
+      }
+    }
+    return out.toString();
   }
 
   /// Switches the MFA page to [method]; the server wants this before a code
@@ -812,18 +1156,46 @@ class CasClient {
         options: Options(contentType: Headers.formUrlEncodedContentType),
       ),
     );
+    if (_isRedirect(res.statusCode)) {
+      throw AppError(
+        AppErrorKind.sessionExpired,
+        message: '二次验证会话已过期',
+        hint: '请重新登录。',
+      );
+    }
     final j = _json(res.data);
+    if (j.isEmpty) {
+      final tip = _extractCasErrorTip(res.data ?? '');
+      if (tip.isNotEmpty) {
+        throw classifyLoginFailure(res.data ?? '');
+      }
+      throw AppError(
+        AppErrorKind.sessionExpired,
+        message: '二次验证提交响应异常',
+        hint: '请重新登录。',
+      );
+    }
     if (j['code']?.toString() != 'reAuth_success') {
+      final msg = j['msg']?.toString().trim() ?? '';
+      if (msg.contains('未注册') || msg.contains('无权访问')) {
+        throw AppError(
+          AppErrorKind.schemaOrRedirect,
+          message: msg,
+          hint: '认证服务未认可目标应用地址，请更新应用或使用官方页面登录。',
+        );
+      }
       throw AppError(
         AppErrorKind.captcha,
-        message: j['msg']?.toString().isNotEmpty == true
-            ? j['msg'].toString()
-            : '验证码错误',
+        message: msg.isNotEmpty ? msg : '验证码错误',
         hint: '检查验证码后重试；安全令牌请确认手机时间准确。',
       );
     }
     final last = await follow(loginUrl(c.service));
     if (last.realUri.toString().contains('/authserver/')) {
+      final html = last.data ?? '';
+      if (_extractCasErrorTip(html).isNotEmpty) {
+        throw classifyLoginFailure(html);
+      }
       throw AppError(
         AppErrorKind.sessionExpired,
         message: '二次验证后未能完成登录',
@@ -1117,19 +1489,34 @@ class CasClient {
   }
 }
 
-final _showErrorTipRe = RegExp(r'id="showErrorTip"[^>]*>([^<]+)<');
+final _showErrorTipRe = RegExp(
+  r'id=["\x27]showErrorTip["\x27][^>]*>\s*(?:<span[^>]*>)?([^<]+)<',
+);
 final _formErrorTipRe = RegExp(
   r'id=["\x27]formErrorTip["\x27][^>]*>.*?<span[^>]*>([^<]+)</span>',
   dotAll: true,
 );
+final _noAccessOrRegisteredTipRe = RegExp(
+  r'class=["\x27][^"\x27]*no-access-or-registered-tip[^"\x27]*["\x27][^>]*>([^<]+)<',
+);
+
+String _extractCasErrorTip(String html) =>
+    _showErrorTipRe.firstMatch(html)?[1]?.trim() ??
+    _formErrorTipRe.firstMatch(html)?[1]?.trim() ??
+    _noAccessOrRegisteredTipRe.firstMatch(html)?[1]?.trim() ??
+    '';
 
 /// Turns a failed login page into an [AppError], keyed on the page's own
 /// error tip, as `wisedu_cas._classify_and_raise` does.
 AppError classifyLoginFailure(String html) {
-  final tip =
-      _showErrorTipRe.firstMatch(html)?[1]?.trim() ??
-      _formErrorTipRe.firstMatch(html)?[1]?.trim() ??
-      '';
+  final tip = _extractCasErrorTip(html);
+  if (tip.contains('未注册') || tip.contains('无权访问')) {
+    return AppError(
+      AppErrorKind.schemaOrRedirect,
+      message: tip,
+      hint: '认证服务未认可目标应用地址，请更新应用或使用官方页面登录。',
+    );
+  }
   if (tip.contains('锁定') ||
       tip.toUpperCase().contains('LOCK') ||
       html.contains('ACCOUNT_LOCKED') ||
