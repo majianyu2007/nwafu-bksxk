@@ -5,12 +5,16 @@ import '../app/edu_providers.dart';
 import '../core/errors.dart';
 import '../app/ui_prefs.dart';
 import '../data/edu_models.dart';
+import '../data/gpa_simulator.dart';
 import 'degree_page.dart';
 import 'edu_login_page.dart';
 import 'grades_trend.dart';
+import 'layout.dart';
 import 'widgets/glass.dart';
 import 'widgets.dart';
 import '../data/ics_export.dart';
+
+enum _GradeSort { term, gpaDesc, creditDesc }
 
 class GradesPage extends ConsumerStatefulWidget {
   const GradesPage({super.key});
@@ -21,6 +25,9 @@ class GradesPage extends ConsumerStatefulWidget {
 
 class _GradesPageState extends ConsumerState<GradesPage> {
   String? _term;
+  String _query = '';
+  String _natureFilter = '全部';
+  _GradeSort _sort = _GradeSort.term;
 
   @override
   void initState() {
@@ -76,11 +83,30 @@ class _GradesPageState extends ConsumerState<GradesPage> {
     final records =
         [
           for (final record in book?.records ?? const <GradeRecord>[])
-            if (selectedTerm == null || record.termCode == selectedTerm) record,
+            if ((selectedTerm == null || record.termCode == selectedTerm) &&
+                (_natureFilter == '全部' ||
+                    record.nature.contains(_natureFilter)) &&
+                (_query.isEmpty ||
+                    record.courseName.toLowerCase().contains(
+                      _query.toLowerCase(),
+                    )))
+              record,
         ]..sort((a, b) {
-          final byTerm = b.termCode.compareTo(a.termCode);
-          return byTerm != 0 ? byTerm : a.courseName.compareTo(b.courseName);
+          switch (_sort) {
+            case _GradeSort.gpaDesc:
+              final byGp = (b.gradePoint ?? -1).compareTo(a.gradePoint ?? -1);
+              return byGp != 0 ? byGp : b.credit.compareTo(a.credit);
+            case _GradeSort.creditDesc:
+              final byCred = b.credit.compareTo(a.credit);
+              return byCred != 0 ? byCred : b.termCode.compareTo(a.termCode);
+            case _GradeSort.term:
+              final byTerm = b.termCode.compareTo(a.termCode);
+              return byTerm != 0
+                  ? byTerm
+                  : a.courseName.compareTo(b.courseName);
+          }
         });
+    final filteredSim = simulateGpa(records: records);
     final hidden = ref.watch(uiPrefsProvider.select((p) => p.hideGrades));
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -89,6 +115,17 @@ class _GradesPageState extends ConsumerState<GradesPage> {
         surfaceTintColor: Colors.transparent,
         title: const Text('成绩'),
         actions: [
+          if (book != null && book.records.isNotEmpty)
+            IconButton(
+              tooltip: 'GPA 模拟器',
+              onPressed: () => showAdaptiveSheet<void>(
+                context,
+                scrollControlled: true,
+                maxWidth: 680,
+                builder: (_) => _GpaSimulatorSheet(records: book.records),
+              ),
+              icon: const Icon(Icons.calculate_outlined),
+            ),
           if (book != null)
             IconButton(
               tooltip: hidden ? '显示成绩' : '隐藏成绩',
@@ -241,6 +278,70 @@ class _GradesPageState extends ConsumerState<GradesPage> {
                                       _term = value == '__all__' ? null : value,
                                 ),
                               ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  prefixIcon: Icon(Icons.search, size: 18),
+                                  hintText: '搜索课程名称',
+                                  border: OutlineInputBorder(),
+                                ),
+                                onChanged: (v) =>
+                                    setState(() => _query = v.trim()),
+                              ),
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  for (final n in const ['全部', '必修', '选修'])
+                                    ChoiceChip(
+                                      label: Text(n),
+                                      selected: _natureFilter == n,
+                                      onSelected: (_) =>
+                                          setState(() => _natureFilter = n),
+                                    ),
+                                  const SizedBox(width: 4),
+                                  ChoiceChip(
+                                    label: const Text('按学期'),
+                                    selected: _sort == _GradeSort.term,
+                                    onSelected: (_) =>
+                                        setState(() => _sort = _GradeSort.term),
+                                  ),
+                                  ChoiceChip(
+                                    label: const Text('按绩点'),
+                                    selected: _sort == _GradeSort.gpaDesc,
+                                    onSelected: (_) => setState(
+                                      () => _sort = _GradeSort.gpaDesc,
+                                    ),
+                                  ),
+                                  ChoiceChip(
+                                    label: const Text('按学分'),
+                                    selected: _sort == _GradeSort.creditDesc,
+                                    onSelected: (_) => setState(
+                                      () => _sort = _GradeSort.creditDesc,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (!hidden &&
+                                  records.isNotEmpty &&
+                                  (selectedTerm != null ||
+                                      _natureFilter != '全部' ||
+                                      _query.isNotEmpty)) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  '当前筛选 ${records.length} 门 · '
+                                  '${filteredSim.baseCredits.toStringAsFixed(1)} 学分 · '
+                                  '均绩 ${filteredSim.baseGpa.toStringAsFixed(2)}'
+                                  '${filteredSim.baseAverage != null ? ' · 加权 ${filteredSim.baseAverage!.toStringAsFixed(1)}' : ''}',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 16),
                               Text(
                                 '${records.length} 条成绩记录',
@@ -639,4 +740,265 @@ class _GradeDetail extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// Interactive What-If GPA calculator: add hypothetical courses or exclude
+/// existing courses to see the live GPA and weighted-average delta.
+class _GpaSimulatorSheet extends StatefulWidget {
+  const _GpaSimulatorSheet({required this.records});
+  final List<GradeRecord> records;
+
+  @override
+  State<_GpaSimulatorSheet> createState() => _GpaSimulatorSheetState();
+}
+
+class _GpaSimulatorSheetState extends State<_GpaSimulatorSheet> {
+  final _name = TextEditingController();
+  final _credit = TextEditingController(text: '2.0');
+  final _score = TextEditingController(text: '90');
+  final _added = <SimulatedCourse>[];
+  final _excluded = <int>{};
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _credit.dispose();
+    _score.dispose();
+    super.dispose();
+  }
+
+  void _addCourse() {
+    final cred = double.tryParse(_credit.text.trim());
+    final raw = double.tryParse(_score.text.trim());
+    if (cred == null || cred <= 0 || raw == null || raw < 0) return;
+    final isGpaDirect = raw <= 4.0;
+    final gp = isGpaDirect ? raw : scoreToGpa(raw);
+    final score = isGpaDirect ? null : raw.clamp(0.0, 100.0);
+    setState(() {
+      _added.add(
+        SimulatedCourse(
+          name: _name.text.trim().isEmpty
+              ? '假设课程 ${_added.length + 1}'
+              : _name.text.trim(),
+          credit: cred,
+          gradePoint: gp,
+          score: score,
+        ),
+      );
+      _name.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final res = simulateGpa(
+      records: widget.records,
+      excludedIndices: _excluded,
+      hypothetical: _added,
+    );
+    final delta = res.gpaDelta;
+    final deltaText = delta >= 0
+        ? '+${delta.toStringAsFixed(3)}'
+        : delta.toStringAsFixed(3);
+    final deltaColor = delta > 0.0005
+        ? Colors.green
+        : delta < -0.0005
+        ? scheme.error
+        : scheme.onSurfaceVariant;
+
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.82,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'GPA 模拟器',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (_added.isNotEmpty || _excluded.isNotEmpty)
+                    TextButton(
+                      onPressed: () => setState(() {
+                        _added.clear();
+                        _excluded.clear();
+                      }),
+                      child: const Text('重置'),
+                    ),
+                  IconButton(
+                    tooltip: '关闭',
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              GlassCard(
+                tint: scheme.primary,
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('模拟后均绩', style: theme.textTheme.bodySmall),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.baseline,
+                            textBaseline: TextBaseline.alphabetic,
+                            children: [
+                              Text(
+                                res.simulatedGpa.toStringAsFixed(3),
+                                style: theme.textTheme.headlineMedium?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: scheme.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                deltaText,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: deltaColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            '原均绩 ${res.baseGpa.toStringAsFixed(3)} · '
+                            '计入 ${res.simulatedCredits.toStringAsFixed(1)} 学分'
+                            '${res.simulatedAverage != null ? ' · 加权 ${res.simulatedAverage!.toStringAsFixed(2)}' : ''}',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: TextField(
+                      controller: _name,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        labelText: '假设课程',
+                        hintText: '可选',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: _credit,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        labelText: '学分',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: _score,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        labelText: '分数/绩点',
+                        border: OutlineInputBorder(),
+                      ),
+                      onSubmitted: (_) => _addCourse(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _addCourse,
+                    child: const Text('加入'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '输入 0–4.0 视为直接绩点，输入 >4 视为百分制自动换算（90+ 为 4.0）。',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 10),
+              Expanded(
+                child: ListView(
+                  children: [
+                    if (_added.isNotEmpty) ...[
+                      Text('已加入假设课程', style: theme.textTheme.labelLarge),
+                      const SizedBox(height: 6),
+                      for (var i = 0; i < _added.length; i++)
+                        ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(_added[i].name),
+                          subtitle: Text(
+                            '${_added[i].credit} 学分 · 绩点 ${_added[i].gradePoint.toStringAsFixed(2)}',
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.close, size: 18),
+                            onPressed: () =>
+                                setState(() => _added.removeAt(i)),
+                          ),
+                        ),
+                      const Divider(),
+                    ],
+                    Text(
+                      '已有成绩（取消勾选可模拟排除）',
+                      style: theme.textTheme.labelLarge,
+                    ),
+                    for (var i = 0; i < widget.records.length; i++)
+                      if (widget.records[i].gradePoint != null)
+                        CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          value: !_excluded.contains(i),
+                          onChanged: (checked) => setState(() {
+                            if (checked == true) {
+                              _excluded.remove(i);
+                            } else {
+                              _excluded.add(i);
+                            }
+                          }),
+                          title: Text(
+                            widget.records[i].courseName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            '${widget.records[i].credit} 学分 · 绩点 ${widget.records[i].gradePoint!.toStringAsFixed(2)}',
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
