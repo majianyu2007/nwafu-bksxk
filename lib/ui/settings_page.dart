@@ -366,8 +366,41 @@ class _TimetableDisplay extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final prefs = ref.watch(timetablePrefsProvider);
+    final ui = ref.watch(uiPrefsProvider);
+    final uiCtrl = ref.read(uiPrefsProvider.notifier);
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const ListTile(
+          leading: Icon(Icons.view_week_outlined),
+          title: Text('默认课表视图'),
+          subtitle: Text('自动模式在手机竖屏用日视图、平板与桌面用周视图'),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ChoiceChip(
+                label: const Text('自动'),
+                selected: ui.timetableView == null,
+                onSelected: (_) => uiCtrl.setTimetableView(null),
+              ),
+              ChoiceChip(
+                label: const Text('日视图'),
+                selected: ui.timetableView == TimetableViewMode.day,
+                onSelected: (_) => uiCtrl.setTimetableView(TimetableViewMode.day),
+              ),
+              ChoiceChip(
+                label: const Text('周视图'),
+                selected: ui.timetableView == TimetableViewMode.week,
+                onSelected: (_) =>
+                    uiCtrl.setTimetableView(TimetableViewMode.week),
+              ),
+            ],
+          ),
+        ),
         SwitchListTile(
           secondary: const Icon(Icons.weekend_outlined),
           title: const Text('显示周末'),
@@ -382,6 +415,19 @@ class _TimetableDisplay extends ConsumerWidget {
           onChanged: ref
               .read(timetablePrefsProvider.notifier)
               .setShowOtherWeeks,
+        ),
+        SwitchListTile(
+          secondary: const Icon(Icons.density_small_outlined),
+          title: const Text('紧凑行高'),
+          subtitle: const Text('同屏显示更多节次，减少上下滚动'),
+          value: ui.compactTimetable,
+          onChanged: uiCtrl.setCompactTimetable,
+        ),
+        SwitchListTile(
+          secondary: const Icon(Icons.person_outline),
+          title: const Text('周视图显示授课教师'),
+          value: ui.showTeacher,
+          onChanged: uiCtrl.setShowTeacher,
         ),
       ],
     );

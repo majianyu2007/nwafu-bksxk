@@ -9,8 +9,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/campus_access.dart';
 import '../app/edu_providers.dart';
 import '../app/providers.dart';
+import '../app/ui_prefs.dart';
 import '../app/update_providers.dart';
 import '../core/web_env.dart';
+import '../data/academic_calendar.dart' show schoolDate;
+import '../data/timetable_logic.dart';
 import '../data/vpn/campus_route.dart';
 import 'edu_login_page.dart';
 import '../app/portal_providers.dart';
@@ -129,6 +132,8 @@ class MePage extends ConsumerWidget {
                   children: [
                     _ProfileCard(),
                     SizedBox(height: 16),
+                    _TodaySummaryCard(),
+                    SizedBox(height: 16),
                     _ToolGrid(),
                   ],
                 ),
@@ -156,6 +161,8 @@ class MePage extends ConsumerWidget {
               )
             else ...[
               const _ProfileCard(),
+              const SizedBox(height: 16),
+              const _TodaySummaryCard(),
               const SizedBox(height: 16),
               const _ToolGrid(),
               const SizedBox(height: 16),
@@ -388,6 +395,118 @@ class _ToolGrid extends ConsumerWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Live daily glance card reading only locally cached providers (zero extra
+/// network cost): current/next class, remaining classes today, and GPA glance.
+class _TodaySummaryCard extends ConsumerWidget {
+  const _TodaySummaryCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(eduSessionProvider);
+    final timetable = ref.watch(timetableProvider).data;
+    if (!session.signedIn || timetable == null) return const SizedBox.shrink();
+
+    final now = ref.watch(clockProvider).value ?? DateTime.now();
+    final today = schoolDate(now);
+    final classes = timetable.classesOn(today);
+    final current = classes
+        .where((o) => !o.start.isAfter(now) && o.end.isAfter(now))
+        .firstOrNull;
+    final upcoming = classes.where((o) => o.start.isAfter(now)).toList();
+    final next = upcoming.firstOrNull;
+
+    final hidden = ref.watch(uiPrefsProvider.select((p) => p.hideGrades));
+    final gpa = ref.watch(gradesProvider).book?.summary.gpa;
+
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    String headline;
+    String sub;
+    IconData icon;
+    if (current != null) {
+      icon = Icons.play_circle_outline;
+      headline = '正在上课 · ${current.session.courseName}';
+      sub = [
+        '第 ${current.session.startPeriod}–${current.session.endPeriod} 节',
+        if (current.session.room.isNotEmpty) current.session.room,
+        if (upcoming.isNotEmpty) '之后还有 ${upcoming.length} 节',
+      ].join(' · ');
+    } else if (next != null) {
+      icon = Icons.schedule;
+      final diffMin = next.start.difference(now).inMinutes;
+      final lead = diffMin < 60
+          ? '$diffMin 分钟后'
+          : '${diffMin ~/ 60} 小时 ${diffMin % 60} 分后';
+      headline = '下节课 · ${next.session.courseName}';
+      sub = [
+        lead,
+        '第 ${next.session.startPeriod}–${next.session.endPeriod} 节',
+        if (next.session.room.isNotEmpty) next.session.room,
+      ].join(' · ');
+    } else if (classes.isNotEmpty) {
+      icon = Icons.check_circle_outline;
+      headline = '今天的 ${classes.length} 节课都上完了';
+      sub = '放松一下，或者去图书馆自习吧';
+    } else {
+      icon = Icons.wb_sunny_outlined;
+      headline = '今天没有排课';
+      sub = '自由安排时间，可随时预约图书馆座位';
+    }
+
+    return GlassCard(
+      tint: current != null ? scheme.primary : null,
+      tintAmount: 0.08,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Row(
+        children: [
+          Icon(icon, color: scheme.primary, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  headline,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  sub,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          if (!hidden && gpa != null && gpa.isNotEmpty) ...[
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'GPA $gpa',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: scheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

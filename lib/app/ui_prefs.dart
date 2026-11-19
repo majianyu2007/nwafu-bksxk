@@ -150,9 +150,13 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
     return _save((p) => p.setBool(_kGlass, v));
   }
 
-  Future<void> setTimetableView(TimetableViewMode v) {
-    state = state.copyWith(timetableView: v);
-    return _save((p) => p.setString(_kView, v.name));
+  Future<void> setTimetableView(TimetableViewMode? v) {
+    state = v == null
+        ? state.copyWith(clearView: true)
+        : state.copyWith(timetableView: v);
+    return _save(
+      (p) => v == null ? p.remove(_kView) : p.setString(_kView, v.name),
+    );
   }
 
   Future<void> setCompactTimetable(bool v) {
