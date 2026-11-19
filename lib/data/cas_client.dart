@@ -38,11 +38,20 @@ import 'vpn/campus_proxy.dart';
 const kAuthServer = 'https://authserver.nwafu.edu.cn';
 
 /// A second-factor method the AuthServer offered for this login.
+/// Synced with `nwafu-cas` 1.0.1 (`reAuth.js`).
 enum MfaMethod {
+  password('2', '认证密码'),
   sms('3', '短信验证码', needsSend: true),
   wecom('4', '企业微信验证码', needsSend: true),
+  cpdaily('5', '今日校园验证码', needsSend: true),
   totp('10', '安全令牌（TOTP）'),
-  wechatScan('8', '微信扫码', supported: false);
+  email('11', '邮箱验证码', needsSend: true),
+  dingtalk('12', '钉钉验证码', needsSend: true),
+  welink('13', 'WeLink 验证码', needsSend: true),
+  wechatService('15', '公众号验证码', needsSend: true),
+  wechatScan('8', '微信扫码', supported: false),
+  qrScan('14', '钉钉/企微/WeLink 扫码', supported: false),
+  face('6', '实人认证（刷脸）', supported: false);
 
   const MfaMethod(
     this.code,
@@ -56,18 +65,30 @@ enum MfaMethod {
   /// Whether a code must be requested before it can be typed.
   final bool needsSend;
 
-  /// Methods that only work in a browser (QR scans) are listed but disabled.
+  /// Methods that only work in a browser (QR/face scans) are listed but disabled.
   final bool supported;
 
   String? get sendTypeName => switch (this) {
     sms => 'reAuthDynamicCodeType',
     wecom => 'reAuthWChatDynamicCodeType',
+    cpdaily => 'reAuthCpdailyDynamicCodeType',
+    email => 'reAuthEmailDynamicCodeType',
+    dingtalk => 'reAuthDingTalkDynamicCodeType',
+    welink => 'reAuthWeLinkDynamicCodeType',
+    wechatService => 'reAuthWeChatServiceDynamicCodeType',
     _ => null,
   };
 
   static MfaMethod? byCode(String code) {
+    final normalized = code.trim();
+    if (normalized == '7') return password; // 安全问题 now falls back to password
+    if (normalized == '18' ||
+        normalized == '20' ||
+        normalized.toUpperCase().startsWith('REAL_PERSON_PLUGIN_')) {
+      return face;
+    }
     for (final m in values) {
-      if (m.code == code) return m;
+      if (m.code == normalized) return m;
     }
     return null;
   }
@@ -81,6 +102,9 @@ class CasMfaChallenge {
     required this.methods,
     required this.userId,
     required this.displayName,
+    this.isMultifactor = 'true',
+    this.asksTrust = true,
+    this.salt = '',
   });
 
   /// The service the login was for; the ticket is issued for it afterwards.
@@ -90,6 +114,9 @@ class CasMfaChallenge {
   /// `reAuthUserId` from the page; the SMS endpoint wants it.
   final String userId;
   final String displayName;
+  final String isMultifactor;
+  final bool asksTrust;
+  final String salt;
 }
 
 /// Thrown by [CasClient.login] when a second factor is required.
@@ -132,8 +159,38 @@ class CasClient {
   /// Source for the password/passkey nonces; tests pin it.
   final Random? random;
 
+  /// Stable browser fingerprint for `/authserver/bfp/info` (信任此设备).
+  late final String _fingerprint = _generateFingerprint(random);
+
+  static String _generateFingerprint(Random? rng) {
+    final r = rng ?? Random.secure();
+    return List.generate(
+      16,
+      (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+  }
+
   Dio get dio => _dio;
   CookieJar get cookieJar => _jar;
+
+  Future<void> _ensureFingerprint() async {
+    if (kIsWeb) return;
+    try {
+      final cookies = await _jar.loadForRequest(Uri.parse(kAuthServer));
+      if (cookies.any((c) => c.name == 'MULTIFACTOR_BROWSER_FINGERPRINT')) {
+        return;
+      }
+      await _dio.get<String>(
+        '$kAuthServer/authserver/bfp/info',
+        queryParameters: {
+          'bfp': _fingerprint,
+          '_': DateTime.now().millisecondsSinceEpoch,
+        },
+      );
+    } catch (_) {
+      // Best-effort fingerprint registration.
+    }
+  }
 
   static void requireSupportedPlatform() {
     if (kIsWeb) {
@@ -240,7 +297,9 @@ class CasClient {
     }
     final res = await _guard(() => _dio.get<String>(loginUrl(service)));
     final loc = res.headers.value('location') ?? '';
-    return _isRedirect(res.statusCode) && !loc.contains('/authserver/login');
+    return _isRedirect(res.statusCode) &&
+        !loc.contains('/authserver/login') &&
+        !loc.contains('/reAuthCheck/');
   }
 
   /// Signs in with a password, or with [passkey] when given. Returns once
@@ -277,8 +336,16 @@ class CasClient {
 
     final Response<String> res;
     if (passkey != null) {
-      res = await _passkeyLogin(service, username, execution, passkey);
+      final fidoFields = _parseFormFields(html, 'fidoLogin');
+      res = await _passkeyLogin(
+        service,
+        username,
+        execution,
+        passkey,
+        formFields: fidoFields,
+      );
     } else {
+      await _checkNeedCaptcha(username, html);
       final salt = _inputValue(html, 'pwdEncryptSalt');
       if (salt == null || salt.length != 16) {
         throw AppError(
@@ -287,20 +354,24 @@ class CasClient {
           hint: '未发送密码，请更新应用或使用官方登录页。',
         );
       }
+      final baseFields = _parseFormFields(html, 'userNameLogin');
+      baseFields.remove('passwordText');
+      final formData = <String, String>{
+        '_eventId': 'submit',
+        'cllt': 'userNameLogin',
+        'dllt': 'generalLogin',
+        'lt': '',
+        'execution': execution,
+        ...baseFields,
+        'username': username,
+        'password': encryptCasPassword(password, salt, random: random),
+        'rememberMe': 'true',
+      };
+      formData.putIfAbsent('captcha', () => '');
       res = await _guard(
         () => _dio.post<String>(
           loginUrl(service),
-          data: {
-            'username': username,
-            'password': encryptCasPassword(password, salt, random: random),
-            'captcha': '',
-            'rememberMe': 'true',
-            '_eventId': 'submit',
-            'cllt': 'userNameLogin',
-            'dllt': 'generalLogin',
-            'lt': '',
-            'execution': execution,
-          },
+          data: formData,
           options: Options(contentType: Headers.formUrlEncodedContentType),
         ),
       );
@@ -311,12 +382,77 @@ class CasClient {
     await _afterLogin(res, service);
   }
 
+  Future<void> _checkNeedCaptcha(String username, String html) async {
+    try {
+      final res = await _dio.get<String>(
+        '$kAuthServer/authserver/checkNeedCaptcha.htl',
+        queryParameters: {
+          'username': username,
+          '_': DateTime.now().millisecondsSinceEpoch,
+        },
+      );
+      final j = _json(res.data);
+      if (j['isNeed'] == true) {
+        final sw = RegExp(
+          r'''\bvar\s+captchaSwitch\s*=\s*["']([^"']*)["']''',
+        ).firstMatch(html)?[1];
+        final kind = sw == '2' ? '滑块验证' : '图形验证码';
+        throw AppError(
+          AppErrorKind.captcha,
+          message: '学校要求$kind',
+          hint: '失败次数较多时会出现；请先在浏览器里成功登录一次，或过一段时间再试。',
+        );
+      }
+    } on AppError {
+      rethrow;
+    } catch (_) {
+      // Optional pre-check; proceed if the endpoint is unavailable.
+    }
+  }
+
+  static Map<String, String> _parseFormFields(String html, String cllt) {
+    final formRe = RegExp(
+      r'<form\b[^>]*>(.*?)</form>',
+      caseSensitive: false,
+      dotAll: true,
+    );
+    final inputRe = RegExp(r'<input\b([^>]*)>', caseSensitive: false);
+    final attrRe = RegExp(
+      r'''([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')''',
+      dotAll: true,
+    );
+    for (final fm in formRe.allMatches(html)) {
+      final body = fm.group(1) ?? '';
+      final fields = <String, String>{};
+      for (final im in inputRe.allMatches(body)) {
+        final rawAttrs = im.group(1) ?? '';
+        final attrs = <String, String>{};
+        for (final am in attrRe.allMatches(rawAttrs)) {
+          attrs[am.group(1)!.toLowerCase()] =
+              am.group(2) ?? am.group(3) ?? '';
+        }
+        final type = attrs['type']?.toLowerCase();
+        if ((type == 'checkbox' || type == 'radio') &&
+            !rawAttrs.toLowerCase().contains('checked')) {
+          continue;
+        }
+        final name = attrs['name'];
+        if (name != null && name.isNotEmpty) {
+          fields.putIfAbsent(name, () => attrs['value'] ?? '');
+        }
+      }
+      if (fields['cllt'] == cllt) return fields;
+    }
+    return {};
+  }
+
   Future<Response<String>> _passkeyLogin(
     String service,
     String username,
     String execution,
-    PasskeyCredential passkey,
-  ) async {
+    PasskeyCredential passkey, {
+    Map<String, String> formFields = const {},
+  }) async {
     final userId = base64.encode(utf8.encode(username));
     final start = await _guard(
       () => _dio.post<String>(
@@ -359,22 +495,24 @@ class CasClient {
     } catch (_) {
       throw AppError(AppErrorKind.account, message: '通行密钥私钥格式无效');
     }
+    final sessionToken = request?['sessionToken'];
     return _guard(
       () => _dio.post<String>(
         loginUrl(service),
         data: {
-          'username': userId,
-          'responseJson': jsonEncode({
-            'requestId': requestId,
-            'credential': assertion,
-            'sessionToken': null,
-          }),
           '_eventId': 'submit',
           'cllt': 'fidoLogin',
           'dllt': 'generalLogin',
           'lt': '',
-          'rememberMe': 'true',
           'execution': execution,
+          ...formFields,
+          'username': userId,
+          'responseJson': jsonEncode({
+            'requestId': requestId,
+            'credential': assertion,
+            'sessionToken': sessionToken,
+          }),
+          'rememberMe': 'true',
         },
         options: Options(contentType: Headers.formUrlEncodedContentType),
       ),
@@ -398,12 +536,31 @@ class CasClient {
 
   CasMfaChallenge _parseMfaPage(String html, String service) {
     final methods = <MfaMethod>[];
-    for (final m in RegExp(
-      r'class="[^"]*changeReAuthTypes[^"]*"[^>]*?id="([^"]+)"',
+    final tagRe = RegExp(
+      r'<[a-z]+\b[^>]*\b(?:reauth-tab-item|reauth-tab-more-item|changeReAuthTypes)\b[^>]*>',
+      caseSensitive: false,
       dotAll: true,
-    ).allMatches(html)) {
-      final method = MfaMethod.byCode(m[1]!);
+    );
+    final attrRe = RegExp(
+      r'''([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')''',
+      dotAll: true,
+    );
+    for (final m in tagRe.allMatches(html)) {
+      final attrs = <String, String>{};
+      for (final am in attrRe.allMatches(m.group(0)!)) {
+        attrs[am.group(1)!.toLowerCase()] = am.group(2) ?? am.group(3) ?? '';
+      }
+      var code = attrs['data-type'] ?? attrs['id'] ?? '';
+      if (code.startsWith('tab_')) code = code.substring(4);
+      final method = MfaMethod.byCode(code);
       if (method != null && !methods.contains(method)) methods.add(method);
+    }
+    String param(String key) =>
+        RegExp('["\']$key["\']\\s*:\\s*["\']([^"\']*)["\']').firstMatch(html)?[1] ??
+        '';
+    if (methods.isEmpty) {
+      final current = MfaMethod.byCode(param('reAuthType'));
+      if (current != null) methods.add(current);
     }
     if (methods.isEmpty) {
       throw AppError(
@@ -412,16 +569,19 @@ class CasClient {
         hint: '请使用官方认证页面登录。',
       );
     }
-    String param(String key) =>
-        RegExp('"$key"\\s*:\\s*"([^"]*)"').firstMatch(html)?[1] ?? '';
     final name = RegExp(
       r'id="username"[^>]*value="([^"]*)"',
     ).firstMatch(html)?[1];
+    final isMultifactor = param('isMultifactor');
+    final isSleepAccount = param('isSleepAccount');
     return CasMfaChallenge(
-      service: service,
+      service: param('service').isNotEmpty ? param('service') : service,
       methods: methods,
       userId: param('reAuthUserId'),
       displayName: name ?? '',
+      isMultifactor: isMultifactor.isEmpty ? 'true' : isMultifactor,
+      asksTrust: isSleepAccount.isEmpty || isSleepAccount == '0',
+      salt: param('pwdEncryptSalt'),
     );
   }
 
@@ -439,7 +599,7 @@ class CasClient {
       () => _dio.post<String>(
         '$kAuthServer/authserver/reAuthCheck/changeReAuthType.do',
         data: {
-          'isMultifactor': 'true',
+          'isMultifactor': c.isMultifactor,
           'reAuthType': method.code,
           'service': c.service,
         },
@@ -453,10 +613,20 @@ class CasClient {
         message: j['message']?.toString() ?? '无法切换验证方式',
       );
     }
+    final data = j['data'];
+    if (method == MfaMethod.totp &&
+        data is Map &&
+        data['otpIsBind'] == false) {
+      throw AppError(
+        AppErrorKind.account,
+        message: '该账号尚未绑定安全令牌（OTP）',
+        hint: '请先在浏览器二次认证页面扫码绑定“数盾OTP”，或改用其他验证方式。',
+      );
+    }
   }
 
-  /// Sends an SMS / 企业微信 code. Returns the server's message (it names
-  /// the masked phone number).
+  /// Sends a dynamic verification code (SMS, 企业微信, 今日校园, 邮箱, 钉钉,
+  /// WeLink, 公众号). Returns the server's message.
   Future<String> sendMfaCode(CasMfaChallenge c, MfaMethod method) async {
     _checkMfaMethod(c, method);
     if (!method.needsSend || c.userId.isEmpty) {
@@ -476,6 +646,7 @@ class CasClient {
       'success',
       'wechat_success',
       'cpdaily_success',
+      'other_success',
     }.contains(j['res']?.toString());
     if (!ok) {
       throw AppError(
@@ -496,25 +667,42 @@ class CasClient {
     bool trustDevice = true,
   }) async {
     _checkMfaMethod(c, method);
-    if (code.trim().isEmpty) {
-      throw AppError(AppErrorKind.captcha, message: '请输入二次验证码');
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) {
+      throw AppError(
+        AppErrorKind.captcha,
+        message: method == MfaMethod.password ? '请输入认证密码' : '请输入二次验证码',
+      );
     }
-    if (method == MfaMethod.totp) await selectMfaMethod(c, method);
+    if (method == MfaMethod.totp && trimmed.length != 6) {
+      throw AppError(AppErrorKind.captcha, message: '安全令牌需要 6 位数字');
+    }
+    if (method == MfaMethod.totp || method == MfaMethod.password) {
+      await selectMfaMethod(c, method);
+    }
+    await _ensureFingerprint();
+    final data = <String, String>{
+      'service': c.service,
+      'reAuthType': method == MfaMethod.password ? '2' : method.code,
+      'isMultifactor': c.isMultifactor,
+      'password': method == MfaMethod.password
+          ? (c.salt.isNotEmpty
+                ? encryptCasPassword(trimmed, c.salt, random: random)
+                : trimmed)
+          : '',
+      'dynamicCode': method.needsSend ? trimmed : '',
+      'uuid': '',
+      'answer1': '',
+      'answer2': '',
+      'otpCode': method == MfaMethod.totp ? trimmed : '',
+    };
+    if (c.asksTrust) {
+      data['skipTmpReAuth'] = trustDevice ? 'true' : 'false';
+    }
     final res = await _guard(
       () => _dio.post<String>(
         '$kAuthServer/authserver/reAuthCheck/reAuthSubmit.do',
-        data: {
-          'service': c.service,
-          'reAuthType': method.code,
-          'isMultifactor': 'true',
-          'password': '',
-          'dynamicCode': method == MfaMethod.totp ? '' : code.trim(),
-          'uuid': '',
-          'answer1': '',
-          'answer2': '',
-          'otpCode': method == MfaMethod.totp ? code.trim() : '',
-          'skipTmpReAuth': trustDevice ? 'true' : 'false',
-        },
+        data: data,
         options: Options(contentType: Headers.formUrlEncodedContentType),
       ),
     );

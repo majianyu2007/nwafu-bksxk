@@ -595,15 +595,23 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                               obscureText: true,
                               autocorrect: false,
                               enableSuggestions: false,
-                              keyboardType: TextInputType.number,
-                              autofillHints: const [AutofillHints.oneTimeCode],
+                              keyboardType: method == MfaMethod.password
+                                  ? TextInputType.visiblePassword
+                                  : TextInputType.number,
+                              autofillHints: method == MfaMethod.password
+                                  ? const [AutofillHints.password]
+                                  : const [AutofillHints.oneTimeCode],
                               decoration: InputDecoration(
-                                labelText: method == MfaMethod.totp
-                                    ? '安全令牌动态码'
-                                    : '验证码',
+                                labelText: switch (method) {
+                                  MfaMethod.totp => '安全令牌动态码（6 位数字）',
+                                  MfaMethod.password => '认证密码',
+                                  _ => '验证码',
+                                },
                               ),
                               validator: (v) => v == null || v.trim().isEmpty
-                                  ? '请输入验证码'
+                                  ? (method == MfaMethod.password
+                                        ? '请输入认证密码'
+                                        : '请输入验证码')
                                   : null,
                               onFieldSubmitted: (_) {
                                 if (canSubmitMfa) _submit();
@@ -623,18 +631,20 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                               ),
                             if (method == MfaMethod.totp) ...[
                               const SizedBox(height: 8),
-                              const Text('输入验证器里的动态码。'),
+                              const Text('输入验证器或数盾 OTP 里的 6 位动态码。'),
                             ],
-                            CheckboxListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('信任此设备'),
-                              subtitle: const Text('一年内不再要求二次验证，公用电脑别勾选。'),
-                              value: _trustDevice,
-                              onChanged: _busy
-                                  ? null
-                                  : (v) => setState(() => _trustDevice = v!),
-                              controlAffinity: ListTileControlAffinity.leading,
-                            ),
+                            if (challenge.asksTrust)
+                              CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('信任此设备'),
+                                subtitle: const Text('一年内不再要求二次验证，公用电脑别勾选。'),
+                                value: _trustDevice,
+                                onChanged: _busy
+                                    ? null
+                                    : (v) => setState(() => _trustDevice = v!),
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                              ),
                           ],
                         ],
                         if (_notice != null)
