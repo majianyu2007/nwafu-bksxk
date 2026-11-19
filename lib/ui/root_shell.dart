@@ -1,7 +1,9 @@
 /// Academic shell with an offline timetable and independent selection sessions.
 library;
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app/auto_selection_login.dart';
@@ -38,6 +40,7 @@ class _RootShellState extends ConsumerState<RootShell>
     implements BackgroundHost {
   int _index = 0;
   int _courseIndex = 0;
+  final _visitedTabs = <int>{0};
   final _onboarded = <String>{};
   final _unsuccessfulChecked = <String>{};
   final _reloginShowing = <String>{};
@@ -172,8 +175,29 @@ class _RootShellState extends ConsumerState<RootShell>
   }
 
   void _selectPage(int index) {
-    if (_index != index) setState(() => _index = index);
+    final added = _visitedTabs.add(index);
+    if (_index != index || added) setState(() => _index = index);
     _maybeAutoSignIn();
+  }
+
+  void _stepTextScale(double delta) {
+    const stops = [0.85, 1.0, 1.15, 1.3, 1.45, 1.6];
+    final current = ref.read(textScaleProvider);
+    if (delta == 0) {
+      ref.read(textScaleProvider.notifier).set(1.0);
+      return;
+    }
+    var bestIdx = 0;
+    var bestDist = double.infinity;
+    for (var i = 0; i < stops.length; i++) {
+      final d = (stops[i] - current).abs();
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    final nextIdx = (bestIdx + (delta > 0 ? 1 : -1)).clamp(0, stops.length - 1);
+    ref.read(textScaleProvider.notifier).set(stops[nextIdx]);
   }
 
   /// 一次登录: opening 课程 or 抢课 with no selection account signs in with
@@ -289,8 +313,57 @@ class _RootShellState extends ConsumerState<RootShell>
       const MePage(),
     ];
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
+    final isApple =
+        defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        SingleActivator(
+          LogicalKeyboardKey.digit1,
+          meta: isApple,
+          control: !isApple,
+        ): () => _selectPage(0),
+        SingleActivator(
+          LogicalKeyboardKey.digit2,
+          meta: isApple,
+          control: !isApple,
+        ): () => _selectPage(1),
+        SingleActivator(
+          LogicalKeyboardKey.digit3,
+          meta: isApple,
+          control: !isApple,
+        ): () => _selectPage(2),
+        SingleActivator(
+          LogicalKeyboardKey.digit4,
+          meta: isApple,
+          control: !isApple,
+        ): () => _selectPage(3),
+        SingleActivator(
+          LogicalKeyboardKey.digit5,
+          meta: isApple,
+          control: !isApple,
+        ): () => _selectPage(4),
+        SingleActivator(
+          LogicalKeyboardKey.equal,
+          meta: isApple,
+          control: !isApple,
+        ): () => _stepTextScale(1),
+        SingleActivator(
+          LogicalKeyboardKey.minus,
+          meta: isApple,
+          control: !isApple,
+        ): () => _stepTextScale(-1),
+        SingleActivator(
+          LogicalKeyboardKey.digit0,
+          meta: isApple,
+          control: !isApple,
+        ): () => _stepTextScale(0),
+      },
+      child: Focus(
+        autofocus: true,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
         final textScale = layoutTextScale(context);
         final isLandscapeCompact =
             constraints.maxWidth >= 600 &&
@@ -325,13 +398,17 @@ class _RootShellState extends ConsumerState<RootShell>
                       child: IndexedStack(
                         index: _index,
                         children: [
-                          // The timetable and grades pad themselves so they
-                          // scroll behind the floating bar; the rest stop
-                          // above it.
+                          // Lazy tab mounting keeps cold-start memory and
+                          // provider subscriptions lean; once visited, a tab
+                          // stays alive in the stack. The timetable and grades
+                          // pad themselves so they scroll behind the floating
+                          // bar; the rest stop above it.
                           for (var i = 0; i < pages.length; i++)
-                            i == 0 || i == 3
-                                ? pages[i]
-                                : SafeArea(top: false, child: pages[i]),
+                            !_visitedTabs.contains(i)
+                                ? const SizedBox.shrink()
+                                : (i == 0 || i == 3
+                                    ? pages[i]
+                                    : SafeArea(top: false, child: pages[i])),
                         ],
                       ),
                     ),
@@ -466,6 +543,8 @@ class _RootShellState extends ConsumerState<RootShell>
           ),
         );
       },
+    ),
+      ),
     );
   }
 }

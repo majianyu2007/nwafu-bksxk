@@ -2,14 +2,21 @@
 /// foreground service, iOS wakelock.
 library;
 
+import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show Size;
 
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'background.dart';
+
+const _kWindowWidth = 'ui.window_w.v1';
+const _kWindowHeight = 'ui.window_h.v1';
+const _kMinWindowSize = Size(360, 520);
 
 bool get _desktop => Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 bool get supportsTray => _desktop;
@@ -27,6 +34,18 @@ final _trayListener = _TrayHandler();
 Future<void> init() async {
   if (_desktop) {
     await windowManager.ensureInitialized();
+    try {
+      await windowManager.setMinimumSize(_kMinWindowSize);
+      final prefs = await SharedPreferences.getInstance();
+      final w = prefs.getDouble(_kWindowWidth);
+      final h = prefs.getDouble(_kWindowHeight);
+      if (w != null && h != null) {
+        final size = Size(w.clamp(360, 3840), h.clamp(520, 2160));
+        await windowManager.setSize(size);
+      }
+    } catch (_) {
+      // Best-effort window geometry restoration.
+    }
     windowManager.addListener(_windowListener);
   }
   if (Platform.isAndroid) {
@@ -191,8 +210,31 @@ Future<void> _ensureTray() async {
 }
 
 class _WindowCloser with WindowListener {
+  Timer? _saveDebounce;
+
+  @override
+  void onWindowResized() {
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 400), () async {
+      try {
+        if (await windowManager.isMaximized() ||
+            await windowManager.isFullScreen()) {
+          return;
+        }
+        final size = await windowManager.getSize();
+        if (size.width >= _kMinWindowSize.width &&
+            size.height >= _kMinWindowSize.height) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setDouble(_kWindowWidth, size.width);
+          await prefs.setDouble(_kWindowHeight, size.height);
+        }
+      } catch (_) {}
+    });
+  }
+
   @override
   void onWindowClose() async {
+    _saveDebounce?.cancel();
     if (_closeToTray && await windowManager.isPreventClose()) {
       await windowManager.hide();
       if (Platform.isMacOS) {
