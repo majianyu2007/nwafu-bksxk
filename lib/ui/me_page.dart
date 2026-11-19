@@ -10,6 +10,7 @@ import '../app/campus_access.dart';
 import '../app/edu_providers.dart';
 import '../app/providers.dart';
 import '../app/update_providers.dart';
+import '../core/web_env.dart';
 import '../data/vpn/campus_route.dart';
 import 'edu_login_page.dart';
 import '../app/portal_providers.dart';
@@ -122,16 +123,36 @@ class MePage extends ConsumerWidget {
               TwoColumn(
                 breakpoint: 800,
                 primaryFlex: 5,
-                secondaryFlex: 6,
-                primary: Column(
+                secondaryFlex: 5,
+                primary: const Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const _ProfileCard(),
-                    const SizedBox(height: 16),
-                    settingsCard,
+                    _ProfileCard(),
+                    SizedBox(height: 16),
+                    _ToolGrid(),
                   ],
                 ),
-                secondary: const _ToolGrid(),
+                secondary: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    settingsCard,
+                    const SizedBox(height: 16),
+                    GlassCard(
+                      padding: EdgeInsets.zero,
+                      child: ListTile(
+                        leading: const Icon(Icons.palette_outlined),
+                        title: const Text('外观与界面缩放'),
+                        subtitle: const Text('主题色、玻璃效果、自动/紧凑/宽松缩放'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const SettingsScreen(section: '外观'),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               )
             else ...[
               const _ProfileCard(),
@@ -245,23 +266,36 @@ class _ProfileCard extends ConsumerWidget {
                 label: selection.isEmpty ? '选课未登录' : '选课已登录',
                 ok: selection.isNotEmpty,
               ),
-              _StatusChip(
-                icon: unlock?.icon ?? Icons.fingerprint,
-                label: '${unlock?.label ?? '快捷'}登录${bound ? '已开' : '未开'}',
-                ok: bound,
-              ),
-              _StatusChip(
-                icon: route == CampusRoute.vpn
-                    ? Icons.vpn_lock_outlined
-                    : Icons.lan_outlined,
-                label: switch (route) {
-                  CampusRoute.direct => '选课可直连',
-                  CampusRoute.vpn => '选课走 VPN',
-                  CampusRoute.unreachable => '选课需校园网',
-                  CampusRoute.unknown => '网络未检测',
-                },
-                ok: route == CampusRoute.direct || route == CampusRoute.vpn,
-              ),
+              if (kIsWeb)
+                _StatusChip(
+                  icon: Icons.extension_outlined,
+                  label: isFullCampusBridgeReady
+                      ? '桥接 ${installedWebBridgeVersion ?? ''} 已就绪'.trim()
+                      : isWebBridgeReady
+                      ? '桥接脚本可更新'
+                      : '未检测到桥接脚本',
+                  ok: isFullCampusBridgeReady,
+                )
+              else ...[
+                _StatusChip(
+                  icon: unlock?.icon ?? Icons.fingerprint,
+                  label: '${unlock?.label ?? '快捷'}登录${bound ? '已开' : '未开'}',
+                  ok: bound,
+                ),
+                if (route != CampusRoute.unknown)
+                  _StatusChip(
+                    icon: route == CampusRoute.vpn
+                        ? Icons.vpn_lock_outlined
+                        : Icons.lan_outlined,
+                    label: switch (route) {
+                      CampusRoute.direct => '选课可直连',
+                      CampusRoute.vpn => '选课走 VPN',
+                      CampusRoute.unreachable => '选课需校园网',
+                      CampusRoute.unknown => '',
+                    },
+                    ok: route == CampusRoute.direct || route == CampusRoute.vpn,
+                  ),
+              ],
             ],
           ),
         ],
