@@ -72,7 +72,14 @@ set_target_properties(${BINARY_NAME}
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
+include(onnxruntime.cmake)
 include(flutter/generated_plugins.cmake)
+list(APPEND PLUGIN_BUNDLED_LIBRARIES ${NWAFU_ORT_LIBS})
+if(TARGET flutter_onnxruntime_plugin)
+  set_target_properties(flutter_onnxruntime_plugin PROPERTIES
+    INSTALL_RPATH "$ORIGIN"
+  )
+endif()
 
 
 # === Installation ===
