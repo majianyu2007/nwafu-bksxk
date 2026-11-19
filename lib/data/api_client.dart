@@ -97,6 +97,7 @@ class ApiClient {
     if (auth && token != null && token!.isNotEmpty) {
       h['token'] = token!;
     }
+    h['Cache-Control'] = 'no-cache';
     return h;
   }
 

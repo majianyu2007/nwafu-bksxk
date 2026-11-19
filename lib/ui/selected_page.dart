@@ -15,6 +15,7 @@ import 'courses_page.dart';
 import 'layout.dart';
 import 'weekly_timetable.dart';
 import 'widgets.dart';
+import 'widgets/glass.dart';
 
 /// Loads selected courses for the shown account.
 final selectedCoursesProvider =
@@ -346,7 +347,8 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
       if (tc.publicCourseType.isNotEmpty) tc.publicCourseType,
       if (tc.hasBook) '教材${tc.textbookStateLabel}',
     ].join('  ');
-    return Card(
+    return GlassCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -583,7 +585,8 @@ class _UnsuccessfulCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final e = entry;
-    return Card(
+    return GlassCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
@@ -627,7 +630,8 @@ class _LogCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final e = entry;
-    return Card(
+    return GlassCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Column(

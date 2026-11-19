@@ -18,6 +18,7 @@ import 'home_page.dart' show creditInfoProvider;
 import 'layout.dart';
 import 'teaching_class_tile.dart';
 import 'widgets.dart';
+import 'widgets/glass.dart';
 
 /// Available width at which the course browser splits into list + detail.
 const double _kMasterDetailBreakpoint = 1000;
@@ -790,7 +791,10 @@ class _CourseDetailPaneState extends ConsumerState<_CourseDetailPane>
             maxColumns: 2,
             children: [
               for (final tc in classes)
-                Card(child: _tile(tc, row, widget.kind, bordered: false)),
+                GlassCard(
+                  padding: EdgeInsets.zero,
+                  child: _tile(tc, row, widget.kind, bordered: false),
+                ),
             ],
           ),
       ],
@@ -819,7 +823,8 @@ class _CourseCardState extends ConsumerState<_CourseCard>
     final open =
         classes.where((c) => !c.hasCapacityInfo || c.remaining > 0).length;
 
-    return Card(
+    return GlassCard(
+      padding: EdgeInsets.zero,
       child: Column(
         children: [
           InkWell(

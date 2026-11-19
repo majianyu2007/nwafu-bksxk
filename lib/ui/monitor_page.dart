@@ -15,6 +15,7 @@ import '../data/param_builders.dart';
 import 'courses_page.dart';
 import 'layout.dart';
 import 'widgets.dart';
+import 'widgets/glass.dart';
 
 /// Available width at which the activity log moves beside the watch list.
 const double _kSideLogBreakpoint = 1000;
@@ -193,7 +194,8 @@ class _WatchCard extends ConsumerWidget {
     final (color, label, icon) = _statusVisual(watch.status, scheme);
     final platform = tc.onlinePlatform;
 
-    return Card(
+    return GlassCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(

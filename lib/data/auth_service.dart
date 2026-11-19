@@ -85,6 +85,9 @@ class AuthService {
     required String verifyCode,
     required String vtoken,
   }) async {
+    // Clear any stale cookies from a prior expired session before starting a
+    // fresh login so the server never binds the new token to stale session state.
+    await _client.clearCookies();
     final loginPwd = encodeLoginPassword(password);
     final res = await _client.getJson(
       Api.checkLogin,
@@ -343,8 +346,22 @@ class SessionManager {
     );
     // Silent re-login replays exactly these.
     rememberCredentials(loginName, password);
-    final (info, batchList) = await _auth.loadContext(res.studentCode);
-    final initialChoice = selectInitialBatch(batchList);
+    var (info, batchList) = await _auth.loadContext(res.studentCode);
+    var initialChoice = selectInitialBatch(batchList);
+    // On a cold first login, bksxk occasionally returns uninitialized/stale
+    // round availability before the fresh session propagates; one short retry
+    // catches live rounds without forcing the user to manually re-login.
+    if (!initialChoice.hasSelectable && batchList.isNotEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      try {
+        final retry = await _auth.loadContext(res.studentCode);
+        info = retry.$1;
+        batchList = retry.$2;
+        initialChoice = selectInitialBatch(batchList);
+      } catch (_) {
+        // Keep the first response if the retry fails.
+      }
+    }
     var merged = info;
     // The student/<code>.do profile often omits name/college/major/grade;
     // xkxf.do (credit info) carries them. Best-effort merge so the home page

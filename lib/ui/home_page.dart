@@ -12,6 +12,7 @@ import '../data/monitor_engine.dart';
 import 'batch_pick_dialog.dart';
 import 'layout.dart';
 import 'widgets.dart';
+import 'widgets/glass.dart';
 
 /// The home-page aggregate: notices, common problems, contact, stop notice.
 final publicInfoProvider = FutureProvider.autoDispose<PublicInfo>(
@@ -233,14 +234,16 @@ class _BatchSelector extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     if (session.batches.isEmpty) {
-      return const Card(
+      return const GlassCard(
+        padding: EdgeInsets.zero,
         child: Padding(
           padding: EdgeInsets.all(16),
           child: Text('现在没有可见的选课轮次，开放后点右上角刷新。'),
         ),
       );
     }
-    return Card(
+    return GlassCard(
+      padding: EdgeInsets.zero,
       child: RadioGroup<String>(
         groupValue: session.activeBatch?.code,
         onChanged: (code) {
@@ -293,7 +296,8 @@ class _MonitorSummary extends ConsumerWidget {
     final grabbed =
         watches.where((w) => w.status == WatchStatus.grabbed).length;
 
-    return Card(
+    return GlassCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
@@ -349,7 +353,8 @@ class _NoticesCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final infoAsync = ref.watch(publicInfoProvider);
     final scheme = Theme.of(context).colorScheme;
-    return Card(
+    return GlassCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: infoAsync.when(
@@ -487,7 +492,8 @@ class _CreditCard extends ConsumerWidget {
     final creditAsync = ref.watch(creditInfoProvider);
     final scheme = Theme.of(context).colorScheme;
 
-    return Card(
+    return GlassCard(
+      padding: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: creditAsync.when(

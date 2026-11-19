@@ -60,23 +60,47 @@ class _BatchPickDialog extends ConsumerStatefulWidget {
 class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
   CreditInfo? _credit;
   bool _creditLoading = false;
+  bool _reloading = false;
   String? _selectedCode;
+  late List<ElectiveBatch> _batches = widget.batches;
 
   @override
   void initState() {
     super.initState();
-    final open = widget.batches.where((b) => b.canSelect).toList();
+    final open = _batches.where((b) => b.canSelect).toList();
     if (open.isNotEmpty) _selectedCode = open.first.code;
     _loadCredit();
+  }
+
+  Future<void> _reloadBatches() async {
+    if (_reloading) return;
+    setState(() => _reloading = true);
+    try {
+      await ref.read(currentSessionControllerProvider).reloadContext();
+      if (!mounted) return;
+      final fresh = ref.read(sessionProvider).batches;
+      final open = fresh.where((b) => b.canSelect).toList();
+      setState(() {
+        _batches = fresh;
+        if (open.isNotEmpty && !open.any((b) => b.code == _selectedCode)) {
+          _selectedCode = open.first.code;
+        }
+      });
+      await _loadCredit();
+    } catch (_) {
+      if (mounted) showToast(context, '刷新轮次失败，请稍后重试', success: false);
+    } finally {
+      if (mounted) setState(() => _reloading = false);
+    }
   }
 
   Future<void> _loadCredit() async {
     final session = ref.read(sessionProvider);
     final st = session.student;
     if (st == null) return;
-    final target = widget.batches.firstWhere(
+    final target = _batches.firstWhere(
       (b) => b.code == _selectedCode,
-      orElse: () => widget.batches.isNotEmpty ? widget.batches.first : ElectiveBatch(code: '', name: '', batchType: '', canSelect: false),
+      orElse: () => _batches.isNotEmpty ? _batches.first : ElectiveBatch(code: '', name: '', batchType: '', canSelect: false),
     );
     if (target.code.isEmpty) return;
     setState(() => _creditLoading = true);
@@ -134,7 +158,7 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    for (final b in widget.batches)
+                    for (final b in _batches)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 6),
                         child: RadioListTile<String>(
@@ -176,13 +200,18 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
         ),
       ),
       actions: [
+        TextButton.icon(
+          onPressed: _reloading ? null : _reloadBatches,
+          icon: const Icon(Icons.refresh, size: 17),
+          label: Text(_reloading ? '刷新中…' : '刷新轮次'),
+        ),
         TextButton(onPressed: widget.onSkip, child: const Text('稍后')),
-        if (widget.canPick)
+        if (_batches.any((b) => b.canSelect))
           FilledButton.icon(
             onPressed: _selectedCode == null
                 ? null
                 : () {
-                    final b = widget.batches.firstWhere((e) => e.code == _selectedCode);
+                    final b = _batches.firstWhere((e) => e.code == _selectedCode);
                     widget.onPick(b);
                   },
             icon: const Icon(Icons.check, size: 18),
