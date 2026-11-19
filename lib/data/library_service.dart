@@ -1,18 +1,19 @@
 /// 图书馆空间预约 (booking-lib.nwafu.edu.cn): free seats and seminar rooms,
-/// the student's bookings and the library entrance QR code.
+/// native seat booking, sign-in/leave/checkout/renew/cancel, the student's
+/// bookings and the library entrance QR code.
 ///
 /// Sign-in rides on the unified identity: `GET /api/cas/cas` goes through
 /// the AuthServer and lands on `/h5/index.html#/cas/?cas=<code>`; `POST
 /// /api/cas/user {cas}` trades the code for a bearer token, which every call
 /// then carries both as the `authorization` header and in the JSON body.
 ///
-/// Read-only on purpose. Booking, signing in and cancelling post AES-encrypted
-/// bodies built by the official page; the app opens that page for them
-/// instead of reimplementing the encryption.
+/// Sensitive write endpoints (`/api/Seat/confirm`, `/api/seat/xuzuoconfirm`)
+/// send their JSON body encrypted as `aesjson` via [encryptLibraryPayload].
 library;
 
 import 'package:dio/dio.dart';
 
+import '../core/crypto/library_crypto.dart';
 import '../core/errors.dart';
 import 'cas_client.dart';
 
@@ -80,6 +81,77 @@ class LibraryArea {
   final String description;
 }
 
+/// A bookable time slot within a day (`/api/Seat/date` → `times[]`).
+class LibraryTimeSlot {
+  const LibraryTimeSlot({
+    required this.id,
+    required this.start,
+    required this.end,
+  });
+
+  factory LibraryTimeSlot.fromJson(Map<String, dynamic> j) => LibraryTimeSlot(
+    id: '${j['id'] ?? ''}',
+    start: '${j['start'] ?? ''}',
+    end: '${j['end'] ?? ''}',
+  );
+
+  final String id;
+  final String start;
+  final String end;
+
+  String get label => '$start–$end';
+}
+
+/// One bookable date and its available time slots.
+class LibraryBookDate {
+  const LibraryBookDate({required this.day, required this.times});
+
+  factory LibraryBookDate.fromJson(Map<String, dynamic> j) {
+    final raw = j['times'];
+    return LibraryBookDate(
+      day: '${j['day'] ?? ''}',
+      times: raw is List
+          ? raw
+                .whereType<Map<String, dynamic>>()
+                .map(LibraryTimeSlot.fromJson)
+                .where((t) => t.id.isNotEmpty)
+                .toList()
+          : const [],
+    );
+  }
+
+  final String day;
+  final List<LibraryTimeSlot> times;
+}
+
+/// One individual seat in a reading area (`/api/Seat/seat`).
+class LibrarySeat {
+  const LibrarySeat({
+    required this.id,
+    required this.no,
+    required this.name,
+    required this.status,
+    required this.statusName,
+  });
+
+  factory LibrarySeat.fromJson(Map<String, dynamic> j) => LibrarySeat(
+    id: '${j['id'] ?? ''}',
+    no: '${j['no'] ?? j['name'] ?? ''}',
+    name: '${j['name'] ?? j['no'] ?? ''}',
+    status: '${j['status'] ?? ''}',
+    statusName: '${j['status_name'] ?? j['statusName'] ?? ''}',
+  );
+
+  final String id;
+  final String no;
+  final String name;
+  final String status;
+  final String statusName;
+
+  /// `status == "1"` indicates a free/bookable seat in the official H5 app.
+  bool get isFree => status == '1' || statusName == '空闲' || statusName == '可预约';
+}
+
 /// A booking of the student's (seat or room).
 class LibraryBooking {
   const LibraryBooking({
@@ -92,11 +164,17 @@ class LibraryBooking {
     required this.status,
     required this.statusName,
     this.begin,
+    this.spaceId = '',
+    this.isRoom = false,
+    this.xuzuoSegment = '',
   });
 
-  factory LibraryBooking.fromJson(Map<String, dynamic> j) => LibraryBooking(
+  factory LibraryBooking.fromJson(
+    Map<String, dynamic> j, {
+    bool isRoom = false,
+  }) => LibraryBooking(
     id: '${j['id']}',
-    place: '${j['nameMerge'] ?? ''}',
+    place: '${j['nameMerge'] ?? j['areaName'] ?? ''}',
     seat: '${j['no'] ?? j['name'] ?? ''}',
     day: '${j['day'] ?? ''}',
     start: '${j['start'] ?? ''}',
@@ -104,6 +182,9 @@ class LibraryBooking {
     status: '${j['status'] ?? ''}',
     statusName: '${j['statusName'] ?? ''}',
     begin: DateTime.tryParse('${j['beginTime'] ?? ''}'.replaceFirst(' ', 'T')),
+    spaceId: '${j['space_id'] ?? j['seat_id'] ?? ''}',
+    isRoom: isRoom,
+    xuzuoSegment: '${j['xuzuosegment'] ?? ''}',
   );
 
   final String id;
@@ -115,10 +196,31 @@ class LibraryBooking {
   final String status;
   final String statusName;
   final DateTime? begin;
+  final String spaceId;
+  final bool isRoom;
+  final String xuzuoSegment;
 
   /// Still to come or in use (not 已结束 / 已取消 / 违约).
   bool get active =>
       !const {'已结束', '已取消', '已违约', '违约', '已完成'}.contains(statusName);
+
+  bool get canSignIn =>
+      active &&
+      (statusName.contains('待签到') ||
+          statusName.contains('预约成功') ||
+          statusName.contains('暂离'));
+
+  bool get canLeave => active && statusName.contains('使用中');
+
+  bool get canCheckout =>
+      active && (statusName.contains('使用中') || statusName.contains('暂离'));
+
+  bool get canCancel =>
+      active &&
+      (statusName.contains('预约') || statusName.contains('待签到'));
+
+  bool get canRenew =>
+      active && !isRoom && spaceId.isNotEmpty && xuzuoSegment.isNotEmpty;
 }
 
 class LibraryMember {
@@ -176,12 +278,16 @@ class LibraryService {
     String path,
     Map<String, dynamic> body, {
     bool auth = true,
+    bool encrypted = false,
     bool retried = false,
   }) async {
     final token = auth ? (_token ?? await _login()) : null;
+    final payload = encrypted
+        ? <String, dynamic>{'aesjson': encryptLibraryPayload(body)}
+        : body;
     final res = await _dio.post<dynamic>(
       '$kLibraryOrigin$path',
-      data: {...body, if (token != null) 'authorization': 'bearer$token'},
+      data: {...payload, if (token != null) 'authorization': 'bearer$token'},
       options: Options(
         contentType: Headers.jsonContentType,
         responseType: ResponseType.json,
@@ -201,7 +307,7 @@ class LibraryService {
     final code = '${data['code']}';
     if (code == '10001' && auth && !retried) {
       _token = null;
-      return _post(path, body, retried: true);
+      return _post(path, body, encrypted: encrypted, retried: true);
     }
     // /api/* answers code 1 on success, /reserve/* answers 0.
     if (code != '1' && code != '0') {
@@ -261,9 +367,99 @@ class LibraryService {
     return list is List
         ? list
               .whereType<Map<String, dynamic>>()
-              .map(LibraryBooking.fromJson)
+              .map((j) => LibraryBooking.fromJson(j, isRoom: true))
               .toList()
         : const [];
+  }
+
+  /// Bookable dates and time slots for a seat reading area.
+  Future<List<LibraryBookDate>> seatDates(String areaId) async {
+    final r = await _post('/api/Seat/date', {'build_id': areaId});
+    final d = r['data'];
+    return d is List
+        ? d
+              .whereType<Map<String, dynamic>>()
+              .map(LibraryBookDate.fromJson)
+              .where((x) => x.day.isNotEmpty)
+              .toList()
+        : const [];
+  }
+
+  /// All seats in [areaId] for [day] and [slot].
+  Future<List<LibrarySeat>> seats(
+    String areaId, {
+    required String day,
+    required LibraryTimeSlot slot,
+  }) async {
+    final r = await _post('/api/Seat/seat', {
+      'area': areaId,
+      'segment': slot.id,
+      'day': day,
+      'startTime': slot.start,
+      'endTime': slot.end,
+    });
+    final d = r['data'];
+    return d is List
+        ? d
+              .whereType<Map<String, dynamic>>()
+              .map(LibrarySeat.fromJson)
+              .where((s) => s.id.isNotEmpty)
+              .toList()
+        : const [];
+  }
+
+  /// Books a seat natively (AES-encrypted payload). Returns server message.
+  Future<String> bookSeat({
+    required String seatId,
+    required String segmentId,
+  }) async {
+    final r = await _post(
+      '/api/Seat/confirm',
+      {'seat_id': seatId, 'segment': segmentId},
+      encrypted: true,
+    );
+    final msg = '${r['msg'] ?? r['message'] ?? ''}'.trim();
+    return msg.isEmpty ? '预约成功' : msg;
+  }
+
+  /// Signs in to an active booking.
+  Future<String> signInBooking(String bookingId) async {
+    final r = await _post('/api/Space/signin', {'id': bookingId});
+    final msg = '${r['msg'] ?? r['message'] ?? ''}'.trim();
+    return msg.isEmpty ? '签到成功' : msg;
+  }
+
+  /// Marks an in-use booking as temporarily away (暂离).
+  Future<String> leaveBooking(String bookingId) async {
+    final r = await _post('/api/Space/leave', {'id': bookingId});
+    final msg = '${r['msg'] ?? r['message'] ?? ''}'.trim();
+    return msg.isEmpty ? '已暂离' : msg;
+  }
+
+  /// Checks out of an active booking (签退).
+  Future<String> checkoutBooking(String bookingId) async {
+    final r = await _post('/api/Space/checkout', {'id': bookingId});
+    final msg = '${r['msg'] ?? r['message'] ?? ''}'.trim();
+    return msg.isEmpty ? '已签退' : msg;
+  }
+
+  /// Cancels a seat or seminar room booking.
+  Future<String> cancelBooking(LibraryBooking booking) async {
+    final path = booking.isRoom ? '/api/Seminar/roomCancel' : '/api/Space/cancel';
+    final r = await _post(path, {'id': booking.id});
+    final msg = '${r['msg'] ?? r['message'] ?? ''}'.trim();
+    return msg.isEmpty ? '已取消预约' : msg;
+  }
+
+  /// Renews a seat booking (续座, AES-encrypted payload).
+  Future<String> renewBooking(LibraryBooking booking) async {
+    final r = await _post(
+      '/api/seat/xuzuoconfirm',
+      {'seat_id': booking.spaceId, 'segment': booking.xuzuoSegment},
+      encrypted: true,
+    );
+    final msg = '${r['msg'] ?? r['message'] ?? ''}'.trim();
+    return msg.isEmpty ? '续座成功' : msg;
   }
 
   Future<LibraryMember> member() async {
