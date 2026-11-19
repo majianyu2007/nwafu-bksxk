@@ -10,6 +10,7 @@ import '../app/edu_providers.dart';
 import '../core/errors.dart';
 import '../data/degree_audit.dart';
 import 'edu_login_page.dart';
+import 'layout.dart';
 import 'widgets/glass.dart';
 
 String creditText(double v) =>
@@ -245,11 +246,11 @@ class _PlanHeader extends StatelessWidget {
                 for (final g in plan.shortLeaves)
                   Chip(
                     visualDensity: VisualDensity.compact,
-                    backgroundColor: scheme.errorContainer,
+                    backgroundColor: scheme.secondaryContainer,
                     side: BorderSide.none,
                     label: Text(
                       '${g.name} 差 ${creditText(g.missing)}',
-                      style: TextStyle(color: scheme.onErrorContainer),
+                      style: TextStyle(color: scheme.onSecondaryContainer),
                     ),
                   ),
               ],
@@ -282,11 +283,7 @@ class _CreditBar extends StatelessWidget {
     final total = goal <= 0 ? 1.0 : goal;
     final a = (earned / total).clamp(0.0, 1.0);
     final b = ((earned + selected) / total).clamp(0.0, 1.0);
-    final color = goal > 0 && earned >= goal
-        ? Colors.green
-        : short
-        ? scheme.error
-        : scheme.primary;
+    final color = goal > 0 && earned >= goal ? Colors.green : scheme.primary;
     return ClipRRect(
       borderRadius: BorderRadius.circular(height),
       child: SizedBox(
@@ -346,12 +343,15 @@ class _GroupCardState extends State<_GroupCard> {
         '本学期可选 ${g.openCourses} 门',
     ];
     return Padding(
-      padding: EdgeInsets.only(left: widget.depth * 14.0, bottom: 8),
+      padding: EdgeInsets.only(
+        left: widget.depth > 1 ? 12.0 : 0,
+        bottom: widget.depth == 0 ? 10 : 0,
+      ),
       child: GlassCard(
         radius: 16,
         padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-        tint: g.short ? scheme.error : null,
-        tintAmount: 0.06,
+        tint: !g.short && (g.goal > 0 || g.passed) ? Colors.green : null,
+        tintAmount: 0.05,
         onTap: children.isEmpty ? null : () => setState(() => _open = !_open),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -361,7 +361,9 @@ class _GroupCardState extends State<_GroupCard> {
                 Expanded(
                   child: Text(
                     g.name.isEmpty ? '未命名课组' : g.name,
-                    style: theme.textTheme.titleSmall,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 Text(
@@ -369,7 +371,10 @@ class _GroupCardState extends State<_GroupCard> {
                       ? '${creditText(g.earned)} / ${creditText(g.goal)}'
                       : creditText(g.earned),
                   style: theme.textTheme.titleSmall?.copyWith(
-                    color: g.short ? scheme.error : null,
+                    fontWeight: FontWeight.w700,
+                    color: !g.short && (g.goal > 0 || g.passed)
+                        ? Colors.green
+                        : scheme.primary,
                   ),
                 ),
                 if (children.isNotEmpty)
@@ -395,17 +400,27 @@ class _GroupCardState extends State<_GroupCard> {
                 ...details,
               ].join(' · '),
               style: theme.textTheme.bodySmall?.copyWith(
-                color: g.short ? scheme.error : scheme.onSurfaceVariant,
+                color: !g.short && (g.goal > 0 || g.passed)
+                    ? Colors.green
+                    : scheme.onSurfaceVariant,
               ),
             ),
             if (_open && children.isNotEmpty) ...[
               const SizedBox(height: 10),
-              for (final c in children)
-                _GroupCard(
-                  group: c,
-                  depth: 1,
-                  onlyShort: widget.onlyShort,
-                ),
+              AdaptiveGrid(
+                minColumnWidth: 320,
+                maxColumns: 2,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final c in children)
+                    _GroupCard(
+                      group: c,
+                      depth: widget.depth + 1,
+                      onlyShort: widget.onlyShort,
+                    ),
+                ],
+              ),
             ],
           ],
         ),
