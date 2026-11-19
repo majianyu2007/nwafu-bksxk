@@ -396,6 +396,27 @@ class _Appearance extends ConsumerWidget {
           ),
         ),
         ListTile(
+          leading: const Icon(Icons.aspect_ratio_outlined),
+          title: Text('界面缩放 · ${ref.watch(uiScaleModeProvider).label}'),
+          subtitle: const Text('自动模式会在小屏手机、横屏与高分大屏上智能调整密度与比例'),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final mode in UiScaleMode.values)
+                ChoiceChip(
+                  label: Text(mode.label),
+                  selected: ref.watch(uiScaleModeProvider) == mode,
+                  onSelected: (_) =>
+                      ref.read(uiPrefsProvider.notifier).setScaleMode(mode),
+                ),
+            ],
+          ),
+        ),
+        ListTile(
           leading: const Icon(Icons.text_fields),
           title: Text('文字大小 ${(ref.watch(textScaleProvider) * 100).round()}%'),
           subtitle: const Text('叠加系统字体大小；4K 屏可适当调大。'),

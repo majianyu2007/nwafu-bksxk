@@ -302,88 +302,105 @@ class GlassCapsuleNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = GlassTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final bottom = MediaQuery.paddingOf(context).bottom;
-    final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
-    final height = t.navBarHeight + (scale > 1 ? (scale - 1) * 16 : 0);
+    final media = MediaQuery.of(context);
+    final bottom = media.padding.bottom;
+    final width = media.size.width;
+    final scale = media.textScaler.scale(12) / 12;
+    final tight = width < 360;
+    final hideUnselectedLabels = width < 330 || scale > 1.45;
+    final margin = tight ? 8.0 : t.navBarMargin;
+    final height = t.navBarHeight + (scale > 1 ? ((scale - 1) * 18).clamp(0, 20) : 0);
     final duration = reduceMotion(context)
         ? Duration.zero
         : const Duration(milliseconds: 220);
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        t.navBarMargin,
+        margin,
         0,
-        t.navBarMargin,
-        (bottom > 0 ? bottom : 0) + 12,
+        margin,
+        (bottom > 0 ? bottom : 0) + (tight ? 8 : 12),
       ),
-      child: GlassSurface(
-        shadow: true,
-        borderRadius: BorderRadius.circular(height / 2),
-        child: SizedBox(
-          height: height,
-          child: Padding(
-            padding: const EdgeInsets.all(6),
-            child: Row(
-              children: [
-                for (var i = 0; i < items.length; i++)
-                  Expanded(
-                    child: Semantics(
-                      selected: i == selectedIndex,
-                      button: true,
-                      label: items[i].label,
-                      excludeSemantics: true,
-                      child: Tooltip(
-                        message: items[i].label,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(height / 2),
-                          onTap: () => onSelected(i),
-                          child: AnimatedContainer(
-                            duration: duration,
-                            curve: Curves.easeOutCubic,
-                            decoration: BoxDecoration(
-                              color: i == selectedIndex
-                                  ? scheme.primary.withValues(alpha: 0.16)
-                                  : Colors.transparent,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: GlassSurface(
+            shadow: true,
+            borderRadius: BorderRadius.circular(height / 2),
+            child: SizedBox(
+              height: height,
+              child: Padding(
+                padding: EdgeInsets.all(tight ? 4 : 6),
+                child: Row(
+                  children: [
+                    for (var i = 0; i < items.length; i++)
+                      Expanded(
+                        child: Semantics(
+                          selected: i == selectedIndex,
+                          button: true,
+                          label: items[i].label,
+                          excludeSemantics: true,
+                          child: Tooltip(
+                            message: items[i].label,
+                            child: InkWell(
                               borderRadius: BorderRadius.circular(height / 2),
-                            ),
-                            child: IconTheme.merge(
-                              data: IconThemeData(
-                                size: 22,
-                                color: i == selectedIndex
-                                    ? scheme.primary
-                                    : scheme.onSurfaceVariant,
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  i == selectedIndex
-                                      ? items[i].selectedIcon
-                                      : items[i].icon,
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    items[i].label,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.fade,
-                                    softWrap: false,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      height: 1.2,
-                                      fontWeight: i == selectedIndex
-                                          ? FontWeight.w700
-                                          : FontWeight.w500,
-                                      color: i == selectedIndex
-                                          ? scheme.primary
-                                          : scheme.onSurfaceVariant,
-                                    ),
+                              onTap: () => onSelected(i),
+                              child: AnimatedContainer(
+                                duration: duration,
+                                curve: Curves.easeOutCubic,
+                                decoration: BoxDecoration(
+                                  color: i == selectedIndex
+                                      ? scheme.primary.withValues(alpha: 0.16)
+                                      : Colors.transparent,
+                                  borderRadius:
+                                      BorderRadius.circular(height / 2),
+                                ),
+                                child: IconTheme.merge(
+                                  data: IconThemeData(
+                                    size: tight ? 20 : 22,
+                                    color: i == selectedIndex
+                                        ? scheme.primary
+                                        : scheme.onSurfaceVariant,
                                   ),
-                                ],
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      i == selectedIndex
+                                          ? items[i].selectedIcon
+                                          : items[i].icon,
+                                      if (!hideUnselectedLabels ||
+                                          i == selectedIndex) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          items[i].label,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.fade,
+                                          softWrap: false,
+                                          style: TextStyle(
+                                            fontSize: tight ? 10 : 11,
+                                            height: 1.15,
+                                            fontWeight: i == selectedIndex
+                                                ? FontWeight.w700
+                                                : FontWeight.w500,
+                                            color: i == selectedIndex
+                                                ? scheme.primary
+                                                : scheme.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-              ],
+                  ],
+                ),
+              ),
             ),
           ),
         ),

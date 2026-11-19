@@ -216,6 +216,13 @@ void probeLibrary(ProviderContainer c) => probe(() async {
       'roomBookings $rb\nmember ${m.roleName} qr ${m.qrImage != null}';
 });
 
+void probeBindDefault(ProviderContainer c) => probeBind(
+  c,
+  passwordPath: '${Directory.systemTemp.path}/pw',
+  captchaPath: '${Directory.systemTemp.path}/captcha.png',
+  deviceName: '西农教务助手 · Mac',
+);
+
 void probeAcademic(ProviderContainer c) => probe(() async {
   final client = c.read(eduClientProvider);
   final studentId = c.read(eduSessionProvider).account?.username ?? '';

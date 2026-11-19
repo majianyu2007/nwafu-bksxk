@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -11,10 +10,13 @@ import 'app/providers.dart';
 import 'app/theme.dart';
 import 'app/ui_prefs.dart';
 import 'data/background.dart';
-import 'debug/live_probe.dart' as live_probe;
+import 'debug/live_probe_stub.dart'
+    if (dart.library.io) 'debug/live_probe.dart'
+    as live_probe;
 import 'data/notifications.dart';
 import 'data/storage.dart';
 import 'data/timetable_logic.dart';
+import 'ui/layout.dart';
 import 'ui/root_shell.dart';
 
 /// Debug builds expose the container to the VM service for live checks.
@@ -23,12 +25,7 @@ ProviderContainer? debugContainer;
 /// Keeps the live probes linked into debug builds.
 void debugProbeRecheck() => live_probe.probeRecheck(debugContainer!);
 String debugProbeResult() => live_probe.probeResult;
-void debugProbeBind() => live_probe.probeBind(
-  debugContainer!,
-  passwordPath: '${Directory.systemTemp.path}/pw',
-  captchaPath: '${Directory.systemTemp.path}/captcha.png',
-  deviceName: '西农教务助手 · Mac',
-);
+void debugProbeBind() => live_probe.probeBindDefault(debugContainer!);
 void debugProbeAnswer(String code) => live_probe.probeAnswerCaptcha(code);
 void debugProbePasskeyLogin() => live_probe.probePasskeyLogin(debugContainer!);
 void debugProbeSync() => live_probe.probeTimetableSync(debugContainer!);
@@ -85,6 +82,7 @@ class NwafuXkApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(themeControllerProvider);
     final textScale = ref.watch(textScaleProvider);
+    final scaleMode = ref.watch(uiScaleModeProvider);
     final glass = ref.watch(glassEnabledProvider);
 
     return DynamicColorBuilder(
@@ -94,11 +92,24 @@ class NwafuXkApp extends ConsumerWidget {
           debugShowCheckedModeBanner: false,
           builder: (context, child) {
             final media = MediaQuery.of(context);
+            final systemScale = media.textScaler.scale(14) / 14;
+            final adaptive = computeAdaptiveScale(
+              media.size,
+              scaleMode,
+              systemScale: systemScale,
+            );
+            final currentTheme = Theme.of(context);
             return MediaQuery(
               data: media.copyWith(
-                textScaler: AppTextScaler(media.textScaler, textScale),
+                textScaler: AppTextScaler(
+                  media.textScaler,
+                  textScale * adaptive.factor,
+                ),
               ),
-              child: child!,
+              child: Theme(
+                data: currentTheme.copyWith(visualDensity: adaptive.density),
+                child: child!,
+              ),
             );
           },
           themeMode: theme.mode,

@@ -7,6 +7,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../app/ui_prefs.dart';
+
 /// Material 3 window size classes by available width.
 enum WindowClass {
   compact,
@@ -40,7 +42,136 @@ const double kContentMaxWidth = 1720;
 const double kReadableMaxWidth = 860;
 
 /// Horizontal page gutter for the given width.
-double pageGutter(double width) => WindowClass.of(width).isWide ? 24 : 16;
+double pageGutter(double width) {
+  if (width < 360) return 12;
+  return WindowClass.of(width).isWide ? 24 : 16;
+}
+
+/// Computed adaptive scale & density for the current viewport and preset.
+class AdaptiveScale {
+  const AdaptiveScale({
+    required this.factor,
+    required this.density,
+    required this.isCompactPhone,
+    required this.isLandscapePhone,
+  });
+
+  /// Multiplier layered onto the user/system text scaler.
+  final double factor;
+  final VisualDensity density;
+
+  /// True on very narrow viewports (e.g., 320 dp phones or folded cover screens).
+  final bool isCompactPhone;
+
+  /// True on short landscape viewports (landscape phones, split-screen strips).
+  final bool isLandscapePhone;
+}
+
+/// Computes an adaptive scale factor and visual density from the viewport size
+/// and user-selected [UiScaleMode].
+///
+/// In [UiScaleMode.auto]:
+/// - Very narrow screens (`shortestSide < 360`) tighten slightly (0.92×) with
+///   compact density so controls never clip or overflow.
+/// - Landscape phones (`height < 500 && width > height`) use compact density.
+/// - Large desktop viewports (`width >= 1440 && height >= 820`) nudge up
+///   gently (1.04×) unless the system text scale is already enlarged.
+AdaptiveScale computeAdaptiveScale(
+  Size size,
+  UiScaleMode mode, {
+  double systemScale = 1.0,
+}) {
+  final shortest = size.shortestSide;
+  final isCompactPhone = shortest > 0 && shortest < 360;
+  final isLandscapePhone =
+      size.height > 0 && size.height < 500 && size.width > size.height;
+
+  switch (mode) {
+    case UiScaleMode.compact:
+      return AdaptiveScale(
+        factor: 0.92,
+        density: VisualDensity.compact,
+        isCompactPhone: isCompactPhone,
+        isLandscapePhone: isLandscapePhone,
+      );
+    case UiScaleMode.standard:
+      return AdaptiveScale(
+        factor: 1.0,
+        density: VisualDensity.standard,
+        isCompactPhone: isCompactPhone,
+        isLandscapePhone: isLandscapePhone,
+      );
+    case UiScaleMode.comfortable:
+      return AdaptiveScale(
+        factor: systemScale >= 1.3 ? 1.0 : 1.08,
+        density: VisualDensity.comfortable,
+        isCompactPhone: isCompactPhone,
+        isLandscapePhone: isLandscapePhone,
+      );
+    case UiScaleMode.auto:
+      if (isCompactPhone) {
+        return AdaptiveScale(
+          factor: 0.92,
+          density: VisualDensity.compact,
+          isCompactPhone: true,
+          isLandscapePhone: isLandscapePhone,
+        );
+      }
+      if (isLandscapePhone) {
+        return const AdaptiveScale(
+          factor: 0.96,
+          density: VisualDensity.compact,
+          isCompactPhone: false,
+          isLandscapePhone: true,
+        );
+      }
+      if (size.width >= 1440 && size.height >= 820) {
+        return AdaptiveScale(
+          factor: systemScale >= 1.25 ? 1.0 : 1.04,
+          density: VisualDensity.compact,
+          isCompactPhone: false,
+          isLandscapePhone: false,
+        );
+      }
+      return const AdaptiveScale(
+        factor: 1.0,
+        density: VisualDensity.standard,
+        isCompactPhone: false,
+        isLandscapePhone: false,
+      );
+  }
+}
+
+/// Centers [child] within [maxWidth] using adaptive horizontal gutters.
+class ReadableContent extends StatelessWidget {
+  const ReadableContent({
+    super.key,
+    required this.child,
+    this.maxWidth = kReadableMaxWidth,
+    this.top = 0,
+    this.bottom = 0,
+  });
+
+  final Widget child;
+  final double maxWidth;
+  final double top;
+  final double bottom;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final gutter = pageGutter(w);
+        final side = ((w - maxWidth) / 2).clamp(gutter, double.infinity);
+        return Padding(
+          padding: EdgeInsets.fromLTRB(side, top, side, bottom),
+          child: child,
+        );
+      },
+    );
+  }
+}
 
 /// Use the actual text scaler when deciding how much room a layout needs.
 /// This changes layout density, never the user's requested font size.

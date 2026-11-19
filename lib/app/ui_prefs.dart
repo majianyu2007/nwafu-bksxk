@@ -16,6 +16,19 @@ final sharedPreferencesProvider = Provider<SharedPreferences?>((ref) => null);
 
 enum TimetableViewMode { day, week }
 
+/// Adaptive UI scaling preset. [auto] scales gently for very narrow phones,
+/// landscape phones, and large desktop monitors without fighting accessibility
+/// text settings.
+enum UiScaleMode {
+  auto('自动'),
+  compact('紧凑'),
+  standard('标准'),
+  comfortable('宽松');
+
+  const UiScaleMode(this.label);
+  final String label;
+}
+
 class UiPrefs {
   const UiPrefs({
     this.glass = true,
@@ -24,6 +37,7 @@ class UiPrefs {
     this.showTeacher = false,
     this.hideGrades = false,
     this.courseColors = const {},
+    this.scaleMode = UiScaleMode.auto,
   });
 
   /// Translucent "liquid glass" chrome. Off = solid surfaces, no blur.
@@ -38,6 +52,9 @@ class UiPrefs {
   /// `account|courseKey` → ARGB colour chosen by the user.
   final Map<String, int> courseColors;
 
+  /// Responsive UI scale & density preset.
+  final UiScaleMode scaleMode;
+
   UiPrefs copyWith({
     bool? glass,
     TimetableViewMode? timetableView,
@@ -46,6 +63,7 @@ class UiPrefs {
     bool? showTeacher,
     bool? hideGrades,
     Map<String, int>? courseColors,
+    UiScaleMode? scaleMode,
   }) => UiPrefs(
     glass: glass ?? this.glass,
     timetableView: clearView ? null : timetableView ?? this.timetableView,
@@ -53,6 +71,7 @@ class UiPrefs {
     showTeacher: showTeacher ?? this.showTeacher,
     hideGrades: hideGrades ?? this.hideGrades,
     courseColors: courseColors ?? this.courseColors,
+    scaleMode: scaleMode ?? this.scaleMode,
   );
 }
 
@@ -78,6 +97,7 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
   static const _kTeacher = 'ui.timetable_teacher.v1';
   static const _kHideGrades = 'ui.hide_grades.v1';
   static const _kColors = 'ui.course_colors.v1';
+  static const _kScaleMode = 'ui.scale_mode.v1';
 
   static UiPrefs _read(SharedPreferences p) {
     var colors = const <String, int>{};
@@ -90,6 +110,11 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
         };
       }
     } catch (_) {}
+    final rawScale = p.getString(_kScaleMode);
+    final scaleMode = UiScaleMode.values.firstWhere(
+      (m) => m.name == rawScale,
+      orElse: () => UiScaleMode.auto,
+    );
     return UiPrefs(
       glass: p.getBool(_kGlass) ?? true,
       timetableView: switch (p.getString(_kView)) {
@@ -101,6 +126,7 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
       showTeacher: p.getBool(_kTeacher) ?? false,
       hideGrades: p.getBool(_kHideGrades) ?? false,
       courseColors: colors,
+      scaleMode: scaleMode,
     );
   }
 
@@ -135,6 +161,11 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
     return _save((p) => p.setBool(_kHideGrades, v));
   }
 
+  Future<void> setScaleMode(UiScaleMode v) {
+    state = state.copyWith(scaleMode: v);
+    return _save((p) => p.setString(_kScaleMode, v.name));
+  }
+
   /// Sets (or with null clears) the colour of a course for one account.
   Future<void> setCourseColor(String account, String courseKey, int? argb) {
     final key = courseColorKey(account, courseKey);
@@ -155,4 +186,9 @@ final uiPrefsProvider = StateNotifierProvider<UiPrefsController, UiPrefs>(
 /// Whether the glass effect is on (Settings → 外观 → 玻璃效果).
 final glassEnabledProvider = Provider<bool>(
   (ref) => ref.watch(uiPrefsProvider.select((p) => p.glass)),
+);
+
+/// Active UI scale preset (Settings → 外观 → 界面缩放).
+final uiScaleModeProvider = Provider<UiScaleMode>(
+  (ref) => ref.watch(uiPrefsProvider.select((p) => p.scaleMode)),
 );

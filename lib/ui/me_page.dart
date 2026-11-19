@@ -71,54 +71,80 @@ class MePage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final width = MediaQuery.sizeOf(context).width;
-    final side = ((width - kReadableMaxWidth) / 2).clamp(16.0, 1e9);
     final version = ref.watch(appVersionProvider).value;
-    return ListView(
-      padding: EdgeInsets.fromLTRB(side, 12, side, 120),
-      children: [
-        Text(
-          '我的',
-          style: Theme.of(
-            context,
-          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 16),
-        const _ProfileCard(),
-        const SizedBox(height: 16),
-        const _ToolGrid(),
-        const SizedBox(height: 16),
-        GlassCard(
-          padding: EdgeInsets.zero,
-          child: Column(
-            children: [
-              ListTile(
-                leading: const Icon(Icons.settings_outlined),
-                title: const Text('设置'),
-                subtitle: const Text('账号、提醒、外观、选课'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const SettingsScreen(),
-                  ),
-                ),
+    final settingsCard = GlassCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.settings_outlined),
+            title: const Text('设置'),
+            subtitle: const Text('账号、提醒、外观、选课'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SettingsScreen(),
               ),
-              const Divider(height: 1, indent: 56),
-              ListTile(
-                leading: const Icon(Icons.info_outline),
-                title: const Text('关于与更新'),
-                subtitle: Text(version == null ? '西农教务助手' : '西农教务助手 $version'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const SettingsScreen(section: '版本与更新'),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      ],
+          const Divider(height: 1, indent: 56),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('关于与更新'),
+            subtitle: Text(version == null ? '西农教务助手' : '西农教务助手 $version'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const SettingsScreen(section: '版本与更新'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final wide = w >= 840;
+        final maxW = wide ? 1120.0 : kReadableMaxWidth;
+        final gutter = pageGutter(w);
+        final side = ((w - maxW) / 2).clamp(gutter, double.infinity);
+        return ListView(
+          padding: EdgeInsets.fromLTRB(side, 12, side, 120),
+          children: [
+            Text(
+              '我的',
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 16),
+            if (wide)
+              TwoColumn(
+                breakpoint: 800,
+                primaryFlex: 5,
+                secondaryFlex: 6,
+                primary: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const _ProfileCard(),
+                    const SizedBox(height: 16),
+                    settingsCard,
+                  ],
+                ),
+                secondary: const _ToolGrid(),
+              )
+            else ...[
+              const _ProfileCard(),
+              const SizedBox(height: 16),
+              const _ToolGrid(),
+              const SizedBox(height: 16),
+              settingsCard,
+            ],
+          ],
+        );
+      },
     );
   }
 }

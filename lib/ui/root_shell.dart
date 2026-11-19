@@ -244,18 +244,34 @@ class _RootShellState extends ConsumerState<RootShell>
           ? _SelectionSignIn(onLogin: _addAccount)
           : Column(
               children: [
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: SegmentedButton<int>(
-                    segments: const [
-                      ButtonSegment(value: 0, label: Text('选课查询')),
-                      ButtonSegment(value: 1, label: Text('已选课程')),
-                      ButtonSegment(value: 2, label: Text('选课概览')),
-                    ],
-                    selected: {_courseIndex},
-                    onSelectionChanged: (value) =>
-                        setState(() => _courseIndex = value.first),
-                  ),
+                LayoutBuilder(
+                  builder: (context, c) {
+                    final narrow = c.maxWidth < 380;
+                    return Padding(
+                      padding: EdgeInsets.all(narrow ? 8 : 12),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: SegmentedButton<int>(
+                          style: narrow
+                              ? const ButtonStyle(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: WidgetStatePropertyAll(
+                                    EdgeInsets.symmetric(horizontal: 10),
+                                  ),
+                                )
+                              : null,
+                          segments: const [
+                            ButtonSegment(value: 0, label: Text('选课查询')),
+                            ButtonSegment(value: 1, label: Text('已选课程')),
+                            ButtonSegment(value: 2, label: Text('选课概览')),
+                          ],
+                          selected: {_courseIndex},
+                          onSelectionChanged: (value) =>
+                              setState(() => _courseIndex = value.first),
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 Expanded(
                   child: switch (_courseIndex) {
@@ -276,9 +292,13 @@ class _RootShellState extends ConsumerState<RootShell>
     return LayoutBuilder(
       builder: (context, constraints) {
         final textScale = layoutTextScale(context);
+        final isLandscapeCompact =
+            constraints.maxWidth >= 600 &&
+            constraints.maxHeight < 560 * textScale;
         final useRail =
-            constraints.maxWidth >= kRailBreakpoint &&
-            constraints.maxHeight >= 560 * textScale;
+            isLandscapeCompact ||
+            (constraints.maxWidth >= kRailBreakpoint &&
+                constraints.maxHeight >= 560 * textScale);
         final tabs = multi && (_index == 1 || _index == 2)
             ? AccountTabs(
                 signedIn: signedIn,
@@ -344,6 +364,7 @@ class _RootShellState extends ConsumerState<RootShell>
 
         if (useRail) {
           final extended =
+              !isLandscapeCompact &&
               constraints.maxWidth >= kExtendedRailBreakpoint * textScale;
           return AuroraBackground(
             child: Scaffold(
@@ -353,38 +374,67 @@ class _RootShellState extends ConsumerState<RootShell>
                   SafeArea(
                     right: false,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 12, 0, 12),
+                      padding: EdgeInsets.fromLTRB(
+                        isLandscapeCompact ? 8 : 12,
+                        isLandscapeCompact ? 6 : 12,
+                        0,
+                        isLandscapeCompact ? 6 : 12,
+                      ),
                       child: GlassSurface(
                         shadow: true,
-                        borderRadius: BorderRadius.circular(28),
-                        child: NavigationRail(
-                          backgroundColor: Colors.transparent,
-                          extended: extended,
-                          minExtendedWidth: 196,
-                          selectedIndex: _index,
-                          onDestinationSelected: _selectPage,
-                          labelType: extended
-                              ? NavigationRailLabelType.none
-                              : NavigationRailLabelType.all,
-                          indicatorColor: Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.16),
-                          leading: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            child: Image.asset(
-                              'assets/icons/tray_color_256.png',
-                              width: 36,
-                              height: 36,
-                            ),
-                          ),
-                          destinations: [
-                            for (final (icon, selected, label) in destinations)
-                              NavigationRailDestination(
-                                icon: icon,
-                                selectedIcon: selected,
-                                label: Text(label),
+                        borderRadius: BorderRadius.circular(
+                          isLandscapeCompact ? 22 : 28,
+                        ),
+                        child: LayoutBuilder(
+                          builder: (context, railConstraints) =>
+                              SingleChildScrollView(
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    minHeight: railConstraints.maxHeight,
+                                  ),
+                                  child: IntrinsicHeight(
+                                    child: NavigationRail(
+                                      backgroundColor: Colors.transparent,
+                                      extended: extended,
+                                      minWidth: isLandscapeCompact ? 64 : 72,
+                                      minExtendedWidth: 196,
+                                      selectedIndex: _index,
+                                      onDestinationSelected: _selectPage,
+                                      labelType: extended
+                                          ? NavigationRailLabelType.none
+                                          : isLandscapeCompact
+                                              ? NavigationRailLabelType.selected
+                                              : NavigationRailLabelType.all,
+                                      indicatorColor: Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withValues(alpha: 0.16),
+                                      leading: isLandscapeCompact
+                                          ? null
+                                          : Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    vertical: 10,
+                                                  ),
+                                              child: Image.asset(
+                                                'assets/icons/tray_color_256.png',
+                                                width: 36,
+                                                height: 36,
+                                              ),
+                                            ),
+                                      destinations: [
+                                        for (final (icon, selected, label)
+                                            in destinations)
+                                          NavigationRailDestination(
+                                            icon: icon,
+                                            selectedIcon: selected,
+                                            label: Text(label),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
-                          ],
                         ),
                       ),
                     ),
