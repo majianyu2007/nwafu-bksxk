@@ -35,6 +35,10 @@ class AppBackground {
   /// Wire the host after the shell mounts.
   void attach(BackgroundHost host) => impl.attach(host);
 
+  /// Detach [host] when the shell disposes so tray callbacks never invoke a
+  /// stale widget state.
+  void detach(BackgroundHost host) => impl.detach(host);
+
   /// Tell the platform whether any monitor is running; it turns the keep-alive
   /// measures on and off accordingly.
   Future<void> setMonitoring(bool running,

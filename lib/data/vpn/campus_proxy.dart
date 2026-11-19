@@ -20,7 +20,14 @@ class CampusProxy {
   /// Hosts only reachable on the campus network.
   static const campusOnlyHosts = {'bksxk.nwafu.edu.cn'};
 
-  static bool isCampusHost(String host) => campusOnlyHosts.contains(host);
+  /// Optional custom selection host configured in Settings, if overridden.
+  String? customCampusHost;
+
+  bool isCampusHost(String host) =>
+      campusOnlyHosts.contains(host) ||
+      (customCampusHost != null &&
+          customCampusHost!.isNotEmpty &&
+          customCampusHost == host);
 
   /// The `findProxy` answer for [uri].
   String route(Uri uri) {

@@ -413,6 +413,23 @@ class MonitorEngine {
     _changes.add(null);
   }
 
+  /// Resets a failed watch so the user can retry it without re-adding.
+  void retryWatch(String id) {
+    final w = _watches[id];
+    if (w == null || w.status != WatchStatus.failed) return;
+    w.status = WatchStatus.watching;
+    w.attempts = 0;
+    w.consecutiveErrors = 0;
+    w.repeatedRejections = 0;
+    w.lastRejection = null;
+    w.note = '';
+    _validate(w);
+    if (w.status == WatchStatus.watching && _running) {
+      _schedule(w, immediate: true);
+    }
+    _changes.add(null);
+  }
+
   /// Provide/refresh the experiment class or textbook string for a watch that
   /// needs setup, then re-validate.
   void configureWatch(String id,
@@ -492,7 +509,9 @@ class MonitorEngine {
     // Exponential backoff after consecutive errors so a flaky link or a
     // struggling server is not hammered.
     if (w.consecutiveErrors > 0) {
-      final factor = 1 << (w.consecutiveErrors - 1); // 2^(n-1)
+      // Clamp shift exponent so Dart Web (32-bit bitwise ops) never overflows to 0.
+      final shift = (w.consecutiveErrors - 1).clamp(0, 16);
+      final factor = 1 << shift; // 2^(n-1)
       final backoff = config.backoffBase * factor;
       final capped = backoff > config.maxBackoff ? config.maxBackoff : backoff;
       if (capped > interval) interval = capped;
@@ -645,6 +664,24 @@ class MonitorEngine {
           _timers.remove(w.id)?.cancel();
           _emit(w.id, '抢课成功：${w.title}',
               success: true, kind: MonitorEventKind.grabbed, watch: w);
+          // Auto-pause other active watches targeting alternate classes of the
+          // same course in this batch so we stop polling already-satisfied courses.
+          final courseNum = w.teachingClass.courseNumber;
+          if (courseNum.isNotEmpty) {
+            for (final other in _watches.values) {
+              if (other.id == w.id ||
+                  other.status != WatchStatus.watching ||
+                  other.batchCode != w.batchCode ||
+                  other.teachingClass.courseNumber != courseNum) {
+                continue;
+              }
+              _timers.remove(other.id)?.cancel();
+              other._pollGeneration++;
+              other.status = WatchStatus.paused;
+              other.note = '同课程另一教学班已抢到，已自动暂停';
+              _emit(other.id, '同课程已抢到，自动暂停备选：${other.title}');
+            }
+          }
         } else {
           w.status = WatchStatus.watching;
           _emit(w.id, '提交后未确认成功，继续监控：${w.note}', success: false);
@@ -696,6 +733,12 @@ class MonitorEngine {
     } on AppError catch (e) {
       if (_disposed) return;
       _onWatchError(w, e);
+      // Never leave a watch wedged in `grabbing`: retryable errors, session
+      // halts, and rush-mode throttles must return it to `watching` so the
+      // next poll or post-relogin start() picks it up again.
+      if (w.status == WatchStatus.grabbing) {
+        w.status = _capReached(w) ? WatchStatus.failed : WatchStatus.watching;
+      }
     } catch (e) {
       if (_disposed) return;
       w.note = '$e';

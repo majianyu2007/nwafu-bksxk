@@ -105,110 +105,122 @@ Future<T> _withProgress<T>(BuildContext context, Future<T> work) async {
 void _snack(BuildContext context, String text) =>
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(text)));
 
-Future<String?> _askDeviceName(BuildContext context, String label) {
+Future<String?> _askDeviceName(BuildContext context, String label) async {
   final c = TextEditingController(text: defaultDeviceName());
-  return showDialog<String>(
-    context: context,
-    builder: (context) => AlertDialog(
-      icon: Icon(unlockIcon(label)),
-      title: Text('开启$label登录'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '会在学校统一身份认证里添加一台“生物识别”设备。'
-            '密钥只存在这台设备上，每次登录都要验证$label。'
-            '可在设置或学校个人中心解绑。',
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: c,
-            decoration: const InputDecoration(labelText: '设备名称'),
-            maxLength: 30,
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () {
-            final v = c.text.trim();
-            if (v.isNotEmpty) Navigator.pop(context, v);
-          },
-          child: const Text('继续'),
-        ),
-      ],
-    ),
-  );
-}
-
-Future<String?> _askPassword(BuildContext context) {
-  final c = TextEditingController();
-  return showDialog<String>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('确认统一身份认证密码'),
-      content: TextField(
-        controller: c,
-        obscureText: true,
-        autofocus: true,
-        decoration: const InputDecoration(labelText: '密码'),
-        onSubmitted: (v) => Navigator.pop(context, v),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, c.text),
-          child: const Text('确定'),
-        ),
-      ],
-    ),
-  );
-}
-
-Future<String?> _askCaptcha(BuildContext context, Uint8List image) {
-  if (!context.mounted) return Future.value(null);
-  final c = TextEditingController();
-  return showDialog<String>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('学校要求安全校验'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('输入图中的字符'),
-          const SizedBox(height: 12),
-          if (image.isNotEmpty)
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.memory(image, height: 48, gaplessPlayback: true),
+  try {
+    return await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: Icon(unlockIcon(label)),
+        title: Text('开启$label登录'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '会在学校统一身份认证里添加一台“生物识别”设备。'
+              '密钥只存在这台设备上，每次登录都要验证$label。'
+              '可在设置或学校个人中心解绑。',
             ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: c,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: '验证码'),
-            onSubmitted: (v) => Navigator.pop(context, v),
+            const SizedBox(height: 16),
+            TextField(
+              controller: c,
+              decoration: const InputDecoration(labelText: '设备名称'),
+              maxLength: 30,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final v = c.text.trim();
+              if (v.isNotEmpty) Navigator.pop(context, v);
+            },
+            child: const Text('继续'),
           ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
+    );
+  } finally {
+    c.dispose();
+  }
+}
+
+Future<String?> _askPassword(BuildContext context) async {
+  final c = TextEditingController();
+  try {
+    return await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认统一身份认证密码'),
+        content: TextField(
+          controller: c,
+          obscureText: true,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: '密码'),
+          onSubmitted: (v) => Navigator.pop(context, v),
         ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, c.text),
-          child: const Text('确定'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, c.text),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  } finally {
+    c.dispose();
+  }
+}
+
+Future<String?> _askCaptcha(BuildContext context, Uint8List image) async {
+  if (!context.mounted) return null;
+  final c = TextEditingController();
+  try {
+    return await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('学校要求安全校验'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('输入图中的字符'),
+            const SizedBox(height: 12),
+            if (image.isNotEmpty)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.memory(image, height: 48, gaplessPlayback: true),
+              ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: c,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: '验证码'),
+              onSubmitted: (v) => Navigator.pop(context, v),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, c.text),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  } finally {
+    c.dispose();
+  }
 }

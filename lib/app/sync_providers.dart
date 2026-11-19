@@ -216,13 +216,16 @@ class AutoRefresh {
   Timer? _startup;
   AppLifecycleListener? _lifecycle;
   bool _running = false;
+  bool _disposed = false;
 
   /// Picks up what the background task wrote, then refreshes if due.
   Future<void> onResume() async {
+    if (_disposed) return;
     final storage = _ref.read(storageProvider);
     try {
       await storage.reload();
     } catch (_) {}
+    if (_disposed) return;
     _ref.read(timetableProvider.notifier).reloadCached();
     _ref.read(gradesProvider.notifier).reloadCached();
     _ref.read(timetableChangesProvider.notifier).reload();
@@ -230,7 +233,7 @@ class AutoRefresh {
   }
 
   Future<void> check({bool force = false}) async {
-    if (_running) return;
+    if (_running || _disposed) return;
     final storage = _ref.read(storageProvider);
     final id = _ref.read(eduSessionProvider).account?.username;
     if (id == null) return;
@@ -242,7 +245,9 @@ class AutoRefresh {
     _running = true;
     try {
       await _ref.read(timetableProvider.notifier).sync(silent: true);
+      if (_disposed) return;
       await _ref.read(gradesProvider.notifier).sync(silent: true);
+      if (_disposed) return;
       await refreshExams(_ref);
     } catch (_) {
       // Silent: the next tick retries.
@@ -252,6 +257,7 @@ class AutoRefresh {
   }
 
   void dispose() {
+    _disposed = true;
     _timer?.cancel();
     _startup?.cancel();
     _lifecycle?.dispose();
@@ -271,12 +277,17 @@ final autoRefreshProvider = Provider<AutoRefresh>((ref) {
 /// Fetches the shown term's exams into the cache (for exam reminders and
 /// the calendar) without depending on a page watching [examsProvider].
 Future<void> refreshExams(Ref ref) async {
+  final session = ref.read(eduSessionProvider.notifier);
   final id = ref.read(eduSessionProvider).account?.username;
   final term = ref.read(timetableProvider).data?.term;
   if (id == null || term == null) return;
+  final epoch = session.epoch;
   try {
     final list = await ref.read(eduClientProvider).ehall.exams(term);
-    if (ref.read(eduSessionProvider).account?.username != id) return;
+    if (!session.isCurrent(epoch) ||
+        ref.read(eduSessionProvider).account?.username != id) {
+      return;
+    }
     await ref
         .read(storageProvider)
         .setEduExams(
@@ -284,6 +295,7 @@ Future<void> refreshExams(Ref ref) async {
           term.code,
           jsonEncode([for (final e in list) e.toJson()]),
         );
+    ref.invalidate(examsProvider);
     unawaited(ref.read(classReminderProvider.notifier).reschedule());
     ref.read(calendarSyncProvider.notifier).schedule();
   } catch (_) {}
@@ -359,7 +371,29 @@ class CalendarSyncController extends StateNotifier<CalendarSyncState> {
     final storage = _ref.read(storageProvider);
     final id = _ref.read(eduSessionProvider).account?.username;
     final t = _ref.read(timetableProvider).data;
-    if (id == null || t == null) {
+    if (id == null) {
+      state = const CalendarSyncState(error: '暂无课表，请先同步课表');
+      return;
+    }
+    if (t == null) {
+      if (!storage.calendarSyncEnabled()) {
+        state = CalendarSyncState(running: true, message: state.message);
+        try {
+          final r = await clearSyncedCalendarEvents(
+            adapter: _ref.read(calendarAdapterProvider),
+            storage: storage,
+            accountId: id,
+          );
+          if (!mounted) return;
+          state = CalendarSyncState(message: r.summary(), at: DateTime.now());
+        } catch (e) {
+          if (!mounted) return;
+          state = CalendarSyncState(
+            error: e is CalendarUnavailable ? e.message : '日历同步失败：$e',
+          );
+        }
+        return;
+      }
       state = const CalendarSyncState(error: '暂无课表，请先同步课表');
       return;
     }

@@ -115,7 +115,7 @@ class UpdatesController extends StateNotifier<UpdatesState> {
     _busy = true;
     state = state.copyWith(
       app: state.app.checking(),
-      bridge: state.bridge.checking(),
+      bridge: _isWeb ? state.bridge.checking() : state.bridge,
       noticeDismissed: false,
     );
     try {
@@ -127,7 +127,7 @@ class UpdatesController extends StateNotifier<UpdatesState> {
       if (state.version == null) await _loadVersion();
       if (!mounted) return;
       // The bridge is a browser userscript: only the web build needs it.
-      await Future.wait([_checkApp(), if (isWebRuntime) _checkBridge()]);
+      await Future.wait([_checkApp(), if (_isWeb) _checkBridge()]);
     } finally {
       _busy = false;
     }

@@ -224,7 +224,7 @@ class StudentInfo {
         majorName: majorName.isEmpty ? c.majorName : null,
         grade: grade.isEmpty ? c.grade : null,
         schoolClassName: schoolClassName.isEmpty ? c.schoolClassName : null,
-        raw: c.raw,
+        raw: _nonNull(c.raw),
       );
 }
 
@@ -290,7 +290,8 @@ class CourseRow {
       );
 
   factory CourseRow.fromJson(Map<String, dynamic> j) {
-    final tc = (j['tcList'] as List?) ?? const [];
+    final rawTc = j['tcList'];
+    final tc = rawTc is List ? rawTc : const [];
     return CourseRow(
       courseNumber: _s(j['courseNumber']),
       courseName: _s(j['courseName']),
@@ -461,11 +462,17 @@ class TeachingClass {
     );
   }
 
-  /// Overlays a queryjxb.do payload: richer text fields win, but nulls (the
-  /// detail endpoint omits capacity, conflict and selection state) never
-  /// erase what the list row already knew.
+  /// Overlays a queryjxb.do payload: richer text fields win, but nulls and
+  /// blank strings (the detail endpoint omits capacity, conflict and selection
+  /// state) never erase what the list row already knew.
   TeachingClass mergeDetail(Map<String, dynamic> data) =>
-      TeachingClass.fromJson({...raw, ..._nonNull(data)});
+      TeachingClass.fromJson({
+        ...raw,
+        for (final e in data.entries)
+          if (e.value != null &&
+              (e.value is! String || (e.value as String).trim().isNotEmpty))
+            e.key: e.value,
+      });
 
   // --- Detail-only convenience reads (straight from [raw], no ctor churn) ---
 
@@ -628,15 +635,18 @@ class ApiResult {
 
   bool get ok => code == '1';
 
-  factory ApiResult.fromJson(Map<String, dynamic> j) => ApiResult(
-        code: _s(j['code']),
-        msg: _s(j['msg']),
-        data: j['data'],
-        dataList: (j['dataList'] as List?) ?? const [],
-        totalCount: _i(j['totalCount']),
-        keyExpired: _flag(j['keyExpired']),
-        raw: j,
-      );
+  factory ApiResult.fromJson(Map<String, dynamic> j) {
+    final rawList = j['dataList'];
+    return ApiResult(
+      code: _s(j['code']),
+      msg: _s(j['msg']),
+      data: j['data'],
+      dataList: rawList is List ? rawList : const [],
+      totalCount: _i(j['totalCount']),
+      keyExpired: _flag(j['keyExpired']),
+      raw: j,
+    );
+  }
 }
 
 // ---- New models for the previously-unwired api-branch endpoints ----
@@ -763,17 +773,21 @@ class CreditInfo {
   /// 已获学分); there is no "still needed" figure.
   double get selectedCredit => needCredit;
 
+  static final _reqSepRe = RegExp(r'[,，;；]');
+  static final _reqNeedRe = RegExp(r'要求学分[:：]([^】]*)');
+  static final _reqGotRe = RegExp(r'已修学分[:：]([^】]*)');
+
   /// [spCourseDescription] split into (category, requirement) rows.
   List<CreditRequirement> get requirements {
     if (spCourseDescription.isEmpty) return const [];
     final out = <CreditRequirement>[];
-    for (final part in spCourseDescription.split(',')) {
-      final i = part.indexOf('：');
+    for (final part in spCourseDescription.split(_reqSepRe)) {
+      final i = part.indexOf(RegExp(r'[:：]'));
       if (i <= 0) continue;
       final name = part.substring(0, i).trim();
       final rest = part.substring(i + 1);
-      final need = RegExp(r'要求学分：([^】]*)').firstMatch(rest)?.group(1) ?? '';
-      final got = RegExp(r'已修学分：([^】]*)').firstMatch(rest)?.group(1) ?? '';
+      final need = _reqNeedRe.firstMatch(rest)?.group(1) ?? '';
+      final got = _reqGotRe.firstMatch(rest)?.group(1) ?? '';
       out.add(CreditRequirement(category: name, required: need.trim(), earned: got.trim()));
     }
     return out;
@@ -1009,8 +1023,8 @@ class TextbookOption {
     }
     final packed =
         m['wid'] is String && (m['wid'] as String).trimLeft().startsWith('{');
-    final reasons =
-        (m['reasonList'] ?? m['reasonCodeList']) as List? ?? const [];
+    final rawReasons = m['reasonList'] ?? m['reasonCodeList'];
+    final reasons = rawReasons is List ? rawReasons : const [];
     return TextbookOption(
       bookCode: _s(m['JCBH'] ??
           m['bookCode'] ??

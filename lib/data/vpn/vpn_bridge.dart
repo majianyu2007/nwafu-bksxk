@@ -21,15 +21,20 @@ class VpnReply {
     this.clientIp,
   });
 
+  static String? _nonEmpty(Object? v) {
+    final s = v?.toString().trim();
+    return (s == null || s.isEmpty) ? null : s;
+  }
+
   factory VpnReply.fromJson(Map<String, dynamic> j) => VpnReply(
     ok: j['ok'] == true,
     state: (j['state'] ?? '').toString(),
-    proxy: j['proxy']?.toString(),
-    error: j['error']?.toString(),
-    needs: j['needs']?.toString(),
-    image: j['image']?.toString(),
-    hint: j['hint']?.toString(),
-    clientIp: j['clientIp']?.toString(),
+    proxy: _nonEmpty(j['proxy']),
+    error: _nonEmpty(j['error']),
+    needs: _nonEmpty(j['needs']),
+    image: _nonEmpty(j['image']),
+    hint: _nonEmpty(j['hint']),
+    clientIp: _nonEmpty(j['clientIp']),
   );
 
   final bool ok;

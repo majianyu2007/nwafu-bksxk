@@ -115,10 +115,24 @@ bool get _widgetPlatform =>
     (defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS);
 
-/// Writes the widget document and asks every widget to redraw. Safe to call
-/// from the background isolate; never throws.
-Future<void> updateHomeWidget(TermTimetable? t) async {
-  if (!_widgetPlatform) return;
+Future<void> _widgetUpdateQueue = Future<void>.value();
+int _widgetUpdateGen = 0;
+
+/// Writes the widget document and asks every widget to redraw. Serialized so a
+/// rapid term switch cannot overwrite newer data with an older write. Safe to
+/// call from the background isolate; never throws.
+Future<void> updateHomeWidget(TermTimetable? t) {
+  if (!_widgetPlatform) return Future.value();
+  final gen = ++_widgetUpdateGen;
+  final next = _widgetUpdateQueue.then((_) async {
+    if (gen != _widgetUpdateGen) return;
+    await _writeHomeWidget(t);
+  });
+  _widgetUpdateQueue = next.catchError((Object _) {});
+  return next;
+}
+
+Future<void> _writeHomeWidget(TermTimetable? t) async {
   final ios = defaultTargetPlatform == TargetPlatform.iOS;
   if (ios) {
     try {

@@ -13,6 +13,12 @@ import 'timetable_logic.dart';
 const _cst = Duration(hours: 8);
 const _domain = 'nwafu-bksxk';
 
+/// Prefix shared by every calendar event key belonging to [accountId] & [termCode].
+String calendarTermPrefix({
+  required String accountId,
+  required String termCode,
+}) => 'nwafu-${_safe(accountId)}-${_safe(termCode)}-';
+
 /// The stable identity of one exported event, shared by the ICS `UID` and
 /// the system-calendar sync (which stores it to find its own events again).
 /// Same account + term + session + date always gives the same key.
@@ -22,7 +28,7 @@ String calendarEventKey({
   required String sessionId,
   required DateTime date,
 }) =>
-    'nwafu-${_safe(accountId)}-${_safe(termCode)}-'
+    '${calendarTermPrefix(accountId: accountId, termCode: termCode)}'
     '${_fnv(sessionId)}-${_ymd(date)}';
 
 /// [calendarEventKey] for a dated class.
@@ -64,15 +70,19 @@ ExamSlot? examSlot(ExamEntry e) {
   final y = int.parse(d[1]!), mo = int.parse(d[2]!), da = int.parse(d[3]!);
   final day = DateTime.utc(y, mo, da);
   if (day.month != mo || day.day != da) return null;
-  final rest = e.time.replaceFirst(dateRe, ' ');
+  final rest = e.time.replaceAll(dateRe, ' ');
   final t = RegExp(
-    r'(\d{1,2})[:：](\d{2})(?:\s*[-–—~～至]\s*(\d{1,2})[:：](\d{2}))?',
+    r'(\d{1,2})[:：](\d{2})(?:[:：]\d{2})?(?:\s*[-–—~～至]\s*(\d{1,2})[:：](\d{2})(?:[:：]\d{2})?)?',
   ).firstMatch(rest);
   if (t == null) return null;
   int mins(String h, String m) => int.parse(h) * 60 + int.parse(m);
+  final startMin = int.parse(t[2]!);
+  final endMin = t[4] == null ? 0 : int.parse(t[4]!);
   final s = mins(t[1]!, t[2]!);
   final en = t[3] == null ? s + 120 : mins(t[3]!, t[4]!);
-  if (s >= 24 * 60 || en <= s || int.parse(t[2]!) > 59) return null;
+  if (startMin > 59 || endMin > 59 || s >= 24 * 60 || en <= s || en > 24 * 60) {
+    return null;
+  }
   return ExamSlot(
     exam: e,
     start: schoolInstant(day, s),
@@ -111,6 +121,7 @@ String buildIcs(
     'END:VTIMEZONE',
   ];
 
+  final seenUids = <String>{};
   void event({
     required String uid,
     required DateTime start,
@@ -119,9 +130,18 @@ String buildIcs(
     required String location,
     required String description,
   }) {
+    var uniqueUid = uid;
+    var suffix = 2;
+    while (!seenUids.add(uniqueUid)) {
+      final at = uid.indexOf('@');
+      uniqueUid = at > 0
+          ? '${uid.substring(0, at)}-$suffix${uid.substring(at)}'
+          : '$uid-$suffix';
+      suffix++;
+    }
     lines
       ..add('BEGIN:VEVENT')
-      ..add('UID:$uid')
+      ..add('UID:$uniqueUid')
       ..add('DTSTAMP:$stamp')
       ..add('DTSTART;TZID=Asia/Shanghai:${_local(start)}')
       ..add('DTEND;TZID=Asia/Shanghai:${_local(end)}')

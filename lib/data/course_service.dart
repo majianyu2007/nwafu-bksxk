@@ -160,7 +160,12 @@ class CourseService {
         number: classes.length,
         selected: prev.selected || row.selected,
         teachingClasses: classes,
-        raw: prev.raw,
+        // Preserve every merged class in `raw.tcList` so CourseCache round-trips
+        // all classes of multi-class flat courses instead of only the first.
+        raw: {
+          ...prev.raw,
+          'tcList': [for (final c in classes) c.raw],
+        },
       );
     }
     return out;
@@ -245,7 +250,18 @@ class CourseService {
         timestamp: ApiClient.nowStamp(),
       ),
     );
-    if (!res.ok || res.data is! Map) return tc;
+    if (!res.ok) {
+      if (res.msg.isNotEmpty) {
+        final err = AppError.fromBusiness(res.code, res.msg);
+        if (err.kind == AppErrorKind.maintenanceOrThrottle ||
+            err.kind == AppErrorKind.sessionExpired ||
+            err.isHardStop) {
+          throw err;
+        }
+      }
+      return tc;
+    }
+    if (res.data is! Map) return tc;
     return tc.mergeCapacity((res.data as Map).cast<String, dynamic>());
   }
 

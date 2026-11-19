@@ -227,30 +227,39 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       setState(() => _error = '该账号已登录');
       return;
     }
-    if (!widget.addingAccount &&
-        !ref.read(multiAccountProvider) &&
-        ref.read(signedInAccountsProvider).isNotEmpty) {
-      // Single-account mode: replace the signed-in account.
-      for (final id in [...ref.read(signedInAccountsProvider)]) {
-        await leaveAccount(ref, id);
-      }
-    }
 
     setState(() {
       _submitting = true;
       _error = null;
     });
+    final controller = ref.read(sessionControllerProvider(loginName).notifier);
+    final singleAccountReplace =
+        !widget.addingAccount && !ref.read(multiAccountProvider);
+    final previousIds = singleAccountReplace
+        ? [...ref.read(signedInAccountsProvider)]
+        : const <String>[];
     bool? refreshWithOcr;
     try {
-      await ref
-          .read(sessionControllerProvider(loginName).notifier)
-          .login(
-            loginName: loginName,
-            password: password,
-            verifyCode: code,
-            vtoken: challenge.vtoken,
-            remember: _remember,
-          );
+      await controller.login(
+        loginName: loginName,
+        password: password,
+        verifyCode: code,
+        vtoken: challenge.vtoken,
+        remember: _remember,
+      );
+      if (!mounted) {
+        // User popped the login page mid-request: tear down the orphaned session.
+        await controller.logout();
+        return;
+      }
+      // Replace the previous account only after the new login succeeded.
+      for (final id in previousIds) {
+        if (id != loginName) await leaveAccount(ref, id);
+      }
+      if (!mounted) {
+        await controller.logout();
+        return;
+      }
       ref.read(accountsProvider.notifier).refresh();
       // 统一账号: the same student ID's unified identity password is the
       // same secret; keep it in sync when the user chose to remember it.
@@ -258,7 +267,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       if (_remember && edu?.username == loginName) {
         await ref.read(storageProvider).setEduPassword(loginName, password);
       }
-      if (!mounted) return;
+      if (!mounted) {
+        await controller.logout();
+        return;
+      }
       enterAccount(ref, loginName);
       if (widget.addingAccount) Navigator.of(context).pop();
     } on LoginException catch (e) {

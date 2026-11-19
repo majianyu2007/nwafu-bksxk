@@ -338,12 +338,20 @@ class ClassAdjustment {
     Object? teacher,
   ) {
     final d = _int(day);
+    final w = '${weeks ?? ''}'.trim();
+    final start = '${s ?? ''}'.trim();
+    final end = '${e ?? ''}'.trim();
+    final r = '${room ?? ''}'.trim();
+    final t = '${teacher ?? ''}'.trim();
     return [
-      '$weeks',
+      if (w.isNotEmpty) w,
       if (d >= 1 && d <= 7) _days[d],
-      '第$s-$e节',
-      if ('${room ?? ''}'.isNotEmpty) '$room',
-      if ('${teacher ?? ''}'.isNotEmpty) '$teacher',
+      if (start.isNotEmpty && end.isNotEmpty)
+        '第$start-$end节'
+      else if (start.isNotEmpty)
+        '第$start节',
+      if (r.isNotEmpty) r,
+      if (t.isNotEmpty) t,
     ].join(' ');
   }
 

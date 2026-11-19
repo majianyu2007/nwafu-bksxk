@@ -40,7 +40,12 @@ class OcrApiConfig {
   final String responseField;
   final Map<String, String> headers;
 
-  bool get isValid => url.trim().isNotEmpty && Uri.tryParse(url.trim())?.hasScheme == true;
+  bool get isValid {
+    final uri = Uri.tryParse(url.trim());
+    return uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
+  }
 
   Map<String, dynamic> toJson() => {
         'url': url,
@@ -82,15 +87,22 @@ class OcrApiConfig {
 
 class HttpOcrCaptchaSolver implements CaptchaSolver {
   HttpOcrCaptchaSolver(this.config, {Dio? dio, this.expectedLength = 4})
-      : _dio = dio ?? Dio(BaseOptions(connectTimeout: const Duration(seconds: 6), receiveTimeout: const Duration(seconds: 8)));
+      : _ownsDio = dio == null,
+        _dio = dio ?? Dio(BaseOptions(connectTimeout: const Duration(seconds: 6), receiveTimeout: const Duration(seconds: 8)));
 
   final OcrApiConfig config;
+  final bool _ownsDio;
   final Dio _dio;
   final int expectedLength;
+
+  void dispose() {
+    if (_ownsDio) _dio.close();
+  }
 
   @override
   Future<String?> solve(List<int> imageBytes) async {
     if (!config.isValid || imageBytes.isEmpty) return null;
+    final endpoint = config.url.trim();
     try {
       final Response<dynamic> resp;
       switch (config.requestFormat) {
@@ -98,16 +110,16 @@ class HttpOcrCaptchaSolver implements CaptchaSolver {
           final form = FormData.fromMap({
             config.imageField: MultipartFile.fromBytes(imageBytes, filename: 'captcha.png'),
           });
-          resp = await _dio.post(config.url, data: form, options: Options(headers: config.headers));
+          resp = await _dio.post(endpoint, data: form, options: Options(headers: config.headers));
         case OcrRequestFormat.base64Json:
           resp = await _dio.post(
-            config.url,
+            endpoint,
             data: {config.imageField: base64.encode(imageBytes)},
             options: Options(headers: config.headers, contentType: 'application/json'),
           );
         case OcrRequestFormat.rawBytes:
           resp = await _dio.post(
-            config.url,
+            endpoint,
             data: Stream.fromIterable([imageBytes]),
             options: Options(
               headers: {...config.headers, Headers.contentLengthHeader: imageBytes.length},

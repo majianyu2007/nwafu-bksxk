@@ -308,21 +308,24 @@ class _PeriodLabel extends StatelessWidget {
       color: Theme.of(context).colorScheme.onSurfaceVariant,
     );
     final p = period;
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(
-          '$index',
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: dense ? 13 : 15,
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            '$index',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: dense ? 13 : 15,
+            ),
           ),
-        ),
-        if (p != null) ...[
-          Text(p.startLabel, style: muted, softWrap: false),
-          Text(p.endLabel, style: muted, softWrap: false),
+          if (p != null) ...[
+            Text(p.startLabel, style: muted, softWrap: false),
+            Text(p.endLabel, style: muted, softWrap: false),
+          ],
         ],
-      ],
+      ),
     );
   }
 }
@@ -363,17 +366,34 @@ class _DayColumn extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final date = data.dayOf(week, day);
-    final groups = overlapGroups(
-      data.sessions
-          .where(
-            (s) =>
-                s.weekday == day &&
-                layout.top(s.startPeriod) != null &&
-                layout.top(s.endPeriod) != null &&
-                (s.runsInWeek(week) || showOtherWeeks),
-          )
-          .toList(),
-    );
+    final daySessions = data.sessions
+        .where(
+          (s) =>
+              s.weekday == day &&
+              layout.top(s.startPeriod) != null &&
+              layout.top(s.endPeriod) != null,
+        )
+        .toList();
+    // Group active (this week's) sessions separately so a long non-current-week
+    // course never bridges two distinct active courses into one hidden card.
+    final activeSessions = [
+      for (final s in daySessions)
+        if (s.runsInWeek(week)) s,
+    ];
+    final activeGroups = overlapGroups(activeSessions);
+    final inactiveGroups = showOtherWeeks
+        ? overlapGroups([
+            for (final s in daySessions)
+              if (!s.runsInWeek(week) &&
+                  !activeSessions.any(
+                    (a) =>
+                        a.startPeriod <= s.endPeriod &&
+                        s.startPeriod <= a.endPeriod,
+                  ))
+                s,
+          ])
+        : const <List<CourseSession>>[];
+    final groups = [...inactiveGroups, ...activeGroups];
     return DecoratedBox(
       decoration: BoxDecoration(
         color: isToday ? scheme.primary.withValues(alpha: 0.07) : null,

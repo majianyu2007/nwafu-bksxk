@@ -7,6 +7,12 @@ import 'campus_proxy.dart';
 
 void attachCampusProxy(Dio dio, CampusProxy proxy) {
   dio.httpClientAdapter = IOHttpClientAdapter(
-    createHttpClient: () => HttpClient()..findProxy = proxy.route,
+    createHttpClient: () => HttpClient()
+      ..findProxy = (uri) {
+        final routed = proxy.route(uri);
+        return routed == 'DIRECT'
+            ? HttpClient.findProxyFromEnvironment(uri)
+            : routed;
+      },
   );
 }

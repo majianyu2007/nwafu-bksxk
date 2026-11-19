@@ -68,13 +68,19 @@ class PasskeyCredential {
         if (userHandle.isNotEmpty) 'userHandle': userHandle,
       };
 
+  static final _uuidPattern = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  );
+  static final _pureHexPattern = RegExp(r'^[0-9a-fA-F]+$');
+
   /// The raw credential id bytes.
   Uint8List get rawId {
-    final hex = credentialId.replaceAll('-', '');
-    if (RegExp(r'^[0-9a-fA-F]+$').hasMatch(hex) && hex.length.isEven) {
+    if (_uuidPattern.hasMatch(credentialId) ||
+        (_pureHexPattern.hasMatch(credentialId) && credentialId.length.isEven)) {
+      final hex = credentialId.replaceAll('-', '');
       return Uint8List.fromList([
         for (var i = 0; i < hex.length; i += 2)
-          int.parse(hex.substring(i, i + 2), radix: 16)
+          int.parse(hex.substring(i, i + 2), radix: 16),
       ]);
     }
     return b64Decode(credentialId);
@@ -111,7 +117,7 @@ Map<String, dynamic> buildPasskeyAssertion({
   final d = _privateScalar(b64Decode(credential.keyValue));
   final clientData = utf8.encode(jsonEncode({
     'type': 'webauthn.get',
-    'challenge': challenge,
+    'challenge': challenge.replaceAll('=', ''),
     'origin': origin,
     'crossOrigin': false,
   }));
@@ -199,13 +205,19 @@ BigInt _privateScalar(Uint8List der) {
   try {
     final outer = _DerReader(_DerReader(der).read(0x30));
     outer.read(0x02); // version
+    final BigInt d;
     if (outer.peekTag == 0x30) {
       // PKCS#8: AlgorithmIdentifier, then OCTET STRING wrapping SEC1.
       outer.read(0x30);
-      return _sec1Scalar(outer.read(0x04));
+      d = _sec1Scalar(outer.read(0x04));
+    } else {
+      // SEC1 ECPrivateKey: version 1, OCTET STRING d.
+      d = _toBigInt(outer.read(0x04));
     }
-    // SEC1 ECPrivateKey: version 1, OCTET STRING d.
-    return _toBigInt(outer.read(0x04));
+    if (d <= BigInt.zero || d >= _p256.n) {
+      throw PasskeyException('私钥标量超出 P-256 范围');
+    }
+    return d;
   } on PasskeyException {
     rethrow;
   } catch (_) {
@@ -227,17 +239,23 @@ class _DerReader {
   int get peekTag => _i < _b.length ? _b[_i] : -1;
 
   Uint8List read(int tag) {
-    if (_i >= _b.length || _b[_i] != tag) {
+    if (_i + 2 > _b.length || _b[_i] != tag) {
       throw PasskeyException('DER 结构不符');
     }
     _i++;
     var len = _b[_i++];
     if (len & 0x80 != 0) {
       final n = len & 0x7f;
+      if (n == 0 || n > 4 || _i + n > _b.length) {
+        throw PasskeyException('DER 长度编码无效');
+      }
       len = 0;
       for (var k = 0; k < n; k++) {
         len = (len << 8) | _b[_i++];
       }
+    }
+    if (len < 0 || _i + len > _b.length) {
+      throw PasskeyException('DER 内容越界');
     }
     final out = Uint8List.sublistView(_b, _i, _i + len);
     _i += len;

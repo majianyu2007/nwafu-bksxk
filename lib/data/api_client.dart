@@ -312,6 +312,9 @@ class ApiClient {
 
   Future<void> clearCookies() => _cookieJar.deleteAll();
 
+  /// Closes the underlying HTTP client sockets when this scope is disposed.
+  void close() => _dio.close();
+
   /// Lightweight reachability probe for the diagnostics page. Hits a cheap
   /// public endpoint (batch list) and classifies the outcome. Never throws.
   Future<ReachabilityResult> probe() async {

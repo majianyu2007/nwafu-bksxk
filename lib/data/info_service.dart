@@ -34,6 +34,7 @@ class InfoService {
   Future<Notice?> fetchNoticeDetail(String wid) async {
     final res = await _client.getJson(
       Api.noticeView,
+      auth: false,
       query: buildNoticeViewQuery(wid: wid, timestamp: ApiClient.nowStamp()),
     );
     if (!res.ok || res.data is! Map) return null;

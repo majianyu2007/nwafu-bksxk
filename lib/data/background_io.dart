@@ -76,6 +76,10 @@ void attach(BackgroundHost host) {
   _host = host;
 }
 
+void detach(BackgroundHost host) {
+  if (identical(_host, host)) _host = null;
+}
+
 Future<void> setCloseToTray(bool enabled) {
   final next = _trayUpdate.then((_) => _applyCloseToTray(enabled));
   _trayUpdate = next.catchError((Object _) {});
@@ -89,10 +93,14 @@ Future<void> _applyCloseToTray(bool enabled) async {
   }
   // Never hide a window if no working tray exists to bring it back.
   _closeToTray = enabled && _trayShown;
-  await windowManager.setPreventClose(_closeToTray);
+  try {
+    await windowManager.setPreventClose(_closeToTray);
+  } catch (_) {}
   if (!enabled && _trayShown) {
     trayManager.removeListener(_trayListener);
-    await trayManager.destroy();
+    try {
+      await trayManager.destroy();
+    } catch (_) {}
     _trayShown = false;
   }
 }
@@ -130,7 +138,8 @@ Future<void> _applyMonitoring(
     // wakelock is best effort.
   }
   if (Platform.isAndroid && runInBackground) {
-    if (running && !_serviceRunning) {
+    final active = _serviceRunning || await _isServiceRunning();
+    if (running && !active) {
       try {
         await FlutterForegroundTask.requestNotificationPermission();
         if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
@@ -148,22 +157,37 @@ Future<void> _applyMonitoring(
       } catch (_) {
         _serviceRunning = false;
       }
-    } else if (!running && _serviceRunning) {
+    } else if (!running && active) {
       try {
         await FlutterForegroundTask.stopService();
       } catch (_) {}
       _serviceRunning = false;
     }
-  } else if (Platform.isAndroid && _serviceRunning) {
+  } else if (Platform.isAndroid &&
+      (_serviceRunning || await _isServiceRunning())) {
     try {
       await FlutterForegroundTask.stopService();
     } catch (_) {}
     _serviceRunning = false;
   }
-  if (_trayShown) await updateStatus(_host?.statusLine ?? '');
+  if (_trayShown) await _doUpdateStatus(_host?.statusLine ?? '');
 }
 
-Future<void> updateStatus(String text) async {
+Future<bool> _isServiceRunning() async {
+  try {
+    return await FlutterForegroundTask.isRunningService;
+  } catch (_) {
+    return _serviceRunning;
+  }
+}
+
+Future<void> updateStatus(String text) {
+  final next = _monitoringUpdate.then((_) => _doUpdateStatus(text));
+  _monitoringUpdate = next.catchError((Object _) {});
+  return next;
+}
+
+Future<void> _doUpdateStatus(String text) async {
   if (_trayShown) {
     try {
       await trayManager.setToolTip(text.isEmpty ? '西农教务助手' : '西农教务助手：$text');
@@ -235,12 +259,11 @@ class _WindowCloser with WindowListener {
   @override
   void onWindowClose() async {
     _saveDebounce?.cancel();
-    if (_closeToTray && await windowManager.isPreventClose()) {
-      await windowManager.hide();
-      if (Platform.isMacOS) {
-        // Keep the Dock icon; a click brings the window back (AppDelegate).
+    try {
+      if (_closeToTray && await windowManager.isPreventClose()) {
+        await windowManager.hide();
       }
-    }
+    } catch (_) {}
   }
 }
 
@@ -250,12 +273,18 @@ class _TrayHandler with TrayListener {
     if (Platform.isWindows || Platform.isLinux) {
       _show();
     } else {
-      trayManager.popUpContextMenu();
+      try {
+        trayManager.popUpContextMenu();
+      } catch (_) {}
     }
   }
 
   @override
-  void onTrayIconRightMouseDown() => trayManager.popUpContextMenu();
+  void onTrayIconRightMouseDown() {
+    try {
+      trayManager.popUpContextMenu();
+    } catch (_) {}
+  }
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
@@ -266,13 +295,16 @@ class _TrayHandler with TrayListener {
         _host?.quitApp();
         windowManager
             .setPreventClose(false)
-            .then((_) => windowManager.destroy());
+            .then((_) => windowManager.destroy())
+            .catchError((Object _) {});
     }
   }
 
   Future<void> _show() async {
-    await windowManager.show();
-    await windowManager.focus();
+    try {
+      await windowManager.show();
+      await windowManager.focus();
+    } catch (_) {}
     _host?.showApp();
   }
 }

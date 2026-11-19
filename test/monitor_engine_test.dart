@@ -668,6 +668,130 @@ void main() {
     expect(enroll.submitted.length, 1);
     engine.dispose();
   });
+
+  test('retryable AppError during grab resets status from grabbing to watching',
+      () async {
+    final course = FakeCourseService({'TC-ERR': List.filled(10, 1)});
+    var calls = 0;
+    final enroll = _FlakyEnrollService(() async {
+      calls++;
+      if (calls == 1) {
+        throw AppError(
+          AppErrorKind.timeout,
+          message: 'timeout',
+          retryable: true,
+        );
+      }
+      return EnrollOutcome(success: true, code: '1', message: 'ok');
+    });
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(
+        basePollInterval: Duration(milliseconds: 5),
+        minPollInterval: Duration(milliseconds: 5),
+        backoffBase: Duration(milliseconds: 5),
+        jitter: Duration.zero,
+        confirmAfterGrab: false,
+      ),
+    );
+    addTearDown(engine.dispose);
+    final w = watchFor(plainTc('TC-ERR'));
+    engine.addWatch(w);
+    engine.start();
+    final grabbed = await _waitFor(
+      () => w.status == WatchStatus.grabbed,
+      timeout: const Duration(seconds: 2),
+    );
+    expect(grabbed, isTrue);
+    expect(calls, greaterThanOrEqualTo(2));
+  });
+
+  test('grabbing a class auto-pauses sibling watches of the same course',
+      () async {
+    final tc1 = TeachingClass.fromJson({
+      'teachingClassID': 'SIB-1',
+      'courseName': '大学物理',
+      'courseNumber': 'PHY101',
+      'classCapacity': '10',
+      'numberOfSelected': '10',
+      'capacitySuffix': 'sfx',
+      'hasTest': '0',
+      'hasBook': '0',
+    });
+    final tc2 = TeachingClass.fromJson({
+      'teachingClassID': 'SIB-2',
+      'courseName': '大学物理',
+      'courseNumber': 'PHY101',
+      'classCapacity': '10',
+      'numberOfSelected': '10',
+      'capacitySuffix': 'sfx',
+      'hasTest': '0',
+      'hasBook': '0',
+    });
+    final course = FakeCourseService({
+      'SIB-1': [1],
+      'SIB-2': [0],
+    });
+    final enroll = FakeEnrollService(succeed: true);
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(
+        basePollInterval: Duration(milliseconds: 10),
+        minPollInterval: Duration(milliseconds: 10),
+        jitter: Duration.zero,
+      ),
+    );
+    addTearDown(engine.dispose);
+    final w1 = watchFor(tc1);
+    final w2 = watchFor(tc2);
+    engine.addWatch(w1);
+    engine.addWatch(w2);
+    engine.start();
+    expect(
+      await _waitFor(() => w1.status == WatchStatus.grabbed,
+          timeout: const Duration(seconds: 2)),
+      isTrue,
+    );
+    expect(w2.status, WatchStatus.paused);
+    expect(w2.note, contains('自动暂停'));
+  });
+
+  test('retryWatch revives a failed watch', () async {
+    final course = FakeCourseService({'TC-RETRY': [1]});
+    final enroll = FakeEnrollService(succeed: true);
+    final engine = MonitorEngine(
+      courseService: course,
+      enrollService: enroll,
+      config: const MonitorConfig(
+        basePollInterval: Duration(milliseconds: 5),
+        minPollInterval: Duration(milliseconds: 5),
+        jitter: Duration.zero,
+      ),
+    );
+    addTearDown(engine.dispose);
+    final w = watchFor(plainTc('TC-RETRY'))..status = WatchStatus.failed;
+    engine.addWatch(w);
+    engine.start();
+    engine.retryWatch(w.id);
+    expect(
+      await _waitFor(() => w.status == WatchStatus.grabbed,
+          timeout: const Duration(seconds: 2)),
+      isTrue,
+    );
+  });
+}
+
+class _FlakyEnrollService implements EnrollService {
+  _FlakyEnrollService(this._onSubmit);
+  final Future<EnrollOutcome> Function() _onSubmit;
+
+  @override
+  Future<EnrollOutcome> submitAdd(AddParamPlan plan) => _onSubmit();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 Future<bool> _waitFor(bool Function() cond, {required Duration timeout}) async {

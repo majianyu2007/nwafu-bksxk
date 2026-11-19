@@ -128,13 +128,20 @@ class EnrollService {
     // Like adds, drops are queued server-side; the official page waits for
     // studentstatus.do before reporting the outcome.
     final status = await confirmStatus(studentCode);
-    final rejected = status.code == '-1';
+    if (status.code == '1') {
+      return EnrollOutcome(
+        success: true,
+        code: status.code,
+        message: status.msg.isEmpty ? '退选成功' : status.msg,
+      );
+    }
     return EnrollOutcome(
-      success: !rejected,
-      code: rejected ? status.code : res.code,
-      message: rejected
+      success: false,
+      code: status.code,
+      message: status.code == '-1'
           ? (status.msg.isEmpty ? '退选未成功' : status.msg)
-          : (res.msg.isEmpty ? '退选成功' : res.msg),
+          : '已提交退选，服务器还在处理，稍后刷新查看结果',
+      pending: status.code != '-1',
     );
   }
 
@@ -156,12 +163,22 @@ class EnrollService {
     int attempts = 10,
     Duration interval = const Duration(milliseconds: 500),
   }) async {
-    ApiResult last = await pollStatus(studentCode);
-    for (var i = 1; i < attempts; i++) {
-      if (last.code == '1' || last.code == '-1') return last;
-      await Future<void>.delayed(interval);
-      last = await pollStatus(studentCode);
+    ApiResult? last;
+    var transientErrors = 0;
+    for (var i = 0; i < attempts; i++) {
+      if (i > 0) await Future<void>.delayed(interval);
+      try {
+        last = await pollStatus(studentCode);
+        transientErrors = 0;
+        if (last.code == '1' || last.code == '-1') return last;
+      } catch (_) {
+        transientErrors++;
+        if (transientErrors > 2 || i + 1 >= attempts) {
+          if (last != null) return last;
+          rethrow;
+        }
+      }
     }
-    return last;
+    return last ?? await pollStatus(studentCode);
   }
 }

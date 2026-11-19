@@ -58,9 +58,23 @@ class LibraryArea {
   factory LibraryArea.fromJson(Map<String, dynamic> j) {
     int? n(Object? v) => v == null ? null : int.tryParse('$v');
     final merge = '${j['nameMerge'] ?? ''}'.split('-');
-    final rawImg =
-        '${j['firstimg'] ?? j['thumb_img'] ?? j['top_img'] ?? j['img'] ?? j['image'] ?? ''}'
-            .trim();
+    final candidates = <String>[
+      for (final key in const ['firstimg', 'thumb_img', 'top_img', 'image'])
+        if (j[key] is String) j[key] as String,
+      if (j['img'] is String)
+        j['img'] as String
+      else if (j['img'] is List)
+        for (final item in j['img'] as List)
+          if (item is String) item,
+    ];
+    var resolvedImg = '';
+    for (final raw in candidates) {
+      final url = LibrarySeatMap._resolveUrl(raw);
+      if (url.isNotEmpty) {
+        resolvedImg = url;
+        break;
+      }
+    }
     return LibraryArea(
       id: '${j['id']}',
       parentId: '${j['parentId'] ?? j['parent_id'] ?? j['area'] ?? ''}',
@@ -73,7 +87,7 @@ class LibraryArea {
       capacity: n(j['maxPerson']),
       fullyBooked: '${j['Fully_Booked'] ?? '0'}' == '1',
       description: '${j['sub_title'] ?? ''}'.trim(),
-      imageUrl: LibrarySeatMap._resolveUrl(rawImg),
+      imageUrl: resolvedImg,
     );
   }
 
@@ -161,8 +175,17 @@ class LibrarySeatMap {
   static String _resolveUrl(String raw) {
     final s = raw.trim();
     if (s.isEmpty) return '';
-    if (s.startsWith('http://') || s.startsWith('https://')) return s;
-    return s.startsWith('/') ? '$kLibraryOrigin$s' : '$kLibraryOrigin/$s';
+    // NWAFU's server returns 404 HTML for these built-in placeholder paths.
+    if (s.endsWith('/defaultfirstimg.jpg') ||
+        s.endsWith('/defaultcarouseimg.jpg')) {
+      return '';
+    }
+    final full = (s.startsWith('http://') || s.startsWith('https://'))
+        ? s
+        : (s.startsWith('/') ? '$kLibraryOrigin$s' : '$kLibraryOrigin/$s');
+    // Percent-encode non-ASCII filenames (e.g. 南校区2202.jpg) without
+    // double-encoding already-escaped sequences.
+    return Uri.tryParse(full)?.toString() ?? Uri.encodeFull(full);
   }
 
   final String freeUrl;
@@ -191,6 +214,7 @@ class LibrarySeat {
     this.width,
     this.height,
     this.inLabel = true,
+    this.donorLabel = '',
   });
 
   factory LibrarySeat.fromJson(Map<String, dynamic> j) {
@@ -201,6 +225,18 @@ class LibrarySeat {
     }
 
     final inLabelRaw = j['in_label'];
+    var donor = '';
+    final donateRaw = j['donate'];
+    if (donateRaw is Map) {
+      final name = '${donateRaw['donate_name'] ?? ''}'.trim();
+      final dept = '${donateRaw['donate_dept'] ?? ''}'.trim();
+      final major = '${donateRaw['donate_major'] ?? ''}'.trim();
+      final title = '${donateRaw['donate_title'] ?? '校友捐赠'}'.trim();
+      final detail = [dept, major].where((x) => x.isNotEmpty).join(' ');
+      if (name.isNotEmpty) {
+        donor = detail.isEmpty ? '$title：$name' : '$title：$name（$detail）';
+      }
+    }
     return LibrarySeat(
       id: '${j['id'] ?? ''}',
       no: '${j['no'] ?? j['name'] ?? ''}',
@@ -212,6 +248,7 @@ class LibrarySeat {
       width: d(j['width'] ?? j['w']),
       height: d(j['height'] ?? j['h']),
       inLabel: inLabelRaw == null || '$inLabelRaw' == '1' || inLabelRaw == true,
+      donorLabel: donor,
     );
   }
 
@@ -227,6 +264,7 @@ class LibrarySeat {
   final double? width;
   final double? height;
   final bool inLabel;
+  final String donorLabel;
 
   bool get hasCoords =>
       pointX != null &&
@@ -287,21 +325,67 @@ class LibrarySeminarDay {
     this.maxDurationMinutes = 240,
   });
 
+  static String _extractHhMm(Object? raw) {
+    if (raw == null) return '';
+    if (raw is num) {
+      final sec = raw.toInt();
+      if (sec <= 0) return '';
+      final dt = DateTime.fromMillisecondsSinceEpoch(
+        sec > 100000000000 ? sec : sec * 1000,
+        isUtc: true,
+      ).add(const Duration(hours: 8));
+      return '${dt.hour.toString().padLeft(2, '0')}:'
+          '${dt.minute.toString().padLeft(2, '0')}';
+    }
+    final s = '$raw'.trim();
+    if (s.isEmpty) return '';
+    final asInt = int.tryParse(s);
+    if (asInt != null && s.length >= 9) {
+      return _extractHhMm(asInt);
+    }
+    final m = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(s);
+    if (m != null) {
+      return '${m.group(1)!.padLeft(2, '0')}:${m.group(2)}';
+    }
+    return '';
+  }
+
   factory LibrarySeminarDay.fromJson(String day, Map<String, dynamic> j) {
     int n(Object? v, int fallback) => int.tryParse('${v ?? ''}') ?? fallback;
     final booked = <(String, String)>[];
     final rawList = j['list'] ?? j['booked'] ?? j['books'];
     if (rawList is List) {
       for (final item in rawList.whereType<Map<String, dynamic>>()) {
-        final s = '${item['start_time'] ?? item['start'] ?? ''}'.trim();
-        final e = '${item['end_time'] ?? item['end'] ?? ''}'.trim();
+        final s = _extractHhMm(
+          item['beginTimestamp'] ??
+              item['start_time'] ??
+              item['beginTime'] ??
+              item['start'],
+        );
+        final e = _extractHhMm(
+          item['endTimestamp'] ??
+              item['end_time'] ??
+              item['endTime'] ??
+              item['end'],
+        );
         if (s.isNotEmpty && e.isNotEmpty) booked.add((s, e));
       }
+      booked.sort((a, b) => a.$1.compareTo(b.$1));
     }
-    final openStart =
-        '${j['start_time'] ?? j['open_start'] ?? j['begin'] ?? '08:00'}'.trim();
-    final openEnd =
-        '${j['end_time'] ?? j['open_end'] ?? j['end'] ?? '22:00'}'.trim();
+    final openStart = _extractHhMm(
+      j['start_time'] ??
+          j['startTime'] ??
+          j['open_start'] ??
+          j['spaceOpenTime'] ??
+          j['begin'],
+    );
+    final openEnd = _extractHhMm(
+      j['end_time'] ??
+          j['endTime'] ??
+          j['open_end'] ??
+          j['spaceCloseTime'] ??
+          j['end'],
+    );
     return LibrarySeminarDay(
       day: day,
       minPerson: n(j['minPerson'] ?? j['min_person'], 1),
@@ -309,8 +393,8 @@ class LibrarySeminarDay {
       openStart: openStart.isEmpty ? '08:00' : openStart,
       openEnd: openEnd.isEmpty ? '22:00' : openEnd,
       bookedRanges: booked,
-      minDurationMinutes: n(j['min_time'], 60),
-      maxDurationMinutes: n(j['max_time'], 240),
+      minDurationMinutes: n(j['minTime'] ?? j['min_time'], 60),
+      maxDurationMinutes: n(j['maxTime'] ?? j['max_time'], 240),
     );
   }
 
@@ -338,26 +422,44 @@ class LibraryBooking {
     this.begin,
     this.spaceId = '',
     this.isRoom = false,
+    this.bookingType = '',
     this.xuzuoSegment = '',
   });
 
   factory LibraryBooking.fromJson(
     Map<String, dynamic> j, {
     bool isRoom = false,
-  }) => LibraryBooking(
-    id: '${j['id']}',
-    place: '${j['nameMerge'] ?? j['areaName'] ?? ''}',
-    seat: '${j['no'] ?? j['name'] ?? ''}',
-    day: '${j['day'] ?? ''}',
-    start: '${j['start'] ?? ''}',
-    end: '${j['end'] ?? ''}',
-    status: '${j['status'] ?? ''}',
-    statusName: '${j['statusName'] ?? ''}',
-    begin: DateTime.tryParse('${j['beginTime'] ?? ''}'.replaceFirst(' ', 'T')),
-    spaceId: '${j['space_id'] ?? j['seat_id'] ?? ''}',
-    isRoom: isRoom,
-    xuzuoSegment: '${j['xuzuosegment'] ?? ''}',
-  );
+  }) {
+    final rawStart = '${j['start'] ?? ''}'.trim();
+    final rawEnd = '${j['end'] ?? ''}'.trim();
+    // `/api/Member/seminar` puts YYYY-MM-DD in `start`/`end` and actual clock
+    // times in `beginTime`/`endTime` (`YYYY-MM-DD HH:mm:ss`).
+    final start = rawStart.contains(':')
+        ? rawStart
+        : LibrarySeminarDay._extractHhMm(j['beginTime']).isNotEmpty
+        ? LibrarySeminarDay._extractHhMm(j['beginTime'])
+        : rawStart;
+    final end = rawEnd.contains(':')
+        ? rawEnd
+        : LibrarySeminarDay._extractHhMm(j['endTime']).isNotEmpty
+        ? LibrarySeminarDay._extractHhMm(j['endTime'])
+        : rawEnd;
+    return LibraryBooking(
+      id: '${j['id']}',
+      place: '${j['nameMerge'] ?? j['areaName'] ?? ''}',
+      seat: '${j['no'] ?? j['name'] ?? j['title'] ?? ''}',
+      day: '${j['day'] ?? ''}',
+      start: start,
+      end: end,
+      status: '${j['status'] ?? ''}',
+      statusName: '${j['statusName'] ?? j['statusname'] ?? ''}'.trim(),
+      begin: DateTime.tryParse('${j['beginTime'] ?? ''}'.replaceFirst(' ', 'T')),
+      spaceId: '${j['space_id'] ?? j['seat_id'] ?? j['space'] ?? ''}',
+      isRoom: isRoom,
+      bookingType: '${j['type'] ?? ''}',
+      xuzuoSegment: '${j['xuzuosegment'] ?? ''}',
+    );
+  }
 
   final String id;
   final String place;
@@ -370,11 +472,34 @@ class LibraryBooking {
   final DateTime? begin;
   final String spaceId;
   final bool isRoom;
+  final String bookingType;
   final String xuzuoSegment;
 
-  /// Still to come or in use (not 已结束 / 已取消 / 违约).
-  bool get active =>
-      !const {'已结束', '已取消', '已违约', '违约', '已完成'}.contains(statusName);
+  static const _inactiveStatuses = {
+    '已结束',
+    '已取消',
+    '已违约',
+    '违约',
+    '已完成',
+    '已关闭',
+    '已使用',
+    '已签退',
+    '已过期',
+    '已拒绝',
+    '未通过',
+    '审核未通过',
+    '审核不通过',
+  };
+
+  /// Still to come or in use (not 已结束 / 已取消 / 已关闭 / 已使用 / 违约).
+  bool get active {
+    if (_inactiveStatuses.contains(statusName)) return false;
+    if (statusName.isEmpty &&
+        const {'4', '5', '6', '7', '8'}.contains(status)) {
+      return false;
+    }
+    return true;
+  }
 
   bool get canSignIn =>
       active &&
@@ -909,15 +1034,29 @@ class LibraryService {
   }
 
   /// Checks out of an active booking (签退).
-  Future<String> checkoutBooking(String bookingId) async {
-    final r = await _post('/api/Space/checkout', {'id': bookingId});
+  Future<String> checkoutBooking(LibraryBooking booking) async {
+    final path = booking.isRoom
+        ? '/reserve/seminar/signout'
+        : '/api/Space/checkout';
+    final r = await _post(path, {'id': booking.id});
     final msg = '${r['msg'] ?? r['message'] ?? ''}'.trim();
     return msg.isEmpty ? '已签退' : msg;
   }
 
   /// Cancels a seat or seminar room booking.
+  /// Matches NWAFU H5 `AppointmentItem`:
+  /// - `type == "5"` (big room) → `/api/Seminar/roomCancel` with `{room}`
+  /// - seminar booking (`isRoom` / `type == "2"`) → `/api/space/seminarCancel`
+  /// - seat booking → `/api/Space/cancel`
   Future<String> cancelBooking(LibraryBooking booking) async {
-    final path = booking.isRoom ? '/api/Seminar/roomCancel' : '/api/Space/cancel';
+    if (booking.bookingType == '5') {
+      final r = await _post('/api/Seminar/roomCancel', {'room': booking.id});
+      final msg = '${r['msg'] ?? r['message'] ?? ''}'.trim();
+      return msg.isEmpty ? '已取消预约' : msg;
+    }
+    final path = (booking.isRoom || booking.bookingType == '2')
+        ? '/api/space/seminarCancel'
+        : '/api/Space/cancel';
     final r = await _post(path, {'id': booking.id});
     final msg = '${r['msg'] ?? r['message'] ?? ''}'.trim();
     return msg.isEmpty ? '已取消预约' : msg;

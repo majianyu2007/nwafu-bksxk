@@ -230,16 +230,27 @@ class DayTimeline extends ConsumerWidget {
               ],
             ),
           ),
-        for (var i = 0; i < sessions.length; i++)
-          _TimelineItem(
-            data: data,
-            session: sessions[i],
-            week: week,
-            date: date,
-            now: now,
-            color: colors.of(sessions[i]),
-            last: i == sessions.length - 1,
-          ),
+        for (var i = 0; i < sessions.length; i++) ...[
+          () {
+            final cur = sessions[i];
+            final overlapping = [
+              for (final other in sessions)
+                if (cur.startPeriod <= other.endPeriod &&
+                    other.startPeriod <= cur.endPeriod)
+                  other,
+            ];
+            return _TimelineItem(
+              data: data,
+              session: cur,
+              overlapping: overlapping,
+              week: week,
+              date: date,
+              now: now,
+              color: colors.of(cur),
+              last: i == sessions.length - 1,
+            );
+          }(),
+        ],
         if (others.isNotEmpty) ...[
           const SizedBox(height: 12),
           Text(
@@ -256,7 +267,12 @@ class DayTimeline extends ConsumerWidget {
                 dense: true,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                 title: Text(s.displayName),
-                subtitle: Text('${timeLabel(data, s)} · ${s.weeksLabel}'),
+                subtitle: Text(
+                  [
+                    timeLabel(data, s, on: date),
+                    if (s.weeksLabel.isNotEmpty) s.weeksLabel,
+                  ].join(' · '),
+                ),
                 onTap: () => showCourseDetails(context, data, [s], week),
               ),
             ),
@@ -270,6 +286,7 @@ class _TimelineItem extends StatelessWidget {
   const _TimelineItem({
     required this.data,
     required this.session,
+    required this.overlapping,
     required this.week,
     required this.date,
     required this.now,
@@ -278,6 +295,7 @@ class _TimelineItem extends StatelessWidget {
   });
   final TermTimetable data;
   final CourseSession session;
+  final List<CourseSession> overlapping;
   final int week;
   final DateTime date;
   final DateTime now;
@@ -376,8 +394,12 @@ class _TimelineItem extends StatelessWidget {
                         : tokens.cellTint,
                     radius: 16,
                     padding: EdgeInsets.zero,
-                    onTap: () =>
-                        showCourseDetails(context, data, [session], week),
+                    onTap: () => showCourseDetails(
+                      context,
+                      data,
+                      overlapping.length > 1 ? overlapping : [session],
+                      week,
+                    ),
                     onLongPress: session.room.isEmpty
                         ? null
                         : () {
@@ -424,6 +446,14 @@ class _TimelineItem extends StatelessWidget {
                                               ),
                                         ),
                                       ),
+                                      if (overlapping.length > 1) ...[
+                                        StatusPill(
+                                          label: '时间冲突',
+                                          color: scheme.error,
+                                        ),
+                                        if (label.isNotEmpty)
+                                          const SizedBox(width: 6),
+                                      ],
                                       if (label.isNotEmpty)
                                         StatusPill(
                                           label: label,

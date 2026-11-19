@@ -196,8 +196,11 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 88),
         itemCount: rows.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (context, i) =>
-            _CourseCard(row: rows[i], kind: state.kind),
+        itemBuilder: (context, i) => _CourseCard(
+          key: ValueKey(rows[i].courseNumber),
+          row: rows[i],
+          kind: state.kind,
+        ),
       ),
     );
   }
@@ -419,15 +422,15 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
 
   Future<void> _grab(TeachingClass tc) async {
     if (_busyClassId != null) return;
-    if (tc.isConflict && !await _confirmConflict(tc, monitor: false)) return;
-    if (!mounted) return;
-    String? grade;
-    if (_volunteerRound) {
-      grade = await _pickVolunteerGrade(tc);
-      if (grade == null || !mounted) return;
-    }
     setState(() => _busyClassId = tc.teachingClassId);
     try {
+      if (tc.isConflict && !await _confirmConflict(tc, monitor: false)) return;
+      if (!mounted) return;
+      String? grade;
+      if (_volunteerRound) {
+        grade = await _pickVolunteerGrade(tc);
+        if (grade == null || !mounted) return;
+      }
       final selections = await _resolveSelectionsIfNeeded(tc);
       if (selections == null) return;
       final (testId, book) = selections;
@@ -463,20 +466,20 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
       showToast(context, '已取消监控：${tc.courseName}');
       return;
     }
-    var allowConflict = false;
-    if (tc.isConflict) {
-      // A conflicting class is polled but never submitted unless the user
-      // opts in; ask up front instead of watching forever.
-      allowConflict = await _confirmConflict(tc, monitor: true);
-      if (!mounted) return;
-    }
-    String? grade;
-    if (_volunteerRound) {
-      grade = await _pickVolunteerGrade(tc);
-      if (grade == null || !mounted) return;
-    }
     setState(() => _busyClassId = tc.teachingClassId);
     try {
+      var allowConflict = false;
+      if (tc.isConflict) {
+        // A conflicting class is polled but never submitted unless the user
+        // opts in; ask up front instead of watching forever.
+        allowConflict = await _confirmConflict(tc, monitor: true);
+        if (!mounted) return;
+      }
+      String? grade;
+      if (_volunteerRound) {
+        grade = await _pickVolunteerGrade(tc);
+        if (grade == null || !mounted) return;
+      }
       final selections = await _resolveSelectionsIfNeeded(tc);
       if (selections == null) return;
       final (testId, book) = selections;
@@ -716,11 +719,13 @@ class _CourseListTile extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Text(
-                classes.first.hasCapacityInfo
+                classes.isNotEmpty && classes.first.hasCapacityInfo
                     ? '$open/${classes.length} 班可选'
                     : '${classes.length} 班',
                 style: TextStyle(
-                    color: open == 0 && classes.first.hasCapacityInfo
+                    color: classes.isNotEmpty &&
+                            open == 0 &&
+                            classes.first.hasCapacityInfo
                         ? scheme.error
                         : scheme.onSurfaceVariant,
                     fontSize: 12),
@@ -803,7 +808,7 @@ class _CourseDetailPaneState extends ConsumerState<_CourseDetailPane>
 }
 
 class _CourseCard extends ConsumerStatefulWidget {
-  const _CourseCard({required this.row, required this.kind});
+  const _CourseCard({super.key, required this.row, required this.kind});
   final CourseRow row;
   final CourseKind kind;
 
@@ -1172,9 +1177,15 @@ class TestClassPicker extends StatelessWidget {
 }
 
 class TextbookPicker extends StatefulWidget {
-  const TextbookPicker({super.key, required this.options, this.title = '教材'});
+  const TextbookPicker({
+    super.key,
+    required this.options,
+    this.title = '教材',
+    this.subtitle,
+  });
   final List<TextbookOption> options;
   final String title;
+  final String? subtitle;
 
   @override
   State<TextbookPicker> createState() => _TextbookPickerState();
@@ -1206,6 +1217,13 @@ class _TextbookPickerState extends State<TextbookPicker> {
           children: [
             const SizedBox(height: 8),
             Text(widget.title, style: Theme.of(context).textTheme.titleLarge),
+            if (widget.subtitle != null && widget.subtitle!.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                widget.subtitle!,
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+              ),
+            ],
             const SizedBox(height: 12),
             Expanded(
               child: ListView.builder(
@@ -1237,7 +1255,9 @@ class _TextbookPickerState extends State<TextbookPicker> {
                                 })
                             : null,
                       ),
-                      if (!_ordered[i] && book.reasonCodes.isNotEmpty)
+                      if (book.orderable &&
+                          !_ordered[i] &&
+                          book.reasonCodes.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(
                               left: 16, right: 16, bottom: 8),
@@ -1290,6 +1310,7 @@ class _TextbookPickerState extends State<TextbookPicker> {
     final choices = <BookChoice>[];
     for (var i = 0; i < widget.options.length; i++) {
       final book = widget.options[i];
+      if (!book.orderable) continue;
       if (_ordered[i]) {
         choices.add(BookChoice(bookCode: book.bookCode, order: true));
       } else {

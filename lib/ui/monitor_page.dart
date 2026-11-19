@@ -37,6 +37,8 @@ class MonitorPage extends ConsumerWidget {
             _kSideLogBreakpoint * layoutTextScale(context);
         final list = _WatchList(watches: watches, labelOf: labelOf);
 
+        final hasWatchable =
+            watches.any((w) => w.status == WatchStatus.watching);
         return Column(
           children: [
             PageHeader(
@@ -45,10 +47,17 @@ class MonitorPage extends ConsumerWidget {
                 if (watches.isNotEmpty) const _ModeSelector(),
                 if (watches.isNotEmpty) const SizedBox(width: 8),
                 if (watches.isNotEmpty)
-                  FilledButton.icon(
-                    onPressed: running ? engine.stop : engine.start,
-                    icon: Icon(running ? Icons.stop : Icons.play_arrow),
-                    label: Text(running ? '停止' : '开始监控'),
+                  Tooltip(
+                    message: !running && !hasWatchable
+                        ? '请先恢复、重试或完善待监控的课程'
+                        : '',
+                    child: FilledButton.icon(
+                      onPressed: running
+                          ? engine.stop
+                          : (hasWatchable ? engine.start : null),
+                      icon: Icon(running ? Icons.stop : Icons.play_arrow),
+                      label: Text(running ? '停止' : '开始监控'),
+                    ),
                   ),
               ],
             ),
@@ -119,6 +128,8 @@ class _StatusStrip extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final running = ref.watch(monitorRunningProvider);
+    // Watch watchesProvider so engine.changes (e.g. stopReason updates) rebuilds us.
+    ref.watch(watchesProvider);
     final plan = ref.watch(planStateProvider);
     final engine = ref.read(monitorEngineProvider);
     if (running) {
@@ -181,18 +192,28 @@ class _ModeSelector extends ConsumerWidget {
   }
 }
 
-class _WatchCard extends ConsumerWidget {
+class _WatchCard extends ConsumerStatefulWidget {
   const _WatchCard({required this.watch, required this.categoryLabel});
   final Watch watch;
   final String categoryLabel;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_WatchCard> createState() => _WatchCardState();
+}
+
+class _WatchCardState extends ConsumerState<_WatchCard> {
+  bool _settingUp = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final watch = widget.watch;
+    final categoryLabel = widget.categoryLabel;
     final scheme = Theme.of(context).colorScheme;
     final engine = ref.read(monitorEngineProvider);
     final tc = watch.teachingClass;
     final (color, label, icon) = _statusVisual(watch.status, scheme);
     final platform = tc.onlinePlatform;
+    final volunteer = watch.volunteerGrade != null;
 
     return GlassCard(
       padding: EdgeInsets.zero,
@@ -231,7 +252,7 @@ class _WatchCard extends ConsumerWidget {
                 if (tc.publicCourseType.isNotEmpty)
                   StatusPill(
                       label: tc.publicCourseType, color: scheme.tertiary),
-                if (watch.volunteerGrade != null)
+                if (volunteer)
                   StatusPill(
                       label: '第${watch.volunteerGrade}志愿',
                       color: scheme.primary,
@@ -245,7 +266,11 @@ class _WatchCard extends ConsumerWidget {
             ),
             const SizedBox(height: 10),
             CapacityBar(
-                selected: tc.numberOfSelected, capacity: tc.classCapacity),
+              selected: volunteer ? tc.firstVolunteers : tc.numberOfSelected,
+              capacity: tc.classCapacity,
+              known: tc.hasCapacityInfo,
+              label: volunteer ? '第一志愿' : null,
+            ),
             if (watch.note.isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(watch.note, style: TextStyle(fontSize: 12, color: color)),
@@ -270,9 +295,9 @@ class _WatchCard extends ConsumerWidget {
                 if (watch.status == WatchStatus.needsSetup)
                   Expanded(
                     child: FilledButton.tonalIcon(
-                      onPressed: () => _completeSetup(context, ref, watch),
+                      onPressed: _settingUp ? null : () => _completeSetup(watch),
                       icon: const Icon(Icons.build_outlined, size: 18),
-                      label: const Text('完成选择'),
+                      label: Text(_settingUp ? '加载中…' : '完成选择'),
                     ),
                   )
                 else if (watch.status == WatchStatus.grabbed)
@@ -280,6 +305,14 @@ class _WatchCard extends ConsumerWidget {
                       child: Center(
                           child: Text('已抢到',
                               style: TextStyle(fontWeight: FontWeight.w700))))
+                else if (watch.status == WatchStatus.failed)
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: () => engine.retryWatch(watch.id),
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('重试监控'),
+                    ),
+                  )
                 else ...[
                   if (watch.status == WatchStatus.paused)
                     Expanded(
@@ -330,8 +363,9 @@ class _WatchCard extends ConsumerWidget {
     }
   }
 
-  Future<void> _completeSetup(
-      BuildContext context, WidgetRef ref, Watch watch) async {
+  Future<void> _completeSetup(Watch watch) async {
+    if (_settingUp) return;
+    setState(() => _settingUp = true);
     final tc = watch.teachingClass;
     String? testId = watch.selectedTestTeachingClassId;
     String? bookSelection = watch.bookSelection;
@@ -345,7 +379,7 @@ class _WatchCard extends ConsumerWidget {
           campus: watch.campus,
           kind: watch.kind,
         );
-        if (!context.mounted) return;
+        if (!mounted) return;
         if (rows.isEmpty) {
           showToast(context, '没有可选的实验教学班', success: false);
           return;
@@ -354,22 +388,25 @@ class _WatchCard extends ConsumerWidget {
           context,
           builder: (context) => TestClassPicker(list: rows),
         );
-        if (testId == null || testId.isEmpty || !context.mounted) return;
+        if (testId == null || testId.isEmpty || !mounted) return;
       }
       if (tc.hasBook &&
           watch.textbookOrderingOpen &&
           (bookSelection == null || bookSelection.isEmpty)) {
-        final reasons =
-            await ref.read(infoServiceProvider).fetchTextbookReasons();
-        final options = [
-          for (final o in await course.fetchTextbookOptions(
+        final results = await Future.wait([
+          course.fetchTextbookOptions(
             studentCode: watch.studentCode,
             batchCode: watch.batchCode,
             teachingClassId: tc.teachingClassId,
-          ))
+          ),
+          ref.read(infoServiceProvider).fetchTextbookReasons(),
+        ]);
+        final reasons = results[1] as List<TextbookReason>;
+        final options = [
+          for (final o in results[0] as List<TextbookOption>)
             o.copyWith(reasonCodes: reasons),
         ];
-        if (!context.mounted) return;
+        if (!mounted) return;
         if (options.isEmpty) {
           showToast(context, '没有教材清单，暂时无法完成', success: false);
           return;
@@ -379,7 +416,7 @@ class _WatchCard extends ConsumerWidget {
           scrollControlled: true,
           builder: (context) => TextbookPicker(options: options),
         );
-        if (selection == null || !context.mounted) return;
+        if (selection == null || !mounted) return;
         bookSelection = selection.jcxx;
       }
       ref.read(monitorEngineProvider).configureWatch(
@@ -387,7 +424,7 @@ class _WatchCard extends ConsumerWidget {
             testTeachingClassId: testId,
             bookSelection: bookSelection,
           );
-      if (!context.mounted) return;
+      if (!mounted) return;
       final complete = watch.status != WatchStatus.needsSetup;
       showToast(
         context,
@@ -395,9 +432,11 @@ class _WatchCard extends ConsumerWidget {
         success: complete,
       );
     } catch (error) {
-      if (context.mounted) {
+      if (mounted) {
         showToast(context, '加载失败：$error', success: false);
       }
+    } finally {
+      if (mounted) setState(() => _settingUp = false);
     }
   }
 }

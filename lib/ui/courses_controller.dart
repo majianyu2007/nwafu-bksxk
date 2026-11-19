@@ -220,6 +220,7 @@ class CoursesController extends StateNotifier<CoursesState> {
       _ref.read(sessionScopeProvider(accountId)).enroll;
   SessionState get _session => _ref.read(sessionControllerProvider(accountId));
   int _loadGeneration = 0;
+  String? _lastScopeKey;
 
   CatalogRepository? _catalog;
 
@@ -258,12 +259,18 @@ class CoursesController extends StateNotifier<CoursesState> {
   /// Called for enrollment revisions too: complete catalogues remain untouched.
   void scopeChanged() {
     final scope = _catalogScope();
+    final keyChanged = _lastScopeKey != null && _lastScopeKey != scope?.key;
+    _lastScopeKey = scope?.key;
     if (_catalog != null && _catalog!.scope.key != scope?.key) {
       _catalog!.dispose();
       _catalog = null;
       if (state.paged) {
         state = CoursesState(kind: state.kind, query: state.query);
       }
+    } else if (keyChanged && !state.paged) {
+      // Switching round/account must clear previous round's non-paged rows so
+      // stale courses are never flashed or submitted against the new batch.
+      state = CoursesState(kind: state.kind, query: state.query);
     }
     unawaited(load());
   }
@@ -352,7 +359,9 @@ class CoursesController extends StateNotifier<CoursesState> {
       batchCode: batch.code,
       kind: kind.code,
       query: state.query,
+      origin: _ref.read(sessionScopeProvider(accountId)).client.origin,
     );
+    _lastScopeKey = _catalogScope()?.key;
     // Show the last known rows at once; the fresh list replaces them.
     final cached = state.rows.isEmpty ? _cache.read(cacheKey) : null;
     state = state.copyWith(
@@ -444,8 +453,11 @@ class CoursesController extends StateNotifier<CoursesState> {
     String? volunteerGrade,
   }) async {
     final session = _session;
-    final student = session.student!;
-    final batch = session.activeBatch!;
+    final student = session.student;
+    final batch = session.activeBatch;
+    if (student == null || batch == null) {
+      return EnrollOutcome(success: false, code: '0', message: '请先选择选课轮次');
+    }
     final outcome = await _enroll.addCourse(
       tc: tc,
       studentCode: student.studentCode,
@@ -476,8 +488,11 @@ class CoursesController extends StateNotifier<CoursesState> {
     bool allowConflict = false,
   }) {
     final session = _session;
-    final student = session.student!;
-    final batch = session.activeBatch!;
+    final student = session.student;
+    final batch = session.activeBatch;
+    if (student == null || batch == null) {
+      throw StateError('请先选择选课轮次');
+    }
     final watch = Watch(
       id: watchIdFor(tc),
       teachingClass: tc,
@@ -501,24 +516,30 @@ class CoursesController extends StateNotifier<CoursesState> {
       .removeWatch(watchIdFor(tc));
 
   /// Volunteer grades the course still accepts (预选 rounds only).
-  Future<List<VolunteerGrade>> fetchVolunteerGrades(TeachingClass tc) {
+  Future<List<VolunteerGrade>> fetchVolunteerGrades(TeachingClass tc) async {
     final session = _session;
+    final student = session.student;
+    final batch = session.activeBatch;
+    if (student == null || batch == null) return const [];
     return _course.fetchCourseVolunteerGrades(
       tc: tc,
-      studentCode: session.student!.studentCode,
-      batchCode: session.activeBatch!.code,
+      studentCode: student.studentCode,
+      batchCode: batch.code,
       kind: state.kind,
     );
   }
 
   /// Loads experiment classes for a class that has hasTest==1.
-  Future<List<Map<String, dynamic>>> fetchTestCourses(TeachingClass tc) {
+  Future<List<Map<String, dynamic>>> fetchTestCourses(TeachingClass tc) async {
     final session = _session;
+    final student = session.student;
+    final batch = session.activeBatch;
+    if (student == null || batch == null) return const [];
     return _course.fetchTestCourses(
       tc: tc,
-      studentCode: session.student!.studentCode,
-      batchCode: session.activeBatch!.code,
-      campus: session.student!.campus,
+      studentCode: student.studentCode,
+      batchCode: batch.code,
+      campus: student.campus,
       kind: state.kind,
     );
   }

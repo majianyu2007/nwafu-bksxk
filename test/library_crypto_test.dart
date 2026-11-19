@@ -121,5 +121,103 @@ void main() {
       });
       expect(abs.imageUrl, 'https://cdn.example.com/202.png');
     });
+
+    test('parses live NWAFU /api/Seminar/seminar timestamps & camelCase keys', () {
+      // Exact schema captured from live NWAFU booking-lib read-only probe.
+      final day = LibrarySeminarDay.fromJson('2026-11-19', {
+        'startTime': 1795046400, // 2026-11-19 08:00 CST
+        'endTime': 1795096800, // 2026-11-19 22:00 CST
+        'minTime': '30',
+        'maxTime': '240',
+        'minPerson': '1',
+        'maxPerson': '2',
+        'list': [
+          {
+            'id': '71085',
+            'beginTime': 1795068900,
+            'endTime': 1795082400,
+            'beginTimestamp': '2026-11-19 14:15:00',
+            'endTimestamp': '2026-11-19 18:00:00',
+          },
+          {
+            'id': '71092',
+            'beginTime': 1795049100,
+            'endTime': 1795062600,
+            'beginTimestamp': '2026-11-19 08:45:00',
+            'endTimestamp': '2026-11-19 12:30:00',
+          },
+        ],
+      });
+      expect(day.openStart, '08:00');
+      expect(day.openEnd, '22:00');
+      expect(day.minDurationMinutes, 30);
+      expect(day.maxDurationMinutes, 240);
+      expect(day.bookedRanges, [
+        ('08:45', '12:30'),
+        ('14:15', '18:00'),
+      ]);
+    });
+
+    test('LibraryArea skips 404 defaults, reads img List, encodes Chinese URLs', () {
+      final placeholder = LibraryArea.fromJson({
+        'id': 71,
+        'name': '培训教室',
+        'firstimg':
+            'https://booking-lib.nwafu.edu.cn/upload/premises/defaultfirstimg.jpg',
+        'img': [
+          'https://booking-lib.nwafu.edu.cn/upload/premises/defaultcarouseimg.jpg',
+        ],
+      });
+      expect(placeholder.imageUrl, isEmpty);
+
+      final cn = LibraryArea.fromJson({
+        'id': 49,
+        'name': '阅创空间2202',
+        'firstimg':
+            'https://booking-lib.nwafu.edu.cn/upload/premises/defaultfirstimg.jpg',
+        'img': [
+          'https://booking-lib.nwafu.edu.cn/home/images/carousel/area/49/南校区2202.jpg',
+        ],
+      });
+      expect(
+        cn.imageUrl,
+        'https://booking-lib.nwafu.edu.cn/home/images/carousel/area/49/%E5%8D%97%E6%A0%A1%E5%8C%BA2202.jpg',
+      );
+    });
+
+    test('LibraryBooking handles live /api/Member/seminar lowercase statusname', () {
+      final past = LibraryBooking.fromJson({
+        'id': '66083',
+        'nameMerge': '北校区-3F-研讨间327',
+        'title': '开会',
+        'day': '10-17',
+        'start': '2026-10-17',
+        'end': '2026-10-17',
+        'status': '8',
+        'statusname': '已关闭',
+        'beginTime': '2026-10-17 18:00:00',
+        'endTime': '2026-10-17 20:00:00',
+      }, isRoom: true);
+      expect(past.statusName, '已关闭');
+      expect(past.active, isFalse);
+      expect(past.start, '18:00');
+      expect(past.end, '20:00');
+      expect(past.seat, '开会');
+    });
+
+    test('LibrarySeat parses alumni donor info when present', () {
+      final seat = LibrarySeat.fromJson({
+        'id': '12',
+        'no': '3101',
+        'status': '1',
+        'donate': {
+          'donate_title': '捐献人',
+          'donate_name': '张校友',
+          'donate_dept': '信息工程学院',
+          'donate_major': '软件工程',
+        },
+      });
+      expect(seat.donorLabel, '捐献人：张校友（信息工程学院 软件工程）');
+    });
   });
 }

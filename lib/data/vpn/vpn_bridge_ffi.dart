@@ -17,18 +17,29 @@ typedef _FreeD = void Function(Pointer<Utf8>);
 /// take seconds), so each runs on a short-lived isolate.
 DynamicLibrary? _open() {
   try {
-    if (Platform.isIOS) return DynamicLibrary.process();
-    if (Platform.isMacOS) {
-      return DynamicLibrary.open('libnwafuconnect.dylib');
+    final DynamicLibrary lib;
+    if (Platform.isIOS) {
+      lib = DynamicLibrary.process();
+    } else if (Platform.isMacOS) {
+      lib = DynamicLibrary.open('libnwafuconnect.dylib');
+    } else if (Platform.isWindows) {
+      lib = DynamicLibrary.open('nwafuconnect.dll');
+    } else {
+      lib = DynamicLibrary.open('libnwafuconnect.so');
     }
-    if (Platform.isWindows) return DynamicLibrary.open('nwafuconnect.dll');
-    return DynamicLibrary.open('libnwafuconnect.so');
+    // Verify the expected symbol exists (important on iOS where
+    // DynamicLibrary.process() always succeeds even when unlinked).
+    lib.lookup<NativeFunction<_Str0>>('NcStatus');
+    return lib;
   } catch (_) {
     return null;
   }
 }
 
 String _take(DynamicLibrary lib, Pointer<Utf8> p) {
+  if (p == nullptr) {
+    return jsonEncode({'ok': false, 'state': 'failed', 'error': '校外访问组件返回空指针'});
+  }
   final free = lib.lookupFunction<_FreeC, _FreeD>('NcFree');
   try {
     return p.toDartString();

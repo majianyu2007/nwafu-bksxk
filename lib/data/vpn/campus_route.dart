@@ -25,8 +25,11 @@ Future<bool> defaultDirectProbe(String url) async {
     final r = await dio.get<String>(url);
     final code = r.statusCode ?? 0;
     final body = r.data ?? '';
-    // The campus WAF answers off-campus clients with an HTML block page.
-    return code > 0 && code < 500 && !body.contains('Not allowed to visit');
+    // The campus WAF answers off-campus clients with an HTML block page (or 403).
+    return code >= 200 &&
+        code < 400 &&
+        !body.contains('Not allowed to visit') &&
+        !body.contains('禁止访问');
   } catch (_) {
     return false;
   } finally {
@@ -46,6 +49,7 @@ Future<bool> campusReachableDirectly([
   DirectProbe probe = defaultDirectProbe,
 ]) async {
   for (var attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await Future<void>.delayed(const Duration(milliseconds: 250));
     final results = await Future.wait(kCampusProbeUrls.map(probe));
     if (results.every((ok) => ok)) return true;
   }

@@ -6,14 +6,19 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:nwafu_bksxk/app/providers.dart';
 import 'package:nwafu_bksxk/app/theme.dart';
+import 'package:nwafu_bksxk/app/update_providers.dart';
 import 'package:nwafu_bksxk/core/errors.dart';
+import 'package:nwafu_bksxk/data/api_client.dart';
 import 'package:nwafu_bksxk/data/cas_client.dart';
+import 'package:nwafu_bksxk/data/enroll_service.dart';
 import 'package:nwafu_bksxk/data/library_service.dart';
 import 'package:nwafu_bksxk/data/storage.dart';
+import 'package:nwafu_bksxk/data/update_service.dart';
 import 'package:nwafu_bksxk/ui/settings_page.dart';
 
 class _FakeAdapter implements HttpClientAdapter {
@@ -202,5 +207,68 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('账号与安全'), findsOneWidget);
     expect(find.text('外观与缩放'), findsOneWidget);
+  });
+
+  test('UpdatesController finishes checking on native without hanging bridge',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    final storage = await Storage.open();
+    final service = UpdateService(
+      adapter: _FakeAdapter(
+        (opts) => ResponseBody.fromString(
+          jsonEncode({
+            'tag_name': 'v2.0.0',
+            'name': '2.0.0',
+            'html_url': 'https://github.com/majianyu2007/nwafu-bksxk/releases/tag/v2.0.0',
+          }),
+          200,
+        ),
+      ),
+    );
+    addTearDown(service.dispose);
+    final ctrl = UpdatesController(
+      service: service,
+      storage: storage,
+      isWeb: false,
+      bridgeInstalled: () => false,
+      bridgeVersion: () => null,
+      packageInfo: () async => PackageInfo(
+        appName: '西农教务助手',
+        packageName: 'cn.edu.nwafu.nwafu_bksxk',
+        version: '2.0.0',
+        buildNumber: '6',
+      ),
+    );
+    addTearDown(ctrl.dispose);
+    await ctrl.initialize();
+    expect(ctrl.state.checking, isFalse);
+    expect(ctrl.state.bridge.status, UpdateStatus.idle);
+    expect(ctrl.state.app.status, UpdateStatus.current);
+  });
+
+  test('EnrollService.dropCourse marks still-processing status as pending, not success',
+      () async {
+    final dio = Dio(BaseOptions(responseType: ResponseType.plain))
+      ..httpClientAdapter = _FakeAdapter((opts) {
+        if (opts.path.contains('deleteVolunteer.do')) {
+          return ResponseBody.fromString(
+            jsonEncode({'code': '1', 'msg': 'queued'}),
+            200,
+          );
+        }
+        return ResponseBody.fromString(
+          jsonEncode({'code': '0', 'msg': '处理中'}),
+          200,
+        );
+      });
+    final client = ApiClient(origin: 'https://example.test', dio: dio);
+    final enroll = EnrollService(client);
+    final outcome = await enroll.dropCourse(
+      teachingClassId: 'TC1',
+      studentCode: '2025013665',
+      batchCode: 'B1',
+    );
+    expect(outcome.success, isFalse);
+    expect(outcome.pending, isTrue);
   });
 }

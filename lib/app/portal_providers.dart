@@ -23,27 +23,26 @@ class PortalState {
 class PortalController extends StateNotifier<PortalState> {
   PortalController(this._ref, this._accountId)
     : _session = _ref.read(eduSessionProvider.notifier),
-      _epoch = _ref.read(eduSessionProvider.notifier).epoch,
       super(const PortalState());
 
   final Ref _ref;
   final String? _accountId;
   final EduSessionController _session;
-  final int _epoch;
   int _request = 0;
 
-  bool _current(int request) =>
-      mounted && request == _request && _session.isCurrent(_epoch);
+  bool _current(int request, int epoch) =>
+      mounted && request == _request && _session.isCurrent(epoch);
 
   Future<void> refresh() async {
     if (_accountId == null || !kPortalSupported || state.loading) return;
     final request = ++_request;
+    final epoch = _session.epoch;
     state = PortalState(inbox: state.inbox, loading: true);
     try {
       final inbox = await _ref.read(eduClientProvider).portal.inbox();
-      if (_current(request)) state = PortalState(inbox: inbox);
+      if (_current(request, epoch)) state = PortalState(inbox: inbox);
     } catch (e) {
-      if (!_current(request)) return;
+      if (!_current(request, epoch)) return;
       state = PortalState(
         inbox: state.inbox,
         error: e is AppError
@@ -65,9 +64,11 @@ final portalProvider = StateNotifierProvider<PortalController, PortalState>(
   ),
 );
 
-/// Unread messages + to-dos, for a badge. Null until the inbox has loaded.
+/// Unread messages + to-dos, for a badge. Null until at least one counter has loaded.
 final portalBadgeProvider = Provider<int?>((ref) {
   final inbox = ref.watch(portalProvider.select((s) => s.inbox));
-  if (inbox == null) return null;
+  if (inbox == null || (inbox.unread == null && inbox.todo == null)) {
+    return null;
+  }
   return (inbox.unread ?? 0) + (inbox.todo ?? 0);
 });

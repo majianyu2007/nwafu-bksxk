@@ -22,6 +22,8 @@ class CachedRows {
 class CourseCache {
   CourseCache(this._storage, {this.maxAge = const Duration(days: 3)});
 
+  static const keyPrefix = 'course_cache.v1::';
+
   final Storage _storage;
 
   /// Entries older than this are ignored on read.
@@ -33,8 +35,9 @@ class CourseCache {
     required String kind,
     String query = '',
     int page = 0,
+    String origin = '',
   }) =>
-      '$accountId|$batchCode|$kind|$page|${query.trim()}';
+      '$keyPrefix$origin|$accountId|$batchCode|$kind|$page|${query.trim()}';
 
   CachedRows? read(String key) {
     final raw = _storage.cacheGet(key);
@@ -68,5 +71,5 @@ class CourseCache {
     await _storage.cacheSet(key, base64Encode(packed));
   }
 
-  Future<void> clear() => _storage.cacheClear();
+  Future<void> clear() => _storage.cacheClear(prefix: keyPrefix);
 }

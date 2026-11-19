@@ -145,4 +145,25 @@ void main() {
       throwsA(isA<PasskeyException>()),
     );
   });
+
+  test('PasskeyCredential.rawId distinguishes UUID hex from base64url with hyphens',
+      () {
+    const uuidCred = PasskeyCredential(
+      credentialId: '01234567-89ab-cdef-0123-456789abcdef',
+      keyValue: '',
+      rpId: 'authserver.nwafu.edu.cn',
+      deviceBindingId: 'd1',
+    );
+    expect(uuidCred.rawId.length, 16);
+    expect(uuidCred.rawId.first, 0x01);
+
+    // Base64url string whose non-hyphen chars happen to be hex digits.
+    const cred = PasskeyCredential(
+      credentialId: 'ab-cdef0',
+      keyValue: '',
+      rpId: 'authserver.nwafu.edu.cn',
+      deviceBindingId: 'd2',
+    );
+    expect(cred.rawId, b64Decode('ab-cdef0'));
+  });
 }

@@ -28,6 +28,7 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
   CaptchaChallenge? _challenge;
   bool _loadingCaptcha = false;
   bool _submitting = false;
+  bool _loggingOut = false;
   OcrStatus _ocr = OcrStatus.idle;
   int _ocrRetries = 0;
   int _captchaRequest = 0;
@@ -163,8 +164,14 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
   }
 
   Future<void> _logout() async {
-    await leaveAccount(ref, widget.accountId);
-    if (mounted) Navigator.of(context).pop();
+    if (_submitting || _loggingOut) return;
+    setState(() => _loggingOut = true);
+    try {
+      await leaveAccount(ref, widget.accountId);
+      if (mounted) Navigator.of(context).pop();
+    } finally {
+      if (mounted) setState(() => _loggingOut = false);
+    }
   }
 
   @override
@@ -172,8 +179,11 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
     final scheme = Theme.of(context).colorScheme;
     final session = ref.watch(sessionControllerProvider(widget.accountId));
     final who = session.displayName;
+    final busy = _submitting || _loggingOut;
 
-    return AlertDialog(
+    return PopScope(
+      canPop: false,
+      child: AlertDialog(
       title: const Text('登录已失效'),
       scrollable: true,
       content: SizedBox(
@@ -206,7 +216,7 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
             const SizedBox(height: 14),
             TextField(
               controller: _pwCtrl,
-              enabled: !_submitting,
+              enabled: !busy,
               obscureText: true,
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
@@ -217,7 +227,7 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
             const SizedBox(height: 10),
             CaptchaRow(
               challenge: _challenge,
-              loading: _loadingCaptcha || _submitting,
+              loading: _loadingCaptcha || busy,
               controller: _captchaCtrl,
               focusNode: _captchaFocus,
               ocrStatus: _ocr,
@@ -247,11 +257,11 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _submitting ? null : _logout,
-          child: const Text('退出该账号'),
+          onPressed: busy ? null : _logout,
+          child: Text(_loggingOut ? '正在退出…' : '退出该账号'),
         ),
         FilledButton(
-          onPressed: _submitting ? null : _submit,
+          onPressed: busy ? null : _submit,
           child: _submitting
               ? const SizedBox(
                   height: 16,
@@ -261,6 +271,7 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
               : const Text('重新登录'),
         ),
       ],
+    ),
     );
   }
 }

@@ -72,7 +72,9 @@ final ocrApiProvider = StateNotifierProvider<OcrApiController, OcrApiConfig?>(
 final captchaSolverProvider = Provider<CaptchaSolver>((ref) {
   final api = ref.watch(ocrApiProvider);
   if (api != null && api.isValid) {
-    return HttpOcrCaptchaSolver(api);
+    final solver = HttpOcrCaptchaSolver(api);
+    ref.onDispose(solver.dispose);
+    return solver;
   }
   final solver = createCaptchaSolver();
   ref.onDispose(() => disposeCaptchaSolver(solver));
@@ -183,12 +185,18 @@ final monitorConfigProvider =
 /// A client with no session, for the login screen's captcha. Login itself is
 /// sent from the account's own client; the server keys the captcha by its
 /// vtoken, not by cookies (verified 2026-09-18).
-final anonymousAuthProvider = Provider<AuthService>((ref) =>
-    AuthService(ApiClient(origin: ref.watch(storageProvider).origin())));
+final anonymousAuthProvider = Provider<AuthService>((ref) {
+  final client = ApiClient(origin: ref.watch(storageProvider).origin());
+  ref.onDispose(client.close);
+  return AuthService(client);
+});
 
 /// Public-info reads that do not belong to any account.
-final publicInfoServiceProvider = Provider<InfoService>((ref) =>
-    InfoService(ApiClient(origin: ref.watch(storageProvider).origin())));
+final publicInfoServiceProvider = Provider<InfoService>((ref) {
+  final client = ApiClient(origin: ref.watch(storageProvider).origin());
+  ref.onDispose(client.close);
+  return InfoService(client);
+});
 
 /// The deployment's system parameters (tab names, display switches). Loaded
 /// once; refreshed when the origin changes.
@@ -271,7 +279,10 @@ final sessionScopeProvider = Provider.family<SessionScope, String>((ref, id) {
   } catch (_) {
     // A corrupt blob must not block sign-in.
   }
-  ref.onDispose(engine.dispose);
+  ref.onDispose(() {
+    engine.dispose();
+    client.close();
+  });
   return SessionScope(
     accountId: id,
     client: client,
@@ -436,6 +447,7 @@ class SessionController extends StateNotifier<SessionState> {
       verifyCode: verifyCode,
       vtoken: vtoken,
     );
+    if (!mounted) return;
     ElectiveBatch? active;
     for (final b in _mgr.batches) {
       if (b.code == previousActive) active = b;
@@ -449,7 +461,13 @@ class SessionController extends StateNotifier<SessionState> {
           displayName: _mgr.student?.name ?? loginName,
           studentCode: _mgr.studentCode ?? '',
         );
-    await _storage.upsertAccount(updated, password: password);
+    // Only persist the password if the user previously opted to save this
+    // account; don't silently write credentials for unremembered sessions.
+    final isSaved = _storage.accounts().any((a) => a.id == accountId);
+    if (isSaved) {
+      await _storage.upsertAccount(updated, password: password);
+    }
+    if (!mounted) return;
     state = SessionState(
       phase: AuthPhase.loggedIn,
       student: _mgr.student,
@@ -501,6 +519,7 @@ class SessionController extends StateNotifier<SessionState> {
         await _storage.upsertAccount(account, password: password);
         await _storage.setActiveAccount(account.id);
       }
+      if (!mounted) return;
       state = SessionState(
         phase: AuthPhase.loggedIn,
         student: _mgr.student,
@@ -513,7 +532,9 @@ class SessionController extends StateNotifier<SessionState> {
       // a direct, explicit action, exposed in Settings.
       if (!kIsWeb) await NotificationService.instance.requestPermission();
     } catch (e) {
-      state = state.copyWith(phase: AuthPhase.loggedOut, error: _describe(e));
+      if (mounted) {
+        state = state.copyWith(phase: AuthPhase.loggedOut, error: _describe(e));
+      }
       rethrow;
     }
   }
@@ -557,6 +578,7 @@ class SessionController extends StateNotifier<SessionState> {
     final code = _mgr.studentCode ?? state.student?.studentCode;
     if (code == null || code.isEmpty) return;
     final (student, batches) = await _mgr.auth.loadContext(code);
+    if (!mounted) return;
     final previousStudent = state.student;
     final mergedStudent = student.copyWith(
       name: student.name.isEmpty ? previousStudent?.name : student.name,
@@ -617,7 +639,7 @@ class SessionController extends StateNotifier<SessionState> {
     }
     _scope.client.token = null;
     await _scope.client.clearCookies();
-    state = SessionState();
+    if (mounted) state = SessionState();
   }
 
   String _describe(Object e) {
@@ -688,6 +710,7 @@ Future<void> _leave(
   // Drop the scope so a later sign-in of the same account starts clean.
   invalidate(sessionScopeProvider(id));
   invalidate(sessionControllerProvider(id));
+  invalidate(selectionDataRevisionProvider(id));
 }
 
 /// Drives the platform keep-alive from the monitors: any running engine keeps
@@ -697,16 +720,19 @@ final backgroundDriverProvider = Provider<void>((ref) {
   final ids = ref.watch(signedInAccountsProvider);
   final runInBackground = ref.watch(runInBackgroundProvider);
   final keepAwake = ref.watch(keepAwakeProvider);
+  final engines = [for (final id in ids) ref.watch(sessionScopeProvider(id)).engine];
   final subs = <StreamSubscription<void>>[];
   void apply() {
     var running = 0;
     var watching = 0;
-    for (final id in ids) {
-      final e = ref.read(sessionScopeProvider(id)).engine;
+    for (final e in engines) {
       if (e.isRunning) {
         running++;
-        watching +=
-            e.watches.where((w) => w.status == WatchStatus.watching).length;
+        watching += e.watches
+            .where((w) =>
+                w.status == WatchStatus.watching ||
+                w.status == WatchStatus.grabbing)
+            .length;
       }
     }
     AppBackground.instance.setMonitoring(running > 0,
@@ -715,12 +741,8 @@ final backgroundDriverProvider = Provider<void>((ref) {
         .updateStatus(running == 0 ? '' : '$running 个账号监控中，$watching 门课');
   }
 
-  for (final id in ids) {
-    subs.add(ref
-        .read(sessionScopeProvider(id))
-        .engine
-        .changes
-        .listen((_) => apply()));
+  for (final e in engines) {
+    subs.add(e.changes.listen((_) => apply()));
   }
   AppBackground.instance.setCloseToTray(runInBackground);
   apply();

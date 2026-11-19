@@ -275,14 +275,16 @@ Future<CalendarSyncResult> reconcileCalendar(
   required DateTime from,
   required DateTime to,
   required Map<String, String> index,
+  String? scopePrefix,
 }) async {
   final existing = await adapter.listEvents(calendarId, from, to);
   final byKey = <String, DeviceEvent>{};
   final byId = {for (final e in existing) e.id: e};
   final extras = <DeviceEvent>[];
+  bool inScope(String key) => scopePrefix == null || key.startsWith(scopePrefix);
   for (final e in existing) {
     final key = e.key;
-    if (key == null) continue; // user's own event
+    if (key == null || !inScope(key)) continue; // user's or other term's event
     if (byKey.containsKey(key)) {
       // Prefer the one the index points at; drop the other.
       if (index[key] == e.id) {
@@ -297,6 +299,7 @@ Future<CalendarSyncResult> reconcileCalendar(
   }
   // Events whose URL/description the platform lost but the index knows.
   for (final entry in index.entries) {
+    if (!inScope(entry.key)) continue;
     final e = byId[entry.value];
     if (e != null && e.key == null) byKey.putIfAbsent(entry.key, () => e);
   }
@@ -375,7 +378,11 @@ Future<CalendarSyncResult> syncTimetableToCalendar({
   // 4 weeks) also removes the later events; past ones are kept.
   final termWindow = calendarWindow(timetable, 'term', at);
   final listTo = termWindow.to.isAfter(window.to) ? termWindow.to : window.to;
-  final listFrom = o.range == '4w' ? window.from : termWindow.from;
+  // When disabling sync, always scan from termStart so earlier events in `4w`
+  // mode are also removed.
+  final listFrom = (o.enabled && o.range == '4w')
+      ? window.from
+      : termWindow.from;
   final wanted = o.enabled
       ? buildCalendarEvents(
           timetable,
@@ -398,9 +405,38 @@ Future<CalendarSyncResult> syncTimetableToCalendar({
     from: listFrom,
     to: listTo.add(const Duration(days: 42)),
     index: index,
+    scopePrefix: calendarTermPrefix(
+      accountId: accountId,
+      termCode: timetable.term.code,
+    ),
   );
   await storage.setCalendarIndex(accountId, jsonEncode(index));
   return result;
+}
+
+/// Removes all indexed events for [accountId] even when no timetable is loaded.
+Future<CalendarSyncResult> clearSyncedCalendarEvents({
+  required CalendarAdapter adapter,
+  required Storage storage,
+  required String accountId,
+}) async {
+  if (!adapter.supported) {
+    throw const CalendarUnavailable('当前平台不支持系统日历同步');
+  }
+  final index = _readIndex(storage, accountId);
+  if (index.isEmpty) return const CalendarSyncResult();
+  if (!await adapter.requestAccess()) {
+    throw const CalendarUnavailable('未获得日历权限');
+  }
+  var deleted = 0;
+  for (final id in index.values.toSet()) {
+    try {
+      await adapter.delete(id);
+      deleted++;
+    } catch (_) {}
+  }
+  await storage.setCalendarIndex(accountId, '{}');
+  return CalendarSyncResult(deleted: deleted);
 }
 
 Map<String, String> _readIndex(Storage storage, String accountId) {

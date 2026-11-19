@@ -20,7 +20,9 @@ class NotificationService implements EduAlerts {
 
   final FlutterLocalNotificationsPlugin _plugin;
   bool _ready = false;
-  int _id = 0;
+  // Seed below _reminderIdBase (1 << 30) so background WorkManager isolates
+  // don't restart at 0 and overwrite unread alerts.
+  int _id = DateTime.now().millisecondsSinceEpoch % (1 << 29);
   Future<void>? _initializing;
   final BrowserNotifications _browser = BrowserNotifications();
   NotificationTapCallback? _onTap;
@@ -33,7 +35,9 @@ class NotificationService implements EduAlerts {
       _onTap = onTap;
       final pending = _pendingPayload;
       _pendingPayload = null;
-      if (pending != null) onTap(pending);
+      if (pending != null) {
+        Future<void>.microtask(() => onTap(pending));
+      }
     }
     if (_ready) return;
     final pending = _initializing;
@@ -173,8 +177,10 @@ class NotificationService implements EduAlerts {
     }
     if (!_ready) return;
     try {
+      final nextId = _id;
+      _id = (_id + 1) % (1 << 29);
       await _plugin.show(
-        id: _id++,
+        id: nextId,
         title: title,
         body: body,
         notificationDetails: details,

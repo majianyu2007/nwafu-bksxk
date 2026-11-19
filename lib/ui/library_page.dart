@@ -557,6 +557,7 @@ class _BookingTileState extends ConsumerState<_BookingTile> {
       showToast(context, msg);
       ref.invalidate(_bookingsProvider);
       ref.invalidate(_areasProvider(LibraryKind.seat));
+      ref.invalidate(_areasProvider(LibraryKind.space));
     } catch (e) {
       if (!mounted) return;
       showToast(context, e is AppError ? e.message : '$label失败');
@@ -654,7 +655,7 @@ class _BookingTileState extends ConsumerState<_BookingTile> {
                           : () => _runAction(
                               label: '签退',
                               confirm: true,
-                              action: (lib) => lib.checkoutBooking(booking.id),
+                              action: (lib) => lib.checkoutBooking(booking),
                             ),
                       icon: const Icon(Icons.logout, size: 18),
                       label: const Text('签退'),
@@ -812,7 +813,8 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
         title: const Text('确认预约座位'),
         content: Text(
           '${widget.area.name} · ${seat.no} 号座\n'
-          '${day.day} ${slot.label}',
+          '${day.day} ${slot.label}'
+          '${seat.donorLabel.isNotEmpty ? '\n\n${seat.donorLabel}' : ''}',
         ),
         actions: [
           TextButton(
@@ -1122,6 +1124,15 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
                                 '${currentDay.day} ${currentDay.times[_slotIndex].label}',
                                 style: theme.textTheme.bodySmall,
                               ),
+                              if (_selectedSeat!.donorLabel.isNotEmpty)
+                                Text(
+                                  _selectedSeat!.donorLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: scheme.primary,
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -1460,7 +1471,9 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
   bool _addingMember = false;
   String? _errorText;
 
-  /// Selected range in minutes from midnight (snapped to 30-min intervals).
+  /// Selected range in minutes from midnight (snapped to 15-min intervals,
+  /// matching NWAFU's official booking step).
+  static const _kStepMin = 15;
   int _startMin = 8 * 60;
   int _endMin = 12 * 60;
   final _title = TextEditingController();
@@ -1523,29 +1536,37 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
     return false;
   }
 
+  static String _fmtDuration(int minutes) {
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    if (h == 0) return '$m 分钟';
+    if (m == 0) return '$h 小时';
+    return '$h 小时 $m 分钟';
+  }
+
   /// Picks the first non-conflicting window of up to [preferredMinutes]
   /// (defaulting to maxDurationMinutes, typically 4 hours).
   void _pickSmartWindow(LibrarySeminarDay info, {int? preferredMinutes}) {
     final openMin = _toMin(info.openStart, 8 * 60);
     final closeMin = _toMin(info.openEnd, 22 * 60);
-    final minDur = info.minDurationMinutes.clamp(30, 240);
+    final minDur = info.minDurationMinutes.clamp(15, 240);
     final maxDur = info.maxDurationMinutes.clamp(minDur, 480);
     final target = (preferredMinutes ?? maxDur).clamp(minDur, maxDur);
 
-    // If booking today, don't start in the past (snap up to next 30-min mark).
+    // If booking today, don't start in the past (snap up to next 15-min mark).
     final now = DateTime.now().toUtc().add(const Duration(hours: 8));
     final todayStr =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     var earliest = openMin;
     if (info.day == todayStr) {
       final nowMin = now.hour * 60 + now.minute;
-      final snapped = ((nowMin + 29) ~/ 30) * 30;
+      final snapped = ((nowMin + _kStepMin - 1) ~/ _kStepMin) * _kStepMin;
       if (snapped > earliest) earliest = snapped;
     }
 
     // Try to find the earliest free slot of [target] length, else [minDur].
     for (final dur in [target, minDur]) {
-      for (var s = earliest; s + dur <= closeMin; s += 30) {
+      for (var s = earliest; s + dur <= closeMin; s += _kStepMin) {
         if (!_hasBookedConflict(s, s + dur)) {
           _startMin = s;
           _endMin = s + dur;
@@ -1553,22 +1574,25 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
         }
       }
     }
-    _startMin = earliest.clamp(openMin, (closeMin - minDur).clamp(openMin, closeMin));
+    _startMin = earliest.clamp(
+      openMin,
+      (closeMin - minDur).clamp(openMin, closeMin),
+    );
     _endMin = (_startMin + target).clamp(_startMin + minDur, closeMin);
   }
 
-  /// Applies a quick duration (e.g. 60/120/180/240 min) from current start,
+  /// Applies a quick duration (e.g. 30/60/120/180/240 min) from current start,
   /// automatically clamping to closing time and max duration.
   void _applyDuration(int minutes) {
     final info = _dayInfo;
     if (info == null) return;
     final openMin = _toMin(info.openStart, 8 * 60);
     final closeMin = _toMin(info.openEnd, 22 * 60);
-    var s = _startMin.clamp(openMin, closeMin - 30);
+    var s = _startMin.clamp(openMin, (closeMin - _kStepMin).clamp(openMin, closeMin));
     var e = s + minutes;
     if (e > closeMin) {
       e = closeMin;
-      s = (e - minutes).clamp(openMin, e - 30);
+      s = (e - minutes).clamp(openMin, (e - _kStepMin).clamp(openMin, closeMin));
     }
     setState(() {
       _startMin = s;
@@ -1735,21 +1759,16 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
     final info = _dayInfo;
     final openMin = info == null ? 8 * 60 : _toMin(info.openStart, 8 * 60);
     final closeMin = info == null ? 22 * 60 : _toMin(info.openEnd, 22 * 60);
-    final minDur = (info?.minDurationMinutes ?? 60).clamp(30, 240);
+    final minDur = (info?.minDurationMinutes ?? 60).clamp(15, 240);
     final maxDur = (info?.maxDurationMinutes ?? 240).clamp(minDur, 480);
     final durMin = (_endMin - _startMin).clamp(0, 24 * 60);
-    final durHours = durMin / 60;
-    final durLabel = durHours == durHours.roundToDouble()
-        ? '${durHours.toStringAsFixed(0)} 小时'
-        : '${durHours.toStringAsFixed(1)} 小时';
-    final maxHoursLabel = (maxDur / 60).toStringAsFixed(
-      maxDur % 60 == 0 ? 0 : 1,
-    );
+    final durLabel = _fmtDuration(durMin);
+    final maxHoursLabel = _fmtDuration(maxDur);
     final conflict = _hasBookedConflict(_startMin, _endMin);
     final minNeed = ((info?.minPerson ?? 1) - 1).clamp(0, 99);
-    final quickHours = [
-      for (final h in const [1, 2, 3, 4])
-        if (h * 60 >= minDur && h * 60 <= maxDur) h,
+    final quickMinutes = [
+      for (final m in const [30, 60, 120, 180, 240])
+        if (m >= minDur && m <= maxDur) m,
     ];
 
     return SafeArea(
@@ -1885,7 +1904,7 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
                                     ),
                                   ),
                                   Text(
-                                    '上限 $maxHoursLabel 小时',
+                                    '上限 $maxHoursLabel',
                                     style: theme.textTheme.bodySmall,
                                   ),
                                 ],
@@ -1904,12 +1923,22 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
                                 ],
                                 conflict: conflict,
                               ),
+                              if (info != null &&
+                                  info.bookedRanges.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  '已约时段：${info.bookedRanges.map((r) => '${r.$1}–${r.$2}').join('、')}',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
                               if (closeMin > openMin)
                                 RangeSlider(
                                   min: openMin.toDouble(),
                                   max: closeMin.toDouble(),
-                                  divisions: ((closeMin - openMin) ~/ 30)
-                                      .clamp(1, 48),
+                                  divisions: ((closeMin - openMin) ~/ _kStepMin)
+                                      .clamp(1, 96),
                                   values: RangeValues(
                                     _startMin
                                         .clamp(openMin, closeMin)
@@ -1920,8 +1949,11 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
                                   ),
                                   labels: RangeLabels(_startTime, _endTime),
                                   onChanged: (v) {
-                                    var s = (v.start / 30).round() * 30;
-                                    var e = (v.end / 30).round() * 30;
+                                    var s =
+                                        (v.start / _kStepMin).round() *
+                                        _kStepMin;
+                                    var e =
+                                        (v.end / _kStepMin).round() * _kStepMin;
                                     if (e - s < minDur) {
                                       if (s != _startMin) {
                                         e = (s + minDur).clamp(
@@ -1955,12 +1987,12 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
                                 spacing: 6,
                                 runSpacing: 6,
                                 children: [
-                                  for (final h in quickHours)
+                                  for (final m in quickMinutes)
                                     ChoiceChip(
                                       visualDensity: VisualDensity.compact,
-                                      label: Text('$h 小时'),
-                                      selected: durMin == h * 60,
-                                      onSelected: (_) => _applyDuration(h * 60),
+                                      label: Text(_fmtDuration(m)),
+                                      selected: durMin == m,
+                                      onSelected: (_) => _applyDuration(m),
                                     ),
                                 ],
                               ),

@@ -153,9 +153,18 @@ AddParamPlan resolveAddParam({
   final needsTest = tc.hasTest;
   final needsBook = tc.hasBook && textbookOrderingOpen;
 
-  final testId = selectedTestTeachingClassId?.isNotEmpty == true
-      ? selectedTestTeachingClassId
-      : (tc.testTeachingClassId.isNotEmpty ? tc.testTeachingClassId : null);
+  final trimmedTest = selectedTestTeachingClassId?.trim();
+  final testId = (trimmedTest != null && trimmedTest.isNotEmpty)
+      ? trimmedTest
+      : (tc.testTeachingClassId.trim().isNotEmpty
+          ? tc.testTeachingClassId.trim()
+          : null);
+  final trimmedBook = bookSelection?.trim();
+  final trimmedVolunteer = volunteerGrade?.trim();
+  final cleanVolunteer =
+      (trimmedVolunteer != null && trimmedVolunteer.isNotEmpty)
+          ? trimmedVolunteer
+          : null;
 
   if (needsTest && (testId == null || testId.isEmpty)) {
     throw MissingSelectionError(
@@ -163,7 +172,7 @@ AddParamPlan resolveAddParam({
       reason: '该教学班包含实验课，必须先选择实验教学班 (testTeachingClassID)。',
     );
   }
-  if (needsBook && (bookSelection == null || bookSelection.isEmpty)) {
+  if (needsBook && (trimmedBook == null || trimmedBook.isEmpty)) {
     throw MissingSelectionError(
       teachingClassId: tc.teachingClassId,
       reason: '该教学班需要教材征订，必须先构造教材选择串 (needBook)。',
@@ -177,9 +186,9 @@ AddParamPlan resolveAddParam({
     campus: campus,
     teachingClassType: kind.code,
     isMajor: kind.isMajor,
-    needBook: needsBook ? bookSelection : null,
+    needBook: needsBook ? trimmedBook : null,
     testTeachingClassId: needsTest ? testId : null,
-    chooseVolunteer: volunteerGrade,
+    chooseVolunteer: cleanVolunteer,
   );
 
   final shape = needsTest && needsBook
@@ -195,8 +204,8 @@ AddParamPlan resolveAddParam({
     shape: shape,
     teachingClassId: tc.teachingClassId,
     testTeachingClassId: needsTest ? testId : null,
-    needBook: needsBook ? bookSelection : null,
-    chooseVolunteer: volunteerGrade,
+    needBook: needsBook ? trimmedBook : null,
+    chooseVolunteer: cleanVolunteer,
   );
 }
 
@@ -235,20 +244,22 @@ Map<String, String> buildDeleteVolunteerParam({
 /// Per docs/api.notes.md getSelectJcxx(): ordered book: `<bookCode>`,
 /// declined book: `<bookCode>-<reasonCode>`, joined by commas.
 String buildBookSelection(List<BookChoice> choices) {
+  final parts = <String>[];
   for (final choice in choices) {
+    final code = choice.bookCode.trim();
+    if (code.isEmpty) continue;
     if (!choice.order &&
         (choice.reasonCode.trim().isEmpty ||
             choice.reasonCode.trim() == '***')) {
       throw ArgumentError.value(
         choice.reasonCode,
         'reasonCode',
-        '拒订教材 ${choice.bookCode} 必须选择有效原因',
+        '拒订教材 $code 必须选择有效原因',
       );
     }
+    parts.add(choice.order ? code : '$code-${choice.reasonCode.trim()}');
   }
-  return choices
-      .map((c) => c.order ? c.bookCode : '${c.bookCode}-${c.reasonCode.trim()}')
-      .join(',');
+  return parts.join(',');
 }
 
 /// Resolves the experiment teaching-class ID across the response shapes seen

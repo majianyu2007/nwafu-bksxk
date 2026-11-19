@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Rect;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:path/path.dart' as p;
@@ -22,6 +23,8 @@ Future<IcsExportOutcome> exportText(
       ShareParams(
         files: [XFile(file.path, mimeType: kind.mime)],
         subject: fileName,
+        // Required on iPadOS to anchor the share popover instead of throwing.
+        sharePositionOrigin: const Rect.fromLTWH(0, 0, 1, 1),
       ),
     );
     return r.status == ShareResultStatus.dismissed
@@ -41,7 +44,9 @@ Future<IcsExportOutcome> exportText(
   );
   if (location == null) return IcsExportOutcome.cancelled;
   var path = location.path;
-  if (!path.toLowerCase().endsWith('.${kind.extension}')) {
+  // On macOS/Linux portals, mutating the user-selected path breaks sandbox
+  // grants; only append the extension when the path has none on Windows.
+  if (Platform.isWindows && !path.toLowerCase().endsWith('.${kind.extension}')) {
     path = '$path.${kind.extension}';
   }
   await File(path).writeAsBytes(bytes, flush: true);

@@ -52,6 +52,8 @@ class OnnxCaptchaSolver implements CaptchaSolver {
   String _inputName = 'input1';
   List<String> _charset = const [];
   bool _initFailed = false;
+  DateTime? _lastFailureAt;
+  bool _disposed = false;
   Completer<void>? _initing;
 
   bool get unavailable => _initFailed;
@@ -63,7 +65,17 @@ class OnnxCaptchaSolver implements CaptchaSolver {
   Future<void> warmUp() => _ensureInit();
 
   Future<void> _ensureInit() async {
-    if (_session != null || _initFailed) return;
+    if (_disposed || _session != null) return;
+    if (_initFailed) {
+      // Allow retrying after a cooldown instead of permanently locking out on
+      // a transient asset/WASM fetch failure.
+      final failedAt = _lastFailureAt;
+      if (failedAt != null &&
+          DateTime.now().difference(failedAt) < const Duration(seconds: 30)) {
+        return;
+      }
+      _initFailed = false;
+    }
     if (_initing != null) return _initing!.future;
     final c = Completer<void>();
     _initing = c;
@@ -76,11 +88,16 @@ class OnnxCaptchaSolver implements CaptchaSolver {
       final session = kIsWeb
           ? await OnnxRuntime().createSession('assets/$modelAsset')
           : await OnnxRuntime().createSessionFromAsset(modelAsset);
+      if (_disposed) {
+        await session.close();
+        return;
+      }
       _session = session;
       _inputName =
           session.inputNames.isNotEmpty ? session.inputNames.first : 'input1';
     } catch (_) {
       _initFailed = true;
+      _lastFailureAt = DateTime.now();
     } finally {
       c.complete();
       _initing = null;
@@ -182,6 +199,7 @@ class OnnxCaptchaSolver implements CaptchaSolver {
   }
 
   Future<void> dispose() async {
+    _disposed = true;
     await _session?.close();
     _session = null;
   }

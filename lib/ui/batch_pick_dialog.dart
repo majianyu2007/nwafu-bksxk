@@ -61,8 +61,11 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
   CreditInfo? _credit;
   bool _creditLoading = false;
   bool _reloading = false;
+  int _creditRequest = 0;
   String? _selectedCode;
   late List<ElectiveBatch> _batches = widget.batches;
+
+  bool get _hasOpen => _batches.any((b) => b.canSelect);
 
   @override
   void initState() {
@@ -100,9 +103,12 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
     if (st == null) return;
     final target = _batches.firstWhere(
       (b) => b.code == _selectedCode,
-      orElse: () => _batches.isNotEmpty ? _batches.first : ElectiveBatch(code: '', name: '', batchType: '', canSelect: false),
+      orElse: () => _batches.isNotEmpty
+          ? _batches.first
+          : ElectiveBatch(code: '', name: '', batchType: '', canSelect: false),
     );
     if (target.code.isEmpty) return;
+    final req = ++_creditRequest;
     setState(() => _creditLoading = true);
     try {
       final c = await ref.read(infoServiceProvider).fetchCreditInfo(
@@ -110,11 +116,13 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
             electiveBatchCode: target.code,
             batchType: target.batchType,
           );
-      if (mounted) setState(() => _credit = c);
+      if (mounted && req == _creditRequest) setState(() => _credit = c);
     } catch (_) {
       // non-fatal
     } finally {
-      if (mounted) setState(() => _creditLoading = false);
+      if (mounted && req == _creditRequest) {
+        setState(() => _creditLoading = false);
+      }
     }
   }
 
@@ -123,6 +131,9 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
     final scheme = Theme.of(context).colorScheme;
     final viewportWidth = MediaQuery.sizeOf(context).width;
     final contentWidth = math.min(600.0, math.max(300.0, viewportWidth - 64));
+    final canPick = _hasOpen;
+    final title = canPick ? '选择轮次' : '没有开放的轮次';
+    final subtitle = canPick ? '' : '开放后在首页或此处点「刷新轮次」即可选择。';
     return AlertDialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
@@ -132,7 +143,7 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
         children: [
           Icon(Icons.event_available_outlined, color: scheme.primary),
           const SizedBox(width: 10),
-          Expanded(child: Text(widget.title)),
+          Expanded(child: Text(title)),
         ],
       ),
       content: SizedBox(
@@ -142,8 +153,8 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (widget.subtitle.isNotEmpty) ...[
-                Text(widget.subtitle, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+              if (subtitle.isNotEmpty) ...[
+                Text(subtitle, style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
                 const SizedBox(height: 12),
               ],
               _CreditSummary(credit: _credit, loading: _creditLoading),
@@ -151,7 +162,7 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
               RadioGroup<String>(
                 groupValue: _selectedCode,
                 onChanged: (v) {
-                  if (!widget.canPick || v == null) return;
+                  if (!canPick || v == null) return;
                   setState(() => _selectedCode = v);
                   _loadCredit();
                 },
@@ -163,7 +174,7 @@ class _BatchPickDialogState extends ConsumerState<_BatchPickDialog> {
                         padding: const EdgeInsets.only(bottom: 6),
                         child: RadioListTile<String>(
                           value: b.code,
-                          enabled: widget.canPick && b.canSelect,
+                          enabled: canPick && b.canSelect,
                           dense: true,
                           visualDensity: VisualDensity.compact,
                           contentPadding: const EdgeInsets.symmetric(horizontal: 8),

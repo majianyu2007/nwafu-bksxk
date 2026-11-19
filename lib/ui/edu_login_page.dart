@@ -30,6 +30,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
   String _unlockLabel = '指纹/面容';
   bool _usedDeviceKey = false;
   bool _remember = true;
+  bool _obscurePassword = true;
   bool _trustDevice = false;
   bool _busy = false;
   bool _finished = false;
@@ -527,13 +528,24 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                             TextFormField(
                               controller: _password,
                               enabled: !_busy,
-                              obscureText: true,
+                              obscureText: _obscurePassword,
                               autocorrect: false,
                               enableSuggestions: false,
                               autofillHints: const [AutofillHints.password],
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 labelText: '统一身份认证密码',
-                                prefixIcon: Icon(Icons.lock_outline),
+                                prefixIcon: const Icon(Icons.lock_outline),
+                                suffixIcon: IconButton(
+                                  tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                  ),
+                                  onPressed: () => setState(
+                                    () => _obscurePassword = !_obscurePassword,
+                                  ),
+                                ),
                               ),
                               validator: (v) =>
                                   v == null || v.isEmpty ? '请输入密码' : null,
@@ -577,13 +589,17 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                               ],
                               onChanged: _busy
                                   ? null
-                                  : (value) => setState(() {
-                                      _method = value;
-                                      _code.clear();
-                                      _notice = null;
-                                      _error = null;
-                                      _sentMethods.clear();
-                                    }),
+                                  : (value) {
+                                      _cooldown?.cancel();
+                                      setState(() {
+                                        _method = value;
+                                        _code.clear();
+                                        _notice = null;
+                                        _error = null;
+                                        _seconds = 0;
+                                        _sentMethods.clear();
+                                      });
+                                    },
                             ),
                           const SizedBox(height: 16),
                           if (method == null)
@@ -592,7 +608,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                             TextFormField(
                               controller: _code,
                               enabled: !_busy,
-                              obscureText: true,
+                              obscureText: method == MfaMethod.password,
                               autocorrect: false,
                               enableSuggestions: false,
                               keyboardType: method == MfaMethod.password

@@ -31,4 +31,17 @@ void main() {
     await cache.clear();
     expect(storage.cacheGet(key), isNull);
   });
+
+  test('clear only deletes CourseCache entries and preserves catalog keys', () async {
+    SharedPreferences.setMockInitialValues({});
+    final storage = Storage(await SharedPreferences.getInstance());
+    final cache = CourseCache(storage);
+    final key = CourseCache.key(accountId: 'A', batchCode: 'B', kind: 'FANKC');
+    await cache.write(key, const [{'courseNumber': '1'}]);
+    await storage.cacheSet('catalog.v1:scope:complete', '{"pages":1}');
+
+    await cache.clear();
+    expect(storage.cacheGet(key), isNull);
+    expect(storage.cacheGet('catalog.v1:scope:complete'), '{"pages":1}');
+  });
 }

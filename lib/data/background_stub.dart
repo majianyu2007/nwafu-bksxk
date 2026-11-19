@@ -5,6 +5,7 @@ import 'background.dart';
 
 Future<void> init() async {}
 void attach(BackgroundHost host) {}
+void detach(BackgroundHost host) {}
 Future<void> setMonitoring(bool running,
     {required bool runInBackground, required bool keepAwake}) async {}
 Future<void> setCloseToTray(bool enabled) async {}

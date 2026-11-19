@@ -180,4 +180,22 @@ void main() {
     expect(lines, contains('DTEND;TZID=Asia/Shanghai:20261222T163000'));
     expect(lines.any((l) => l.contains('大学英语') || l.contains('体育')), isFalse);
   });
+
+  test('examSlot handles double-date/seconds and rejects invalid minutes', () {
+    final ok = examSlot(const ExamEntry(
+      courseName: '计算机网络',
+      date: '2026-12-21',
+      time: '2026-12-21 09:00:00 - 2026-12-21 11:00:00',
+    ));
+    expect(ok, isNotNull);
+    expect(ok!.start, DateTime.utc(2026, 12, 21, 1, 0));
+    expect(ok.end, DateTime.utc(2026, 12, 21, 3, 0));
+
+    final bad = examSlot(const ExamEntry(
+      courseName: '无效时间',
+      date: '2026-12-21',
+      time: '09:00-11:99',
+    ));
+    expect(bad, isNull);
+  });
 }

@@ -46,6 +46,8 @@ class EhallService {
   /// A web client must never save another student's data under this identity.
   String? expectedUsername;
   final _ready = <EmapApp>{};
+  final _activating = <EmapApp, Future<void>>{};
+  Future<bool>? _recovering;
   int _generation = 0;
 
   /// Called when the CAS login is gone and a fresh one is needed. Should
@@ -59,11 +61,23 @@ class EhallService {
   void reset() {
     _generation++;
     _ready.clear();
+    _activating.clear();
   }
 
   /// Visits the app's index (exchanging a CAS ticket) and calls its
-  /// getAppConfig so the data endpoints answer.
-  Future<void> activate(EmapApp app) async {
+  /// getAppConfig so the data endpoints answer. Serialized per app so parallel
+  /// requests don't race through redundant CAS ticket exchanges.
+  Future<void> activate(EmapApp app) {
+    final existing = _activating[app];
+    if (existing != null) return existing;
+    final future = _doActivate(app);
+    _activating[app] = future;
+    return future.whenComplete(() {
+      if (identical(_activating[app], future)) _activating.remove(app);
+    });
+  }
+
+  Future<void> _doActivate(EmapApp app) async {
     final generation = _generation;
     final last = await cas.follow(app.indexUrl);
     if (last.realUri.host != Uri.parse(kEhallOrigin).host ||
@@ -183,7 +197,17 @@ class EhallService {
     hint: '请重新登录；已同步的数据仍可离线查看。',
   );
 
-  Future<bool> _recoverLogin(EmapApp app) async {
+  Future<bool> _recoverLogin(EmapApp app) {
+    final existing = _recovering;
+    if (existing != null) return existing;
+    final future = _doRecoverLogin(app);
+    _recovering = future;
+    return future.whenComplete(() {
+      if (identical(_recovering, future)) _recovering = null;
+    });
+  }
+
+  Future<bool> _doRecoverLogin(EmapApp app) async {
     if (!await cas.hasLogin(app.indexUrl)) {
       if (!await (onLoginRequired?.call() ?? Future.value(false))) return false;
     }

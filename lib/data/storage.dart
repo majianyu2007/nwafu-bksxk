@@ -563,8 +563,9 @@ class Storage {
   Future<void> cacheSet(String key, String value) =>
       _prefs.setString('$_kCache::$key', value);
   Future<void> cacheRemove(String key) => _prefs.remove('$_kCache::$key');
-  Future<void> cacheClear() async {
-    for (final k in _prefs.getKeys().where((k) => k.startsWith('$_kCache::'))) {
+  Future<void> cacheClear({String prefix = ''}) async {
+    final full = '$_kCache::$prefix';
+    for (final k in _prefs.getKeys().where((k) => k.startsWith(full)).toList()) {
       await _prefs.remove(k);
     }
   }

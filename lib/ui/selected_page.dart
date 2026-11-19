@@ -145,7 +145,10 @@ class SelectedPage extends ConsumerWidget {
             maxColumns: 3,
             spacing: 10,
             runSpacing: 10,
-            children: [for (final tc in list) _SelectedCard(tc: tc)],
+            children: [
+              for (final tc in list)
+                _SelectedCard(key: ValueKey(tc.teachingClassId), tc: tc),
+            ],
           ));
           items.add(const SizedBox(height: 10));
         }
@@ -309,7 +312,7 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _SelectedCard extends ConsumerStatefulWidget {
-  const _SelectedCard({required this.tc});
+  const _SelectedCard({super.key, required this.tc});
   final TeachingClass tc;
 
   @override
@@ -317,7 +320,8 @@ class _SelectedCard extends ConsumerStatefulWidget {
 }
 
 class _SelectedCardState extends ConsumerState<_SelectedCard> {
-  bool _busy = false;
+  String? _busyAction;
+  bool get _busy => _busyAction != null;
 
   @override
   Widget build(BuildContext context) {
@@ -407,18 +411,18 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
                 if (canOrderBook)
                   OutlinedButton(
                     onPressed: _busy ? null : _orderBooks,
-                    child: const Text('订购教材'),
+                    child: Text(_busyAction == 'order' ? '订购中…' : '订购教材'),
                   ),
                 if (canCancelBook)
                   OutlinedButton(
                     onPressed: _busy ? null : _cancelBooks,
-                    child: const Text('退订教材'),
+                    child: Text(_busyAction == 'cancel' ? '处理中…' : '退订教材'),
                   ),
                 Tooltip(
                   message: dropHint ?? '',
                   child: OutlinedButton.icon(
                     onPressed: _busy || !canDrop ? null : _confirmDrop,
-                    icon: _busy
+                    icon: _busyAction == 'drop'
                         ? const SizedBox(
                             height: 16,
                             width: 16,
@@ -453,21 +457,30 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
         ],
       ),
     );
-    if (ok != true) return;
+    if (ok != true || !mounted) return;
+    final session = ref.read(sessionProvider);
+    final student = session.student;
+    final batch = session.activeBatch;
+    if (student == null || batch == null) return;
 
-    setState(() => _busy = true);
+    setState(() => _busyAction = 'drop');
     try {
-      final session = ref.read(sessionProvider);
       final enroll = ref.read(enrollServiceProvider);
       final outcome = await enroll.dropCourse(
         teachingClassId: widget.tc.teachingClassId,
-        studentCode: session.student!.studentCode,
-        batchCode: session.activeBatch!.code,
+        studentCode: student.studentCode,
+        batchCode: batch.code,
       );
       if (!mounted) return;
-      showToast(context, outcome.message, success: outcome.success);
-      if (outcome.success) {
+      showToast(
+        context,
+        outcome.message,
+        success: outcome.success ? true : (outcome.pending ? null : false),
+      );
+      if (outcome.success || outcome.pending) {
         bumpCurrentSelectionRevision(ref);
+      }
+      if (outcome.success) {
         NotificationService.instance.dropped(
           courseName: widget.tc.courseName,
           className: widget.tc.displayTitle,
@@ -477,7 +490,7 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
       if (!mounted) return;
       showToast(context, '$e', success: false);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _busyAction = null);
     }
   }
 
@@ -497,13 +510,16 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
         ],
       ),
     );
-    if (ok != true) return;
-    setState(() => _busy = true);
+    if (ok != true || !mounted) return;
+    final session = ref.read(sessionProvider);
+    final student = session.student;
+    final batch = session.activeBatch;
+    if (student == null || batch == null) return;
+    setState(() => _busyAction = 'order');
     try {
-      final session = ref.read(sessionProvider);
       final res = await ref.read(courseServiceProvider).orderTextbooks(
-            studentCode: session.student!.studentCode,
-            batchCode: session.activeBatch!.code,
+            studentCode: student.studentCode,
+            batchCode: batch.code,
             teachingClassId: widget.tc.teachingClassId,
           );
       if (!mounted) return;
@@ -514,7 +530,7 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
     } catch (e) {
       if (mounted) showToast(context, '$e', success: false);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _busyAction = null);
     }
   }
 
@@ -522,9 +538,10 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
   /// pick which to cancel, with a reason each; modifybook.do czlx=0.
   Future<void> _cancelBooks() async {
     final session = ref.read(sessionProvider);
-    final student = session.student!;
-    final batch = session.activeBatch!;
-    setState(() => _busy = true);
+    final student = session.student;
+    final batch = session.activeBatch;
+    if (student == null || batch == null) return;
+    setState(() => _busyAction = 'cancel');
     try {
       final course = ref.read(courseServiceProvider);
       final results = await Future.wait([
@@ -548,7 +565,11 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
       final selection = await showAdaptiveSheet<TextbookSelection>(
         context,
         scrollControlled: true,
-        builder: (context) => TextbookPicker(options: options, title: '退订教材'),
+        builder: (context) => TextbookPicker(
+          options: options,
+          title: '退订教材',
+          subtitle: '取消勾选要退订的教材，并选择不订购原因',
+        ),
       );
       if (selection == null || !mounted) return;
       // Only declined books (bookCode-reason) are sent for a cancellation.
@@ -572,7 +593,7 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
     } catch (e) {
       if (mounted) showToast(context, '$e', success: false);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _busyAction = null);
     }
   }
 }

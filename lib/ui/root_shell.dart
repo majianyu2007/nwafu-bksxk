@@ -217,6 +217,7 @@ class _RootShellState extends ConsumerState<RootShell>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     NotificationService.instance.detachTapHandler(_openNotificationTarget);
+    AppBackground.instance.detach(this);
     super.dispose();
   }
 
