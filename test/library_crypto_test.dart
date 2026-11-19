@@ -102,5 +102,24 @@ void main() {
       expect(day.maxPerson, 8);
       expect(day.bookedRanges, [('10:00', '12:00')]);
     });
+
+    test('LibraryArea.fromJson resolves firstimg relative and absolute URLs', () {
+      final rel = LibraryArea.fromJson({
+        'id': 401,
+        'name': '201研讨室',
+        'firstimg': '/Uploads/space/201.jpg',
+      });
+      expect(
+        rel.imageUrl,
+        'https://booking-lib.nwafu.edu.cn/Uploads/space/201.jpg',
+      );
+
+      final abs = LibraryArea.fromJson({
+        'id': 402,
+        'name': '202研讨室',
+        'thumb_img': 'https://cdn.example.com/202.png',
+      });
+      expect(abs.imageUrl, 'https://cdn.example.com/202.png');
+    });
   });
 }

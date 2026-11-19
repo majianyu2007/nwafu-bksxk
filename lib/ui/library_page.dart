@@ -9,6 +9,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../app/edu_providers.dart';
 import '../app/ui_prefs.dart';
@@ -314,6 +315,17 @@ class _AreaTile extends ConsumerWidget {
             },
       child: Row(
         children: [
+          if (kind == LibraryKind.space && area.imageUrl.isNotEmpty) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 72,
+                height: 54,
+                child: _LibraryImage(url: area.imageUrl, fit: BoxFit.cover),
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1305,8 +1317,80 @@ class _FloorplanSeatMapState extends ConsumerState<_FloorplanSeatMap> {
   }
 }
 
-/// Native seminar room booking sheet (date, time range, title/content/mobile,
-/// teammate lookup by student card, AES-encrypted submit).
+/// In-memory session cache for library images fetched through Dio/bridge.
+final _libImageCache = <String, Uint8List>{};
+
+class _LibraryImage extends ConsumerStatefulWidget {
+  const _LibraryImage({required this.url, this.fit = BoxFit.cover});
+  final String url;
+  final BoxFit fit;
+
+  @override
+  ConsumerState<_LibraryImage> createState() => _LibraryImageState();
+}
+
+class _LibraryImageState extends ConsumerState<_LibraryImage> {
+  Uint8List? _bytes;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LibraryImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) _load();
+  }
+
+  Future<void> _load() async {
+    final cached = _libImageCache[widget.url];
+    if (cached != null) {
+      setState(() {
+        _bytes = cached;
+        _failed = false;
+      });
+      return;
+    }
+    try {
+      final data = await ref
+          .read(libraryServiceProvider)
+          .fetchImageBytes(widget.url);
+      _libImageCache[widget.url] = data;
+      if (!mounted) return;
+      setState(() {
+        _bytes = data;
+        _failed = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (_bytes != null) {
+      return Image.memory(_bytes!, fit: widget.fit, gaplessPlayback: true);
+    }
+    return ColoredBox(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.6),
+      child: Center(
+        child: Icon(
+          _failed ? Icons.meeting_room_outlined : Icons.image_outlined,
+          size: 22,
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+/// Native seminar room booking sheet: real room photo, visual day timeline,
+/// auto-clamped duration chips (1h..max 4h) + RangeSlider, teammate lookup,
+/// remembered phone number, and AES-encrypted submit.
 class _SeminarBookSheet extends ConsumerStatefulWidget {
   const _SeminarBookSheet({required this.area});
   final LibraryArea area;
@@ -1316,6 +1400,8 @@ class _SeminarBookSheet extends ConsumerStatefulWidget {
 }
 
 class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
+  static const _kSavedMobile = 'ui.lib_mobile.v1';
+
   List<String>? _dates;
   int _dateIndex = 0;
   LibrarySeminarDay? _dayInfo;
@@ -1324,8 +1410,9 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
   bool _addingMember = false;
   String? _errorText;
 
-  String _startTime = '08:00';
-  String _endTime = '10:00';
+  /// Selected range in minutes from midnight (snapped to 30-min intervals).
+  int _startMin = 8 * 60;
+  int _endMin = 12 * 60;
   final _title = TextEditingController();
   final _content = TextEditingController();
   final _mobile = TextEditingController();
@@ -1335,7 +1422,18 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
   @override
   void initState() {
     super.initState();
+    _restoreMobile();
     _loadDates();
+  }
+
+  Future<void> _restoreMobile() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_kSavedMobile);
+      if (saved != null && saved.isNotEmpty && mounted && _mobile.text.isEmpty) {
+        _mobile.text = saved;
+      }
+    } catch (_) {}
   }
 
   @override
@@ -1347,23 +1445,85 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
     super.dispose();
   }
 
-  List<String> _halfHourSlots(String start, String end) {
-    int toMin(String hhmm) {
-      final p = hhmm.split(':');
-      final h = int.tryParse(p.first) ?? 8;
-      final m = p.length > 1 ? int.tryParse(p[1]) ?? 0 : 0;
-      return h * 60 + m;
+  static int _toMin(String hhmm, int fallback) {
+    final p = hhmm.split(':');
+    final h = int.tryParse(p.first);
+    final m = p.length > 1 ? int.tryParse(p[1]) ?? 0 : 0;
+    if (h == null) return fallback;
+    return h * 60 + m;
+  }
+
+  static String _fmtMin(int minutes) {
+    final h = (minutes ~/ 60).clamp(0, 23).toString().padLeft(2, '0');
+    final m = (minutes % 60).clamp(0, 59).toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  String get _startTime => _fmtMin(_startMin);
+  String get _endTime => _fmtMin(_endMin);
+
+  bool _hasBookedConflict(int start, int end) {
+    final info = _dayInfo;
+    if (info == null) return false;
+    for (final (bs, be) in info.bookedRanges) {
+      final s = _toMin(bs, 0);
+      final e = _toMin(be, 0);
+      if (start < e && end > s) return true;
+    }
+    return false;
+  }
+
+  /// Picks the first non-conflicting window of up to [preferredMinutes]
+  /// (defaulting to maxDurationMinutes, typically 4 hours).
+  void _pickSmartWindow(LibrarySeminarDay info, {int? preferredMinutes}) {
+    final openMin = _toMin(info.openStart, 8 * 60);
+    final closeMin = _toMin(info.openEnd, 22 * 60);
+    final minDur = info.minDurationMinutes.clamp(30, 240);
+    final maxDur = info.maxDurationMinutes.clamp(minDur, 480);
+    final target = (preferredMinutes ?? maxDur).clamp(minDur, maxDur);
+
+    // If booking today, don't start in the past (snap up to next 30-min mark).
+    final now = DateTime.now().toUtc().add(const Duration(hours: 8));
+    final todayStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    var earliest = openMin;
+    if (info.day == todayStr) {
+      final nowMin = now.hour * 60 + now.minute;
+      final snapped = ((nowMin + 29) ~/ 30) * 30;
+      if (snapped > earliest) earliest = snapped;
     }
 
-    final s = toMin(start);
-    final e = toMin(end);
-    final out = <String>[];
-    for (var m = s; m <= e; m += 30) {
-      final hh = (m ~/ 60).toString().padLeft(2, '0');
-      final mm = (m % 60).toString().padLeft(2, '0');
-      out.add('$hh:$mm');
+    // Try to find the earliest free slot of [target] length, else [minDur].
+    for (final dur in [target, minDur]) {
+      for (var s = earliest; s + dur <= closeMin; s += 30) {
+        if (!_hasBookedConflict(s, s + dur)) {
+          _startMin = s;
+          _endMin = s + dur;
+          return;
+        }
+      }
     }
-    return out;
+    _startMin = earliest.clamp(openMin, (closeMin - minDur).clamp(openMin, closeMin));
+    _endMin = (_startMin + target).clamp(_startMin + minDur, closeMin);
+  }
+
+  /// Applies a quick duration (e.g. 60/120/180/240 min) from current start,
+  /// automatically clamping to closing time and max duration.
+  void _applyDuration(int minutes) {
+    final info = _dayInfo;
+    if (info == null) return;
+    final openMin = _toMin(info.openStart, 8 * 60);
+    final closeMin = _toMin(info.openEnd, 22 * 60);
+    var s = _startMin.clamp(openMin, closeMin - 30);
+    var e = s + minutes;
+    if (e > closeMin) {
+      e = closeMin;
+      s = (e - minutes).clamp(openMin, e - 30);
+    }
+    setState(() {
+      _startMin = s;
+      _endMin = e;
+    });
   }
 
   Future<void> _loadDates() async {
@@ -1405,14 +1565,10 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
             day: day,
           );
       if (!mounted) return;
-      final slots = _halfHourSlots(info.openStart, info.openEnd);
       setState(() {
         _dayInfo = info;
         _loadingDay = false;
-        if (slots.length >= 3) {
-          _startTime = slots.first;
-          _endTime = slots[2];
-        }
+        _pickSmartWindow(info);
       });
     } catch (e) {
       if (!mounted) return;
@@ -1461,7 +1617,8 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
 
   Future<void> _submit() async {
     if (_submitting || _dates == null || _dates!.isEmpty) return;
-    final minP = _dayInfo?.minPerson ?? 1;
+    final info = _dayInfo;
+    final minP = info?.minPerson ?? 1;
     if (_members.length + 1 < minP) {
       showToast(context, '至少还需要添加 ${minP - 1 - _members.length} 名参与成员');
       return;
@@ -1478,12 +1635,20 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
       showToast(context, '请填写联系电话');
       return;
     }
-    if (_startTime.compareTo(_endTime) >= 0) {
+    if (_endMin <= _startMin) {
       showToast(context, '结束时间需晚于开始时间');
+      return;
+    }
+    if (_hasBookedConflict(_startMin, _endMin)) {
+      showToast(context, '所选时段与已有预约冲突，请调整时间');
       return;
     }
     setState(() => _submitting = true);
     try {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_kSavedMobile, _mobile.text.trim());
+      } catch (_) {}
       final msg = await ref
           .read(libraryServiceProvider)
           .bookSeminar(
@@ -1509,15 +1674,30 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final info = _dayInfo;
-    final slots = info == null
-        ? const ['08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00']
-        : _halfHourSlots(info.openStart, info.openEnd);
+    final openMin = info == null ? 8 * 60 : _toMin(info.openStart, 8 * 60);
+    final closeMin = info == null ? 22 * 60 : _toMin(info.openEnd, 22 * 60);
+    final minDur = (info?.minDurationMinutes ?? 60).clamp(30, 240);
+    final maxDur = (info?.maxDurationMinutes ?? 240).clamp(minDur, 480);
+    final durMin = (_endMin - _startMin).clamp(0, 24 * 60);
+    final durHours = durMin / 60;
+    final durLabel = durHours == durHours.roundToDouble()
+        ? '${durHours.toStringAsFixed(0)} 小时'
+        : '${durHours.toStringAsFixed(1)} 小时';
+    final maxHoursLabel = (maxDur / 60).toStringAsFixed(
+      maxDur % 60 == 0 ? 0 : 1,
+    );
+    final conflict = _hasBookedConflict(_startMin, _endMin);
     final minNeed = ((info?.minPerson ?? 1) - 1).clamp(0, 99);
+    final quickHours = [
+      for (final h in const [1, 2, 3, 4])
+        if (h * 60 >= minDur && h * 60 <= maxDur) h,
+    ];
 
     return SafeArea(
       child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.84,
+        height: MediaQuery.sizeOf(context).height * 0.86,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           child: Column(
@@ -1541,6 +1721,8 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
                             widget.area.floor,
                             if (info != null)
                               '${info.minPerson}–${info.maxPerson} 人',
+                            if (info != null)
+                              '开放 ${info.openStart}–${info.openEnd}',
                           ].where((s) => s.isNotEmpty).join(' · '),
                           style: theme.textTheme.bodySmall,
                         ),
@@ -1581,6 +1763,26 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
                 Expanded(
                   child: ListView(
                     children: [
+                      if (widget.area.imageUrl.isNotEmpty) ...[
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: SizedBox(
+                            height: 152,
+                            child: _LibraryImage(
+                              url: widget.area.imageUrl,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      if (widget.area.description.isNotEmpty) ...[
+                        Text(
+                          widget.area.description,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
@@ -1600,59 +1802,122 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       if (_loadingDay)
                         const LinearProgressIndicator()
                       else ...[
-                        if (info != null && info.bookedRanges.isNotEmpty) ...[
-                          Text(
-                            '当日已约时段：${info.bookedRanges.map((r) => '${r.$1}–${r.$2}').join('、')}',
-                            style: theme.textTheme.bodySmall,
+                        GlassCard(
+                          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                          tint: conflict ? scheme.error : scheme.primary,
+                          tintAmount: 0.06,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '$_startTime – $_endTime · 共 $durLabel',
+                                      style: theme.textTheme.titleSmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                            color: conflict
+                                                ? scheme.error
+                                                : scheme.primary,
+                                          ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '上限 $maxHoursLabel 小时',
+                                    style: theme.textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              _SeminarTimelineBar(
+                                openMin: openMin,
+                                closeMin: closeMin,
+                                startMin: _startMin,
+                                endMin: _endMin,
+                                bookedRanges: [
+                                  for (final (bs, be)
+                                      in info?.bookedRanges ??
+                                          const <(String, String)>[])
+                                    (_toMin(bs, openMin), _toMin(be, openMin)),
+                                ],
+                                conflict: conflict,
+                              ),
+                              if (closeMin > openMin)
+                                RangeSlider(
+                                  min: openMin.toDouble(),
+                                  max: closeMin.toDouble(),
+                                  divisions: ((closeMin - openMin) ~/ 30)
+                                      .clamp(1, 48),
+                                  values: RangeValues(
+                                    _startMin
+                                        .clamp(openMin, closeMin)
+                                        .toDouble(),
+                                    _endMin
+                                        .clamp(openMin, closeMin)
+                                        .toDouble(),
+                                  ),
+                                  labels: RangeLabels(_startTime, _endTime),
+                                  onChanged: (v) {
+                                    var s = (v.start / 30).round() * 30;
+                                    var e = (v.end / 30).round() * 30;
+                                    if (e - s < minDur) {
+                                      if (s != _startMin) {
+                                        e = (s + minDur).clamp(
+                                          openMin,
+                                          closeMin,
+                                        );
+                                        s = (e - minDur).clamp(
+                                          openMin,
+                                          closeMin,
+                                        );
+                                      } else {
+                                        s = (e - minDur).clamp(
+                                          openMin,
+                                          closeMin,
+                                        );
+                                      }
+                                    } else if (e - s > maxDur) {
+                                      if (s != _startMin) {
+                                        e = s + maxDur;
+                                      } else {
+                                        s = e - maxDur;
+                                      }
+                                    }
+                                    setState(() {
+                                      _startMin = s.clamp(openMin, closeMin);
+                                      _endMin = e.clamp(openMin, closeMin);
+                                    });
+                                  },
+                                ),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  for (final h in quickHours)
+                                    ChoiceChip(
+                                      visualDensity: VisualDensity.compact,
+                                      label: Text('$h 小时'),
+                                      selected: durMin == h * 60,
+                                      onSelected: (_) => _applyDuration(h * 60),
+                                    ),
+                                ],
+                              ),
+                              if (conflict) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  '与当日已约时段重叠，请拖动滑块避开灰色区间',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: scheme.error,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
-                          const SizedBox(height: 8),
-                        ],
-                        Row(
-                          children: [
-                            Expanded(
-                              child: DropdownButtonFormField<String>(
-                                initialValue: slots.contains(_startTime)
-                                    ? _startTime
-                                    : slots.first,
-                                decoration: const InputDecoration(
-                                  labelText: '开始时间',
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
-                                items: [
-                                  for (final t in slots)
-                                    DropdownMenuItem(value: t, child: Text(t)),
-                                ],
-                                onChanged: (v) {
-                                  if (v != null) setState(() => _startTime = v);
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: DropdownButtonFormField<String>(
-                                initialValue: slots.contains(_endTime)
-                                    ? _endTime
-                                    : slots.last,
-                                decoration: const InputDecoration(
-                                  labelText: '结束时间',
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
-                                items: [
-                                  for (final t in slots)
-                                    DropdownMenuItem(value: t, child: Text(t)),
-                                ],
-                                onChanged: (v) {
-                                  if (v != null) setState(() => _endTime = v);
-                                },
-                              ),
-                            ),
-                          ],
                         ),
                         const SizedBox(height: 12),
                         TextField(
@@ -1680,7 +1945,7 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
                           controller: _mobile,
                           keyboardType: TextInputType.phone,
                           decoration: const InputDecoration(
-                            labelText: '联系电话',
+                            labelText: '联系电话（自动记住）',
                             border: OutlineInputBorder(),
                             isDense: true,
                           ),
@@ -1733,7 +1998,7 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
                         ],
                         const SizedBox(height: 16),
                         FilledButton(
-                          onPressed: _submitting ? null : _submit,
+                          onPressed: _submitting || conflict ? null : _submit,
                           child: Text(_submitting ? '提交中…' : '确认预约研讨室'),
                         ),
                       ],
@@ -1744,6 +2009,70 @@ class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SeminarTimelineBar extends StatelessWidget {
+  const _SeminarTimelineBar({
+    required this.openMin,
+    required this.closeMin,
+    required this.startMin,
+    required this.endMin,
+    required this.bookedRanges,
+    required this.conflict,
+  });
+
+  final int openMin;
+  final int closeMin;
+  final int startMin;
+  final int endMin;
+  final List<(int, int)> bookedRanges;
+  final bool conflict;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final span = (closeMin - openMin).clamp(1, 24 * 60);
+    return LayoutBuilder(
+      builder: (context, c) {
+        final w = c.maxWidth;
+        double x(int m) => ((m - openMin) / span).clamp(0.0, 1.0) * w;
+        final selLeft = x(startMin);
+        final selWidth = (x(endMin) - selLeft).clamp(2.0, w);
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: SizedBox(
+            height: 14,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ColoredBox(color: scheme.surfaceContainerHighest),
+                for (final (bs, be) in bookedRanges)
+                  Positioned(
+                    left: x(bs),
+                    width: (x(be) - x(bs)).clamp(2.0, w),
+                    top: 0,
+                    bottom: 0,
+                    child: ColoredBox(
+                      color: scheme.outline.withValues(alpha: 0.45),
+                    ),
+                  ),
+                Positioned(
+                  left: selLeft,
+                  width: selWidth,
+                  top: 0,
+                  bottom: 0,
+                  child: ColoredBox(
+                    color: (conflict ? scheme.error : scheme.primary)
+                        .withValues(alpha: 0.85),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

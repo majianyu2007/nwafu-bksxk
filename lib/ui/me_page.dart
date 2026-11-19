@@ -20,9 +20,11 @@ import '../app/portal_providers.dart';
 import 'degree_page.dart';
 import 'free_rooms_page.dart';
 import 'library_page.dart';
+import 'login_page.dart';
 import 'portal_inbox_page.dart';
 import 'layout.dart';
 import 'settings_page.dart';
+import 'widgets.dart';
 import 'widgets/glass.dart';
 
 /// A tool shown on 我的. Features add themselves to [meTools].
@@ -272,6 +274,13 @@ class _ProfileCard extends ConsumerWidget {
                 icon: Icons.checklist,
                 label: selection.isEmpty ? '选课未登录' : '选课已登录',
                 ok: selection.isNotEmpty,
+                onTap: selection.isEmpty
+                    ? () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const LoginPage(),
+                        ),
+                      )
+                    : null,
               ),
               if (kIsWeb)
                 _StatusChip(
@@ -279,15 +288,29 @@ class _ProfileCard extends ConsumerWidget {
                   label: isFullCampusBridgeReady
                       ? '桥接 ${installedWebBridgeVersion ?? ''} 已就绪'.trim()
                       : isWebBridgeReady
-                      ? '桥接脚本可更新'
-                      : '未检测到桥接脚本',
+                      ? '更新桥接脚本'
+                      : '安装桥接脚本',
                   ok: isFullCampusBridgeReady,
+                  onTap: isFullCampusBridgeReady
+                      ? null
+                      : () {
+                          openWebBridgeInstaller();
+                          showToast(context, '已打开桥接脚本页面，更新后刷新本页即可生效');
+                        },
                 )
               else ...[
                 _StatusChip(
                   icon: unlock?.icon ?? Icons.fingerprint,
                   label: '${unlock?.label ?? '快捷'}登录${bound ? '已开' : '未开'}',
                   ok: bound,
+                  onTap: bound
+                      ? null
+                      : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                const SettingsScreen(section: '账号与安全'),
+                          ),
+                        ),
                 ),
                 if (route != CampusRoute.unknown)
                   _StatusChip(
@@ -316,29 +339,54 @@ class _StatusChip extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.ok,
+    this.onTap,
   });
   final IconData icon;
   final String label;
   final bool ok;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final color = ok ? scheme.primary : scheme.onSurfaceVariant;
-    return Container(
+    final actionable = onTap != null;
+    final color = ok
+        ? scheme.primary
+        : actionable
+        ? scheme.tertiary
+        : scheme.onSurfaceVariant;
+    final child = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 15, color: color),
           const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 12.5, color: color)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: actionable ? FontWeight.w600 : FontWeight.w400,
+              color: color,
+            ),
+          ),
+          if (actionable) ...[
+            const SizedBox(width: 2),
+            Icon(Icons.chevron_right, size: 14, color: color),
+          ],
         ],
       ),
+    );
+    return Material(
+      color: color.withValues(alpha: actionable ? 0.14 : 0.1),
+      borderRadius: BorderRadius.circular(20),
+      child: actionable
+          ? InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: onTap,
+              child: child,
+            )
+          : child,
     );
   }
 }

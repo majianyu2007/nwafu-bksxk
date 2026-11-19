@@ -52,11 +52,15 @@ class LibraryArea {
     this.capacity,
     this.fullyBooked = false,
     this.description = '',
+    this.imageUrl = '',
   });
 
   factory LibraryArea.fromJson(Map<String, dynamic> j) {
     int? n(Object? v) => v == null ? null : int.tryParse('$v');
     final merge = '${j['nameMerge'] ?? ''}'.split('-');
+    final rawImg =
+        '${j['firstimg'] ?? j['thumb_img'] ?? j['top_img'] ?? j['img'] ?? j['image'] ?? ''}'
+            .trim();
     return LibraryArea(
       id: '${j['id']}',
       parentId: '${j['parentId'] ?? j['parent_id'] ?? j['area'] ?? ''}',
@@ -69,6 +73,7 @@ class LibraryArea {
       capacity: n(j['maxPerson']),
       fullyBooked: '${j['Fully_Booked'] ?? '0'}' == '1',
       description: '${j['sub_title'] ?? ''}'.trim(),
+      imageUrl: LibrarySeatMap._resolveUrl(rawImg),
     );
   }
 
@@ -87,6 +92,7 @@ class LibraryArea {
   final int? capacity;
   final bool fullyBooked;
   final String description;
+  final String imageUrl;
 }
 
 /// A bookable time slot within a day (`/api/Seat/date` → `times[]`).
