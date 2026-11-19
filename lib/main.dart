@@ -132,3 +132,4 @@ String debugDay(int y, int m, int d) => debugContainer!
     )
     .join('; ');
 void debugProbeLibrary() => live_probe.probeLibrary(debugContainer!);
+void debugProbeAcademic() => live_probe.probeAcademic(debugContainer!);

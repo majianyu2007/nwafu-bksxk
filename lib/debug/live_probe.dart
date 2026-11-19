@@ -215,3 +215,22 @@ void probeLibrary(ProviderContainer c) => probe(() async {
       'mySeat ${mine.length} first ${mine.isEmpty ? '' : '${mine.first.place} ${mine.first.seat} ${mine.first.day} ${mine.first.statusName}'}\n'
       'roomBookings $rb\nmember ${m.roleName} qr ${m.qrImage != null}';
 });
+
+void probeAcademic(ProviderContainer c) => probe(() async {
+  final client = c.read(eduClientProvider);
+  final studentId = c.read(eduSessionProvider).account?.username ?? '';
+  final out = StringBuffer();
+  try {
+    final a = await client.ehall.degreeAudit(studentId);
+    out.writeln('degree ok: ${a.toString().substring(0, a.toString().length.clamp(0, 400))}');
+  } catch (e) {
+    out.writeln('degree ERR $e');
+  }
+  try {
+    final inbox = await client.portal.unreadCount();
+    out.writeln('unread $inbox');
+  } catch (e) {
+    out.writeln('portal ERR $e');
+  }
+  return out.toString();
+});
