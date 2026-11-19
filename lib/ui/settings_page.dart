@@ -25,7 +25,25 @@ import 'widgets/glass.dart';
 import 'account_access_settings.dart';
 import 'sync_settings.dart';
 
-/// 设置, reached from 我的. [section] scrolls to one group (e.g. 版本与更新).
+/// A top-level category in [SettingsScreen].
+class _SettingsCategory {
+  const _SettingsCategory({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.children,
+  });
+
+  final String id;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final List<Widget> children;
+}
+
+/// 设置, reached from 我的. [section] opens a specific category directly
+/// (e.g. '版本与更新').
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key, this.section});
   final String? section;
@@ -35,81 +53,252 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  final _keys = <String, GlobalKey>{};
+  late int _selectedIndex;
 
-  GlobalKey _key(String title) => _keys.putIfAbsent(title, GlobalKey.new);
+  List<_SettingsCategory> _categories() => const [
+    _SettingsCategory(
+      id: '账号与安全',
+      title: '账号与安全',
+      subtitle: kIsWeb ? '教务会话、选课账号' : '统一身份认证、通行密钥、校外访问、选课账号',
+      icon: Icons.shield_outlined,
+      children: [
+        _EduSettings(),
+        if (!kIsWeb) DeviceSignInSetting(),
+        if (!kIsWeb) CampusAccessSetting(),
+        _Accounts(),
+      ],
+    ),
+    _SettingsCategory(
+      id: '课表与提醒',
+      title: '课表与提醒',
+      subtitle: kIsWeb ? '视图密度、课程显示' : '视图密度、课前提醒、后台同步与日历',
+      icon: Icons.calendar_month_outlined,
+      children: [
+        _TimetableDisplay(),
+        if (!kIsWeb) _ReminderSettings(),
+        if (!kIsWeb) SyncSettings(),
+      ],
+    ),
+    _SettingsCategory(
+      id: '外观',
+      title: '外观与缩放',
+      subtitle: '深浅主题、界面缩放、文字大小、玻璃效果',
+      icon: Icons.palette_outlined,
+      children: [_Appearance()],
+    ),
+    _SettingsCategory(
+      id: '选课与抢课',
+      title: '选课与抢课',
+      subtitle: '监控间隔、自动重登、验证码识别',
+      icon: Icons.bolt_outlined,
+      children: [_MonitorSettings(), _SilentReloginSetting(), _OcrSettings()],
+    ),
+    _SettingsCategory(
+      id: '后台与通知',
+      title: kIsWeb ? '通知' : '后台与保活',
+      subtitle: kIsWeb ? '浏览器桌面通知' : '关闭最小化到托盘、防休眠、前台服务',
+      icon: Icons.notifications_active_outlined,
+      children: [
+        if (!kIsWeb) _BackgroundSettings(),
+        if (kIsWeb) _BrowserNotificationSetting(),
+      ],
+    ),
+    _SettingsCategory(
+      id: '版本与更新',
+      title: '关于与高级',
+      subtitle: '检查更新、服务器地址、连接诊断',
+      icon: Icons.tune_outlined,
+      children: [
+        UpdateSettings(),
+        ServerOriginSetting(),
+        _DiagnosticsEntry(),
+      ],
+    ),
+  ];
 
   @override
   void initState() {
     super.initState();
-    final section = widget.section;
-    if (section != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final c = _keys[section]?.currentContext;
-        if (c != null) {
-          Scrollable.ensureVisible(
-            c,
-            duration: const Duration(milliseconds: 300),
-          );
-        }
-      });
-    }
+    final cats = _categories();
+    final target = widget.section;
+    final idx = target == null
+        ? 0
+        : cats.indexWhere((c) => c.id == target || c.title == target);
+    _selectedIndex = idx < 0 ? 0 : idx;
   }
 
   @override
   Widget build(BuildContext context) {
-    _Group group(String title, List<Widget> children) =>
-        _Group(key: _key(title), title: title, children: children);
+    final cats = _categories();
+    final selected = cats[_selectedIndex.clamp(0, cats.length - 1)];
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return AuroraBackground(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          title: const Text('设置'),
+          title: Text(
+            widget.section != null && MediaQuery.sizeOf(context).width < 800
+                ? selected.title
+                : '设置',
+          ),
           backgroundColor: Colors.transparent,
         ),
         body: LayoutBuilder(
           builder: (context, constraints) {
-            final side = ((constraints.maxWidth - kReadableMaxWidth) / 2).clamp(
-              16.0,
-              double.infinity,
-            );
-            // Single-column scroll so ensureVisible can reach every group.
-            return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(side, 8, side, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  group('账号与安全', const [
-                    _EduSettings(),
-                    DeviceSignInSetting(),
-                    CampusAccessSetting(),
-                    _Accounts(),
-                  ]),
-                  group('课表与提醒', const [
-                    _TimetableDisplay(),
-                    _ReminderSettings(),
-                    SyncSettings(),
-                  ]),
-                  group('外观', const [_Appearance()]),
-                  group('选课与抢课', const [
-                    _MonitorSettings(),
-                    _SilentReloginSetting(),
-                    _OcrSettings(),
-                  ]),
-                  group('后台运行', const [_BackgroundSettings()]),
-                  group('版本与更新', const [UpdateSettings()]),
-                  group('高级', const [
-                    ServerOriginSetting(),
-                    _BrowserNotificationSetting(),
-                    _DiagnosticsEntry(),
-                  ]),
-                ],
-              ),
+            final w = constraints.maxWidth;
+            // Desktop / tablet: master-detail split view.
+            if (w >= 800) {
+              const maxW = 1120.0;
+              final side = ((w - maxW) / 2).clamp(20.0, double.infinity);
+              return Padding(
+                padding: EdgeInsets.fromLTRB(side, 8, side, 24),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 248,
+                      child: GlassCard(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: cats.length,
+                          separatorBuilder: (_, _) =>
+                              const Divider(height: 1, indent: 48, endIndent: 12),
+                          itemBuilder: (context, i) {
+                            final c = cats[i];
+                            final active = i == _selectedIndex;
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              child: ListTile(
+                                selected: active,
+                                selectedTileColor: scheme.primary.withValues(
+                                  alpha: 0.14,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                leading: Icon(
+                                  c.icon,
+                                  color: active
+                                      ? scheme.primary
+                                      : scheme.onSurfaceVariant,
+                                ),
+                                title: Text(
+                                  c.title,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: active
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: active ? scheme.primary : null,
+                                  ),
+                                ),
+                                onTap: () =>
+                                    setState(() => _selectedIndex = i),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.only(bottom: 32),
+                        child: _CategoryBody(category: selected),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            // Phone: direct sub-view if opened with a specific section;
+            // otherwise a clean categorized index list.
+            final gutter = pageGutter(w);
+            if (widget.section != null) {
+              return SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 32),
+                child: _CategoryBody(category: selected),
+              );
+            }
+            return ListView(
+              padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 32),
+              children: [
+                GlassCard(
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    children: [
+                      for (var i = 0; i < cats.length; i++) ...[
+                        if (i > 0) const Divider(height: 1, indent: 56),
+                        ListTile(
+                          leading: Icon(cats[i].icon, color: scheme.primary),
+                          title: Text(cats[i].title),
+                          subtitle: Text(
+                            cats[i].subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  _SettingsCategoryScreen(category: cats[i]),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
             );
           },
         ),
       ),
     );
+  }
+}
+
+class _SettingsCategoryScreen extends StatelessWidget {
+  const _SettingsCategoryScreen({required this.category});
+  final _SettingsCategory category;
+
+  @override
+  Widget build(BuildContext context) {
+    final gutter = pageGutter(MediaQuery.sizeOf(context).width);
+    return AuroraBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Text(category.title),
+          backgroundColor: Colors.transparent,
+        ),
+        body: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 32),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: kReadableMaxWidth),
+              child: _CategoryBody(category: category),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CategoryBody extends StatelessWidget {
+  const _CategoryBody({required this.category});
+  final _SettingsCategory category;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Group(title: category.title, children: category.children);
   }
 }
 
@@ -949,7 +1138,7 @@ class _DiagnosticsEntry extends StatelessWidget {
 }
 
 class _Group extends StatelessWidget {
-  const _Group({super.key, required this.title, required this.children});
+  const _Group({required this.title, required this.children});
   final String title;
   final List<Widget> children;
 
