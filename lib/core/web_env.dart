@@ -53,6 +53,22 @@ bool get isFreshRouteBridgeReady {
   }
 }
 
+/// True on web when the bridge script is >= 1.5.0 (supporting in-app unified
+/// identity CAS login, MFA, logout, and silent auto-relogin without opening
+/// the school webpage).
+bool get isCasLoginBridgeReady {
+  if (!isWebRuntime) return false;
+  if (!isWebBridgeReady) return false;
+  if (impl.isCasLoginBridgeReady) return true;
+  final raw = installedWebBridgeVersion;
+  if (raw == null) return false;
+  try {
+    return Version.parse(raw) >= Version(1, 5, 0);
+  } catch (_) {
+    return false;
+  }
+}
+
 /// Opens the deployed userscript URL so Tampermonkey or ScriptCat can install
 /// the web bridge directly. This is a no-op on native platforms.
 void openWebBridgeInstaller() => impl.openWebBridgeInstaller();

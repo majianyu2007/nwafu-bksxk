@@ -149,8 +149,9 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
       final password = _password.text;
       _password.clear();
       _code.clear();
-      // Offer face/fingerprint sign-in only when this device is not bound yet.
-      if (!_usedDeviceKey &&
+      // Offer face/fingerprint sign-in only on native when not bound yet.
+      if (!kIsWeb &&
+          !_usedDeviceKey &&
           !_deviceKey &&
           !await _session.hasDeviceKey(_username.text.trim())) {
         await _offerDeviceKey(password);
@@ -361,12 +362,13 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
 
   Widget _browserLogin(BuildContext context) {
     final ready = isEduSessionBridgeReady;
+    final currentVersion = installedWebBridgeVersion;
     return PopScope(
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) _cancelLogin();
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('连接教务会话')),
+        appBar: AppBar(title: const Text('统一身份认证')),
         body: SafeArea(
           child: Center(
             child: ConstrainedBox(
@@ -374,55 +376,77 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
               child: ListView(
                 padding: const EdgeInsets.all(24),
                 children: [
+                  Icon(
+                    Icons.extension_outlined,
+                    size: 48,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(height: 16),
                   Text(
-                    '先在学校网页登录',
+                    currentVersion == null ? '安装桥接脚本即可站内登录' : '更新桥接脚本至 1.5.0',
+                    textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    '1. 安装或更新桥接脚本后刷新本页。\n'
-                    '2. 在同一浏览器打开学校教务页面，完成密码、扫码或安全验证。\n'
-                    '3. 回到本页连接当前浏览器会话。',
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    '网页版不保存密码。'
-                    '换了浏览器里的账号，需要重新连接。',
-                  ),
-                  if (!ready) ...[
-                    const SizedBox(height: 16),
-                    const Text('需要安装或更新桥接脚本（1.3.0 及以上）。'),
-                    const OutlinedButton(
-                      onPressed: openWebBridgeInstaller,
-                      child: Text('安装或更新桥接脚本'),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : _openOfficialEhall,
-                    icon: const Icon(Icons.open_in_new),
-                    label: const Text('打开学校教务页面'),
-                  ),
                   const SizedBox(height: 12),
-                  if (_busy)
-                    const LinearProgressIndicator(semanticsLabel: '正在连接'),
-                  if (_error != null)
-                    Padding(
+                  Text(
+                    currentVersion == null
+                        ? '安装「西农教务助手 · 网页版桥接 (1.5.0)」并刷新本页后，即可直接在应用内输入学号密码登录、完成二次验证，并在会话过期时自动重登，无需再打开学校官网。'
+                        : '当前桥接脚本版本为 $currentVersion。更新到 1.5.0 并刷新本页后，即可直接在应用内登录并支持自动重登，无需跳转学校网页。',
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: openWebBridgeInstaller,
+                    icon: const Icon(Icons.system_update_alt_rounded),
+                    label: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      child: Semantics(
-                        liveRegion: true,
-                        child: Text(
-                          _error!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
+                      child: Text(
+                        currentVersion == null ? '安装桥接脚本 (1.5.0)' : '更新桥接脚本至 1.5.0',
+                      ),
+                    ),
+                  ),
+                  if (ready) ...[
+                    const SizedBox(height: 24),
+                    const Row(
+                      children: [
+                        Expanded(child: Divider()),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('或暂用旧版浏览器会话'),
+                        ),
+                        Expanded(child: Divider()),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (_busy)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 12),
+                        child: LinearProgressIndicator(semanticsLabel: '正在连接'),
+                      ),
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Semantics(
+                          liveRegion: true,
+                          child: Text(
+                            _error!,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
                           ),
                         ),
                       ),
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _connectBrowser,
+                      icon: const Icon(Icons.link_rounded),
+                      label: Text(_busy ? '正在连接…' : '直接连接当前浏览器会话'),
                     ),
-                  FilledButton(
-                    onPressed: _busy ? null : _connectBrowser,
-                    child: Text(_busy ? '正在连接…' : '连接当前浏览器会话'),
-                  ),
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: _busy ? null : _openOfficialEhall,
+                      icon: const Icon(Icons.open_in_new, size: 18),
+                      label: const Text('打开学校教务页面'),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -434,7 +458,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (kIsWeb) return _browserLogin(context);
+    if (kIsWeb && !isCasLoginBridgeReady) return _browserLogin(context);
     final theme = Theme.of(context);
     final challenge = _challenge;
     final method = _method;
@@ -554,7 +578,11 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                             CheckboxListTile(
                               contentPadding: EdgeInsets.zero,
                               title: const Text('记住密码'),
-                              subtitle: const Text('登录过期时自动重新登录；校外访问也需要它'),
+                              subtitle: const Text(
+                                kIsWeb
+                                    ? '登录过期时自动重新登录，并自动联动选课登录（仅建议个人设备勾选）'
+                                    : '登录过期时自动重新登录；校外访问也需要它',
+                              ),
                               value: _remember,
                               onChanged: _busy
                                   ? null
@@ -712,6 +740,14 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                             ),
                           ),
                         ),
+                        if (kIsWeb && challenge == null) ...[
+                          const SizedBox(height: 10),
+                          OutlinedButton.icon(
+                            onPressed: _busy ? null : _connectBrowser,
+                            icon: const Icon(Icons.link_rounded, size: 18),
+                            label: const Text('或直接连接浏览器已有会话'),
+                          ),
+                        ],
                         TextButton(
                           onPressed: () {
                             _cancelLogin();

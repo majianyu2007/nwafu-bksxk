@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         西农教务助手 · 网页版桥接 (NWAFU Web Bridge)
 // @namespace    cn.edu.nwafu.bksxk.webbridge
-// @version      1.4.3
-// @description  让西农教务助手网页版访问学校接口：选课，以及用本浏览器里已登录的教务会话查看课表、成绩、考试、空教室、学业进度、消息与图书馆。教务登录在学校官方页面完成；仅在校园网内有效。
+// @version      1.5.0
+// @description  让西农教务助手网页版访问学校接口：选课、站内统一身份认证登录与自动重登，以及课表、成绩、考试、空教室、学业进度、消息与图书馆。仅在校园网内或可访问学校服务的网络下有效。
 // @author       nwafu-bksxk
 // @match        https://mjy.js.org/nwafu-bksxk/*
 // @match        http://localhost:*/*
@@ -43,14 +43,16 @@
   var EDU_HOST = 'ehall.nwafu.edu.cn';
   var PORTAL_HOST = 'newehall.nwafu.edu.cn';
   var LIBRARY_HOST = 'booking-lib.nwafu.edu.cn';
+  var AUTH_HOST = 'authserver.nwafu.edu.cn';
   var win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
   var NativeXHR = win.XMLHttpRequest;
 
   // Signal to the app that the bridge is present (used to skip the install prompt).
   try {
     win.__bksxkBridgeReady = true;
-    win.__bksxkBridgeVersion = '1.4.3';
+    win.__bksxkBridgeVersion = '1.5.0';
     win.__bksxkEduSessionBridgeReady = true;
+    win.__bksxkCasLoginBridgeReady = true;
   } catch (e) { /* ignore */ }
 
   // Browser extension sandboxes can hide JavaScript globals from page code.
@@ -60,8 +62,9 @@
     try {
       if (win.document && win.document.documentElement) {
         win.document.documentElement.setAttribute('data-bksxk-bridge-ready', 'true');
-        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.4.3');
+        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.5.0');
         win.document.documentElement.setAttribute('data-bksxk-edu-session-bridge-ready', 'true');
+        win.document.documentElement.setAttribute('data-bksxk-cas-login-bridge-ready', 'true');
       }
     } catch (e) { /* ignore */ }
   }
@@ -96,11 +99,28 @@
         u.pathname.indexOf('/execCardMethod/') === 0);
   }
 
-  // Explicit contract for EMAP, portal (newehall) and library (booking-lib).
+  // Explicit contract for AuthServer (CAS login/MFA/logout), EMAP, portal (newehall)
+  // and library (booking-lib).
   function isEduRead(method, u) {
     if (!isHttpsCampus(u)) return false;
     var m = method.toUpperCase();
     var path = u.pathname;
+    if (u.hostname === AUTH_HOST) {
+      if (m === 'GET') {
+        return path === '/authserver/login' ||
+          path === '/authserver/logout' ||
+          path === '/authserver/checkNeedCaptcha.htl' ||
+          path === '/authserver/bfp/info' ||
+          path === '/authserver/reAuthCheck/reAuthLoginView.do';
+      }
+      if (m === 'POST') {
+        return path === '/authserver/login' ||
+          path === '/authserver/reAuthCheck/changeReAuthType.do' ||
+          path === '/authserver/dynamicCode/getDynamicCodeByReauth.do' ||
+          path === '/authserver/reAuthCheck/reAuthSubmit.do';
+      }
+      return false;
+    }
     if (u.hostname === PORTAL_HOST) {
       if (m === 'GET') {
         return path === '/login' ||
@@ -416,6 +436,14 @@
         var cookieHeader = serializeBksxkCookies();
         if (cookieHeader) sendHeaders.Cookie = cookieHeader;
         else delete sendHeaders.Cookie;
+      } else if (url.hostname === AUTH_HOST) {
+        // authserver.nwafu.edu.cn rejects requests carrying a foreign Referer
+        // with HTTP 404. Force same-origin Origin & Referer on CAS endpoints.
+        sendHeaders.Origin = 'https://' + AUTH_HOST;
+        sendHeaders.Referer = (url.pathname.indexOf('/authserver/reAuthCheck/') === 0 ||
+          url.pathname.indexOf('/authserver/dynamicCode/') === 0)
+          ? 'https://' + AUTH_HOST + '/authserver/reAuthCheck/reAuthLoginView.do?isMultifactor=true'
+          : 'https://' + AUTH_HOST + '/authserver/login';
       }
       var details = {
         method: self._method,

@@ -45,8 +45,10 @@ sandbox.unsafeWindow = sandbox.window;
 vm.runInNewContext(source, sandbox);
 
 assert.equal(sandbox.window.__bksxkBridgeReady, true);
-assert.equal(sandbox.window.__bksxkBridgeVersion, '1.4.3');
-assert.equal(attrs['data-bksxk-bridge-version'], '1.4.3');
+assert.equal(sandbox.window.__bksxkBridgeVersion, '1.5.0');
+assert.equal(sandbox.window.__bksxkCasLoginBridgeReady, true);
+assert.equal(attrs['data-bksxk-bridge-version'], '1.5.0');
+assert.equal(attrs['data-bksxk-cas-login-bridge-ready'], 'true');
 
 function send(method, url, body = null, headers = {}) {
   return new Promise((resolve) => {
@@ -211,4 +213,55 @@ mockResponse = () => ({
   assert.equal(stuCall.headers.Cookie, 'route=622503b5c3b661d3018e64339e65752b');
 }
 
-console.log('All 8 web bridge tests passed.');
+// 9. authserver CAS login/MFA/logout allowed with same-origin Referer & Origin, set-cookie stripped
+{
+  mockResponse = (d) => ({
+    status: 200,
+    statusText: 'OK',
+    finalUrl: d.url.includes('/authserver/login') && d.method === 'POST'
+      ? 'https://ehall.nwafu.edu.cn/jwapp/sys/wdkbby/*default/index.do'
+      : d.url,
+    responseHeaders: 'content-type: text/html\r\nset-cookie: CASTGC=secret; HttpOnly\r\n',
+    responseText: '<html>ok</html>',
+  });
+  const loginGet = await send('GET', 'https://authserver.nwafu.edu.cn/authserver/login?service=https%3A%2F%2Fehall.nwafu.edu.cn%2Fjwapp%2Fsys%2Fwdkbby%2F*default%2Findex.do');
+  assert.equal(loginGet.ok, true);
+  assert.equal(calls.at(-1).anonymous, false);
+  assert.equal(calls.at(-1).headers.Origin, 'https://authserver.nwafu.edu.cn');
+  assert.equal(calls.at(-1).headers.Referer, 'https://authserver.nwafu.edu.cn/authserver/login');
+  assert.equal(loginGet.xhr.getResponseHeader('set-cookie'), null);
+
+  const loginPost = await send(
+    'POST',
+    'https://authserver.nwafu.edu.cn/authserver/login?service=https%3A%2F%2Fehall.nwafu.edu.cn%2Fjwapp%2Fsys%2Fwdkbby%2F*default%2Findex.do',
+    new TextEncoder().encode('username=2025013665&password=enc'),
+    { 'Content-Type': 'application/x-www-form-urlencoded' },
+  );
+  assert.equal(loginPost.ok, true);
+  assert.equal(
+    loginPost.xhr.getResponseHeader('x-bksxk-final-url'),
+    'https://ehall.nwafu.edu.cn/jwapp/sys/wdkbby/*default/index.do',
+  );
+
+  // 10. MFA submit uses reAuthLoginView.do Referer; logout & bfp/info & checkNeedCaptcha allowed
+  const mfa = await send(
+    'POST',
+    'https://authserver.nwafu.edu.cn/authserver/reAuthCheck/reAuthSubmit.do',
+    'service=x&dynamicCode=123456',
+    { 'Content-Type': 'application/x-www-form-urlencoded' },
+  );
+  assert.equal(mfa.ok, true);
+  assert.equal(
+    calls.at(-1).headers.Referer,
+    'https://authserver.nwafu.edu.cn/authserver/reAuthCheck/reAuthLoginView.do?isMultifactor=true',
+  );
+  assert.equal((await send('GET', 'https://authserver.nwafu.edu.cn/authserver/logout')).ok, true);
+  assert.equal((await send('GET', 'https://authserver.nwafu.edu.cn/authserver/checkNeedCaptcha.htl?username=1')).ok, true);
+  assert.equal((await send('GET', 'https://authserver.nwafu.edu.cn/authserver/bfp/info?bfp=abc')).ok, true);
+
+  // 11. Disallowed personalInfo / arbitrary authserver paths remain blocked
+  assert.equal((await send('POST', 'https://authserver.nwafu.edu.cn/personalInfo/accountSecurity/deleteDevice', '{}')).ok, false);
+  assert.equal((await send('POST', 'https://authserver.nwafu.edu.cn/authserver/evil', '{}')).ok, false);
+}
+
+console.log('All 11 web bridge tests passed.');

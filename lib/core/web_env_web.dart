@@ -42,6 +42,23 @@ bool get isEduSessionBridgeReady {
       'true';
 }
 
+bool get isCasLoginBridgeReady {
+  try {
+    if (web.window
+            .getProperty<JSAny?>('__bksxkCasLoginBridgeReady'.toJS)
+            ?.dartify() ==
+        true) {
+      return true;
+    }
+  } catch (_) {
+    // The DOM capability marker also crosses extension-isolated worlds.
+  }
+  return web.document.documentElement?.getAttribute(
+        'data-bksxk-cas-login-bridge-ready',
+      ) ==
+      'true';
+}
+
 String? get installedWebBridgeVersion {
   try {
     final version =

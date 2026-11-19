@@ -5,6 +5,7 @@ library;
 bool get isWebRuntime => false;
 bool get isWebBridgeReady => true;
 bool get isEduSessionBridgeReady => false;
+bool get isCasLoginBridgeReady => false;
 String? get installedWebBridgeVersion => null;
 
 void openWebBridgeInstaller() {}

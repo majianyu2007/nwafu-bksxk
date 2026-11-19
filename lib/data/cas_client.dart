@@ -128,8 +128,13 @@ class CasMfaRequired implements Exception {
 }
 
 class CasClient {
-  CasClient({required CookieJar cookieJar, Dio? dio, this.random})
-    : _jar = cookieJar {
+  CasClient({
+    required CookieJar cookieJar,
+    Dio? dio,
+    this.random,
+    this.webBridgeMode = kIsWeb,
+    this.casLoginBridgeReady,
+  }) : _jar = cookieJar {
     _dio =
         dio ??
         Dio(
@@ -140,14 +145,14 @@ class CasClient {
             followRedirects: false,
             validateStatus: (s) => s != null && s < 500,
             headers: {
-              if (!kIsWeb)
+              if (!webBridgeMode)
                 'User-Agent':
                     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
                     '(KHTML, like Gecko) Chrome/150.0 Safari/537.36',
             },
           ),
         );
-    if (!kIsWeb) {
+    if (!webBridgeMode) {
       _dio.interceptors.add(CookieManager(_jar));
       if (dio == null) CampusProxy.instance.attach(_dio);
     }
@@ -158,6 +163,14 @@ class CasClient {
 
   /// Source for the password/passkey nonces; tests pin it.
   final Random? random;
+
+  /// True on Flutter web (or in unit tests simulating GM_xmlhttpRequest).
+  final bool webBridgeMode;
+
+  /// Optional test override for [isCasLoginBridgeReady].
+  final bool? casLoginBridgeReady;
+
+  bool get _casLoginBridgeReady => casLoginBridgeReady ?? isCasLoginBridgeReady;
 
   /// Stable browser fingerprint for `/authserver/bfp/info` (信任此设备).
   late final String _fingerprint = _generateFingerprint(random);
@@ -173,13 +186,22 @@ class CasClient {
   Dio get dio => _dio;
   CookieJar get cookieJar => _jar;
 
+  void _requireWebBridge() {
+    if (!webBridgeMode) return;
+    if (casLoginBridgeReady == true) return;
+    requireBrowserSessionBridge();
+  }
+
   Future<void> _ensureFingerprint() async {
-    if (kIsWeb) return;
     try {
-      final cookies = await _jar.loadForRequest(
-        Uri.parse('$kAuthServer/authserver/login'),
-      );
-      if (cookies.any((c) => c.name == 'MULTIFACTOR_BROWSER_FINGERPRINT')) {
+      if (!webBridgeMode) {
+        final cookies = await _jar.loadForRequest(
+          Uri.parse('$kAuthServer/authserver/login'),
+        );
+        if (cookies.any((c) => c.name == 'MULTIFACTOR_BROWSER_FINGERPRINT')) {
+          return;
+        }
+      } else if (!_casLoginBridgeReady) {
         return;
       }
       await _dio.get<String>(
@@ -194,12 +216,15 @@ class CasClient {
     }
   }
 
-  static void requireSupportedPlatform() {
-    if (kIsWeb) {
+  static void requireSupportedPlatform({
+    bool web = kIsWeb,
+    bool? casLoginBridgeReady,
+  }) {
+    if (web && !(casLoginBridgeReady ?? isCasLoginBridgeReady)) {
       throw AppError(
         AppErrorKind.schemaOrRedirect,
-        message: '网页版请连接浏览器教务会话',
-        hint: '请先在学校官方页面登录，再返回连接；网页版不接收统一认证密码或通行密钥。',
+        message: '请更新桥接脚本以使用站内统一身份认证',
+        hint: '需要 1.5.0 或更新版本，更新后刷新本页面；也可暂时使用浏览器会话连接。',
       );
     }
   }
@@ -217,6 +242,15 @@ class CasClient {
   /// Explicit sign-in must not silently reuse another account's CASTGC.
   /// Keep only the trusted-device marker; logout still removes everything.
   Future<void> clearSession() async {
+    if (webBridgeMode) {
+      if (_casLoginBridgeReady) {
+        try {
+          await _dio.get<String>('$kAuthServer/authserver/logout');
+        } catch (_) {}
+      }
+      await _jar.deleteAll();
+      return;
+    }
     final uri = Uri.parse('$kAuthServer/authserver/login');
     final cookies = await _jar.loadForRequest(uri);
     final trusted = cookies
@@ -252,8 +286,8 @@ class CasClient {
   /// the final response. [Response.realUri] is the last URL visited.
   Future<Response<String>> follow(String url, {int max = 12}) async {
     var current = Uri.parse(url);
-    if (kIsWeb) {
-      requireBrowserSessionBridge();
+    if (webBridgeMode) {
+      _requireWebBridge();
       _validateUrl(current);
       final allowedWeb =
           (current.host == 'ehall.nwafu.edu.cn' &&
@@ -261,14 +295,17 @@ class CasClient {
           (current.host == 'newehall.nwafu.edu.cn' &&
               current.path == '/login') ||
           (current.host == 'booking-lib.nwafu.edu.cn' &&
-              current.path == '/api/cas/cas');
+              current.path == '/api/cas/cas') ||
+          (_casLoginBridgeReady &&
+              current.host == 'authserver.nwafu.edu.cn' &&
+              current.path == '/authserver/login');
       if (!allowedWeb) {
         throw AppError(
           AppErrorKind.schemaOrRedirect,
-          message: '网页版只能连接学校官方教务、门户与图书馆应用',
+          message: '网页版只能连接学校官方认证、教务、门户与图书馆应用',
         );
       }
-      // GM owns redirects and browser cookies. Never emulate native manual CAS.
+      // GM follows redirects and carries browser cookies automatically.
       final res = await _guard(() => _dio.getUri<String>(current));
       final finalUrl = res.headers.value('x-bksxk-final-url');
       final finalUri = finalUrl == null ? null : Uri.tryParse(finalUrl);
@@ -296,7 +333,7 @@ class CasClient {
 
   /// True when the AuthServer still holds a valid login for this client.
   Future<bool> hasLogin(String service) async {
-    if (kIsWeb) {
+    if (webBridgeMode) {
       final res = await follow(service);
       final target = Uri.parse(service);
       return res.realUri.host == target.host &&
@@ -320,14 +357,27 @@ class CasClient {
     String password = '',
     PasskeyCredential? passkey,
   }) async {
-    requireSupportedPlatform();
+    requireSupportedPlatform(
+      web: webBridgeMode,
+      casLoginBridgeReady: _casLoginBridgeReady,
+    );
     _validateUrl(Uri.parse(service));
     if (passkey != null &&
         (!passkey.isComplete || passkey.rpId != Uri.parse(kAuthServer).host)) {
       throw AppError(AppErrorKind.account, message: '通行密钥不属于西农统一身份认证或信息不完整');
     }
     final page = await _guard(() => _dio.get<String>(loginUrl(service)));
-    if (_isRedirect(page.statusCode)) {
+    if (webBridgeMode) {
+      final finalUrl = page.headers.value('x-bksxk-final-url');
+      final finalUri = finalUrl == null ? null : Uri.tryParse(finalUrl);
+      if (finalUri != null &&
+          !(finalUri.host == Uri.parse(kAuthServer).host &&
+              finalUri.path == '/authserver/login')) {
+        // Existing CASTGC: GM already followed the redirect to the service or MFA.
+        await _afterWebLogin(page, service);
+        return;
+      }
+    } else if (_isRedirect(page.statusCode)) {
       // Existing CASTGC: the AuthServer goes straight to the ticket.
       await _afterLogin(page, service);
       return;
@@ -383,6 +433,10 @@ class CasClient {
           options: Options(contentType: Headers.formUrlEncodedContentType),
         ),
       );
+    }
+    if (webBridgeMode) {
+      await _afterWebLogin(res, service);
+      return;
     }
     if (!_isRedirect(res.statusCode)) {
       throw classifyLoginFailure(res.data ?? '');
@@ -540,6 +594,28 @@ class CasClient {
       throw classifyLoginFailure(last.data ?? '');
     }
     _requireService(last, service);
+  }
+
+  Future<void> _afterWebLogin(Response<String> res, String service) async {
+    final finalUrl = res.headers.value('x-bksxk-final-url') ?? '';
+    final finalUri = Uri.tryParse(finalUrl);
+    if (finalUri == null) {
+      throw AppError(
+        AppErrorKind.schemaOrRedirect,
+        message: '教务桥接未返回登录跳转信息',
+        hint: '请更新桥接脚本至 1.5.0 或以上版本后刷新页面。',
+      );
+    }
+    _validateUrl(finalUri);
+    final wrapped = _withUri(res, finalUri);
+    final url = finalUri.toString();
+    if (url.contains('/reAuthCheck/reAuthLoginView.do')) {
+      throw CasMfaRequired(_parseMfaPage(res.data ?? '', service));
+    }
+    if (url.contains('/authserver/login')) {
+      throw classifyLoginFailure(res.data ?? '');
+    }
+    _requireService(wrapped, service);
   }
 
   CasMfaChallenge _parseMfaPage(String html, String service) {
@@ -942,9 +1018,11 @@ class CasClient {
 
   /// Ends the AuthServer login (and with it every service's single sign-on).
   Future<void> logout() async {
-    try {
-      await _dio.get<String>('$kAuthServer/authserver/logout');
-    } catch (_) {}
+    if (!webBridgeMode || _casLoginBridgeReady) {
+      try {
+        await _dio.get<String>('$kAuthServer/authserver/logout');
+      } catch (_) {}
+    }
     await _jar.deleteAll();
   }
 
@@ -980,9 +1058,8 @@ class CasClient {
   }
 
   Future<Response<String>> _guard(Future<Response<String>> Function() f) async {
-    // On web only the browser-session bridge may carry requests; the
-    // password/passkey login itself is refused in [login].
-    if (kIsWeb) requireBrowserSessionBridge();
+    // On web only the bridge may carry requests.
+    _requireWebBridge();
     try {
       return await f();
     } on DioException catch (e) {

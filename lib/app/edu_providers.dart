@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/crypto/passkey.dart';
 import '../core/crypto/webauthn_register.dart' show AttestationFormat;
 import '../core/errors.dart';
+import '../core/web_env.dart';
 import '../data/academic_calendar.dart' show schoolDate;
 import '../data/background_sync.dart';
 import '../data/cas_client.dart';
@@ -528,7 +529,9 @@ class EduSessionController extends StateNotifier<EduState> {
     final inflight = _relogin;
     if (inflight != null) return inflight;
     final account = state.account;
-    if (account == null || kIsWeb) return Future.value(false);
+    if (account == null || (kIsWeb && !isCasLoginBridgeReady)) {
+      return Future.value(false);
+    }
     final epoch = _epoch;
     final client = _client;
     late final Future<bool> attempt;
@@ -625,6 +628,9 @@ class EduSessionController extends StateNotifier<EduState> {
       if (!_current(logoutEpoch)) return;
       final account =
           _ref.read(_eduClientAccountProvider) ?? previousAccount;
+      if (kIsWeb && isCasLoginBridgeReady) {
+        await _client.cas.logout();
+      }
       await _client.close(clearCookies: true);
       await _storage.setEduAccount(null);
       if (account != null) {

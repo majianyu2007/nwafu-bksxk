@@ -293,13 +293,13 @@ class _ProfileCard extends ConsumerWidget {
               if (kIsWeb)
                 _StatusChip(
                   icon: Icons.extension_outlined,
-                  label: isFullCampusBridgeReady
+                  label: isCasLoginBridgeReady
                       ? '桥接 ${installedWebBridgeVersion ?? ''} 已就绪'.trim()
                       : isWebBridgeReady
-                      ? '更新桥接脚本'
+                      ? '更新桥接脚本 (1.5.0)'
                       : '安装桥接脚本',
-                  ok: isFullCampusBridgeReady,
-                  onTap: isFullCampusBridgeReady
+                  ok: isCasLoginBridgeReady,
+                  onTap: isCasLoginBridgeReady
                       ? null
                       : () {
                           openWebBridgeInstaller();

@@ -570,14 +570,14 @@ class LibraryService {
     final res = await cas.follow('$kLibraryOrigin/api/cas/cas');
     if (res.realUri.host == Uri.parse(kAuthServer).host && !retried) {
       // The AuthServer wants a login: the unified session has expired.
-      if (!kIsWeb && await (onLoginRequired?.call() ?? Future.value(false))) {
+      if (await (onLoginRequired?.call() ?? Future.value(false))) {
         return _doLogin(retried: true);
       }
       throw AppError(
         AppErrorKind.sessionExpired,
         message: '统一身份认证未登录或已过期',
-        hint: kIsWeb
-            ? '请先在浏览器打开学校统一身份认证页面登录，再回来刷新。'
+        hint: kIsWeb && !isCasLoginBridgeReady
+            ? '请更新桥接脚本至 1.5.0 以支持站内自动登录，或先在浏览器登录统一身份认证后刷新。'
             : '请重新登录后再试。',
       );
     }
@@ -591,8 +591,8 @@ class LibraryService {
       throw AppError(
         AppErrorKind.sessionExpired,
         message: '图书馆登录没有完成',
-        hint: kIsWeb
-            ? '请先在浏览器打开 booking-lib.nwafu.edu.cn 完成一次登录后再刷新。'
+        hint: kIsWeb && !isCasLoginBridgeReady
+            ? '请更新桥接脚本至 1.5.0，或先在浏览器打开 booking-lib.nwafu.edu.cn 登录后刷新。'
             : '统一身份认证可能已过期，请重新登录后再试。',
       );
     }
