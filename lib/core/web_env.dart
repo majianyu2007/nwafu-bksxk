@@ -6,6 +6,8 @@
 /// build never references dart:js_interop.
 library;
 
+import 'package:pub_semver/pub_semver.dart';
+
 import 'web_env_stub.dart' if (dart.library.js_interop) 'web_env_web.dart'
     as impl;
 
@@ -22,6 +24,20 @@ bool get isEduSessionBridgeReady => impl.isEduSessionBridgeReady;
 
 /// Installed bridge version, or null when absent, native, or a legacy script.
 String? get installedWebBridgeVersion => impl.installedWebBridgeVersion;
+
+/// True on native, or on web when the bridge script is >= 1.4.0 (supporting
+/// newehall portal and booking-lib library hosts in addition to ehall/bksxk).
+bool get isFullCampusBridgeReady {
+  if (!isWebRuntime) return true;
+  if (!isEduSessionBridgeReady) return false;
+  final raw = installedWebBridgeVersion;
+  if (raw == null) return false;
+  try {
+    return Version.parse(raw) >= Version(1, 4, 0);
+  } catch (_) {
+    return false;
+  }
+}
 
 /// Opens the deployed userscript URL so Tampermonkey or ScriptCat can install
 /// the web bridge directly. This is a no-op on native platforms.

@@ -4,12 +4,14 @@ library;
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app/edu_providers.dart';
 import '../core/errors.dart';
+import '../core/web_env.dart';
 import '../data/academic_calendar.dart' show schoolDate;
 import '../data/library_service.dart';
 import 'layout.dart';
@@ -88,12 +90,20 @@ class LibraryPage extends ConsumerWidget {
                 onPressed: () => _openOfficial(context),
               ),
             ],
-            bottom: const TabBar(
-              tabs: [
-                Tab(text: '座位'),
-                Tab(text: '研讨室'),
-                Tab(text: '我的预约'),
-              ],
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(48),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: const TabBar(
+                    tabs: [
+                      Tab(text: '座位'),
+                      Tab(text: '研讨室'),
+                      Tab(text: '我的预约'),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
           body: const TabBarView(
@@ -121,15 +131,31 @@ Widget _error(BuildContext context, Object e, VoidCallback retry) {
   final err = e is AppError
       ? e
       : AppError(AppErrorKind.unknown, message: '图书馆系统暂时不可用');
+  final needsBridgeUpdate = kIsWeb && !isFullCampusBridgeReady;
   return ListView(
     children: [
       EmptyState(
-        icon: Icons.cloud_off_outlined,
+        icon: needsBridgeUpdate
+            ? Icons.extension_outlined
+            : Icons.cloud_off_outlined,
         title: err.message,
         subtitle: err.hint ?? '下拉重试',
       ),
       Center(
-        child: TextButton(onPressed: retry, child: const Text('重试')),
+        child: Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          alignment: WrapAlignment.center,
+          children: [
+            if (needsBridgeUpdate)
+              FilledButton.icon(
+                onPressed: openWebBridgeInstaller,
+                icon: const Icon(Icons.download_outlined),
+                label: const Text('更新桥接脚本 (1.4.0)'),
+              ),
+            TextButton(onPressed: retry, child: const Text('重试')),
+          ],
+        ),
       ),
     ],
   );
@@ -184,11 +210,15 @@ class _AreaList extends ConsumerWidget {
                     ),
                   ),
                 ),
-              for (final a in list)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _AreaTile(area: a, kind: kind),
-                ),
+              AdaptiveGrid(
+                minColumnWidth: 340,
+                maxColumns: 2,
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final a in list) _AreaTile(area: a, kind: kind),
+                ],
+              ),
             ],
           );
         },

@@ -11,10 +11,14 @@
 /// send their JSON body encrypted as `aesjson` via [encryptLibraryPayload].
 library;
 
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../core/crypto/library_crypto.dart';
 import '../core/errors.dart';
+import '../core/web_env.dart';
 import 'cas_client.dart';
 
 const kLibraryOrigin = 'https://booking-lib.nwafu.edu.cn';
@@ -247,23 +251,45 @@ class LibraryService {
 
   Dio get _dio => cas.dio;
 
+  static void _requireBridgeOnWeb() {
+    if (kIsWeb && !isFullCampusBridgeReady) {
+      throw AppError(
+        AppErrorKind.schemaOrRedirect,
+        message: '请更新网页版桥接脚本（需 ≥ 1.4.0）',
+        hint: '旧版桥接脚本不支持图书馆接口，请点击更新脚本后刷新页面。',
+      );
+    }
+  }
+
   Future<String> _login({bool retried = false}) async {
+    _requireBridgeOnWeb();
     final res = await cas.follow('$kLibraryOrigin/api/cas/cas');
     if (res.realUri.host == Uri.parse(kAuthServer).host && !retried) {
       // The AuthServer wants a login: the unified session has expired.
-      if (await (onLoginRequired?.call() ?? Future.value(false))) {
+      if (!kIsWeb && await (onLoginRequired?.call() ?? Future.value(false))) {
         return _login(retried: true);
       }
+      throw AppError(
+        AppErrorKind.sessionExpired,
+        message: '统一身份认证未登录或已过期',
+        hint: kIsWeb
+            ? '请先在浏览器打开学校统一身份认证页面登录，再回来刷新。'
+            : '请重新登录后再试。',
+      );
     }
     final fragment = res.realUri.fragment;
-    final code = Uri.tryParse(
-      fragment.startsWith('/') ? 'x:$fragment' : 'x:/$fragment',
-    )?.queryParameters['cas'];
+    final code =
+        Uri.tryParse(
+          fragment.startsWith('/') ? 'x:$fragment' : 'x:/$fragment',
+        )?.queryParameters['cas'] ??
+        res.realUri.queryParameters['cas'];
     if (code == null || code.isEmpty) {
       throw AppError(
         AppErrorKind.sessionExpired,
         message: '图书馆登录没有完成',
-        hint: '统一身份认证可能已过期，请重新登录后再试。',
+        hint: kIsWeb
+            ? '请先在浏览器打开 booking-lib.nwafu.edu.cn 完成一次登录后再刷新。'
+            : '统一身份认证可能已过期，请重新登录后再试。',
       );
     }
     final r = await _post('/api/cas/user', {'cas': code}, auth: false);
@@ -274,6 +300,21 @@ class LibraryService {
     return _token = token;
   }
 
+  static Map<String, dynamic>? _decodeMap(Object? raw) {
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    if (raw is String) {
+      final trimmed = raw.trim();
+      if (trimmed.isEmpty) return null;
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is Map<String, dynamic>) return decoded;
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>> _post(
     String path,
     Map<String, dynamic> body, {
@@ -281,28 +322,59 @@ class LibraryService {
     bool encrypted = false,
     bool retried = false,
   }) async {
+    _requireBridgeOnWeb();
     final token = auth ? (_token ?? await _login()) : null;
     final payload = encrypted
         ? <String, dynamic>{'aesjson': encryptLibraryPayload(body)}
         : body;
-    final res = await _dio.post<dynamic>(
-      '$kLibraryOrigin$path',
-      data: {...payload, if (token != null) 'authorization': 'bearer$token'},
-      options: Options(
-        contentType: Headers.jsonContentType,
-        responseType: ResponseType.json,
-        followRedirects: false,
-        validateStatus: (_) => true,
-        headers: {
-          'X-Requested-With': 'XMLHttpRequest',
-          'lang': 'zh',
-          if (token != null) 'authorization': 'bearer$token',
-        },
-      ),
-    );
-    final data = res.data;
-    if (data is! Map<String, dynamic>) {
-      throw AppError(AppErrorKind.schemaOrRedirect, message: '图书馆系统返回了无法识别的内容');
+    final Response<dynamic> res;
+    try {
+      res = await _dio.post<dynamic>(
+        '$kLibraryOrigin$path',
+        data: {...payload, if (token != null) 'authorization': 'bearer$token'},
+        options: Options(
+          contentType: Headers.jsonContentType,
+          responseType: ResponseType.plain,
+          followRedirects: false,
+          validateStatus: (_) => true,
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'lang': 'zh',
+            if (token != null) 'authorization': 'bearer$token',
+          },
+        ),
+      );
+    } on DioException catch (e) {
+      throw AppError(
+        AppErrorKind.campusNetwork,
+        message: '连接图书馆系统失败',
+        hint: '请确认已连接校园网或校外访问，然后重试。',
+        retryable: true,
+        raw: e,
+      );
+    }
+    final data = _decodeMap(res.data);
+    if (data == null) {
+      final text = res.data is String ? (res.data as String) : '';
+      if (text.contains('authserver') ||
+          text.contains('<form') ||
+          res.statusCode == 302 ||
+          res.statusCode == 401) {
+        if (auth && !retried) {
+          _token = null;
+          return _post(path, body, encrypted: encrypted, retried: true);
+        }
+        throw AppError(
+          AppErrorKind.sessionExpired,
+          message: '图书馆登录状态已失效',
+          hint: '请重新登录后重试。',
+        );
+      }
+      throw AppError(
+        AppErrorKind.schemaOrRedirect,
+        message: '图书馆系统返回了无法识别的内容',
+        hint: '状态码 ${res.statusCode ?? 0}，请稍后重试。',
+      );
     }
     final code = '${data['code']}';
     if (code == '10001' && auth && !retried) {
