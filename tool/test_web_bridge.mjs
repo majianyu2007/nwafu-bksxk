@@ -129,6 +129,14 @@ mockResponse = (d) => ({
   assert.equal(JSON.parse(r.xhr.responseText).code, 1);
 }
 
+// 4b. booking-lib seat map and seminar confirm endpoints allowed
+{
+  const r1 = await send('POST', 'https://booking-lib.nwafu.edu.cn/api/seat/map', '{"id":"1"}');
+  assert.equal(r1.ok, true);
+  const r2 = await send('POST', 'https://booking-lib.nwafu.edu.cn/reserve/index/confirm', '{"aesjson":"xxx"}');
+  assert.equal(r2.ok, true);
+}
+
 // 5. Unsafe redirect target rejected
 mockResponse = () => ({
   status: 200,

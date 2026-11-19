@@ -41,6 +41,7 @@ enum LibraryKind {
 class LibraryArea {
   const LibraryArea({
     required this.id,
+    this.parentId = '',
     required this.name,
     required this.campus,
     required this.floor,
@@ -57,6 +58,7 @@ class LibraryArea {
     final merge = '${j['nameMerge'] ?? ''}'.split('-');
     return LibraryArea(
       id: '${j['id']}',
+      parentId: '${j['parentId'] ?? j['parent_id'] ?? j['area'] ?? ''}',
       name: '${j['name'] ?? ''}',
       campus: '${j['premisesName'] ?? (merge.isNotEmpty ? merge.first : '')}',
       floor: '${j['storeyName'] ?? (merge.length > 1 ? merge[1] : '')}',
@@ -70,6 +72,7 @@ class LibraryArea {
   }
 
   final String id;
+  final String parentId;
   final String name;
   final String campus;
   final String floor;
@@ -128,7 +131,45 @@ class LibraryBookDate {
   final List<LibraryTimeSlot> times;
 }
 
-/// One individual seat in a reading area (`/api/Seat/seat`).
+/// Floorplan image URLs for a reading area (`/api/seat/map`).
+class LibrarySeatMap {
+  const LibrarySeatMap({
+    required this.freeUrl,
+    this.bookUrl = '',
+    this.useUrl = '',
+    this.leaveUrl = '',
+    this.closeUrl = '',
+  });
+
+  factory LibrarySeatMap.fromJson(Map<String, dynamic> j) => LibrarySeatMap(
+    freeUrl: _resolveUrl('${j['free'] ?? ''}'),
+    bookUrl: _resolveUrl('${j['book'] ?? ''}'),
+    useUrl: _resolveUrl('${j['use'] ?? ''}'),
+    leaveUrl: _resolveUrl('${j['leave'] ?? ''}'),
+    closeUrl: _resolveUrl('${j['close'] ?? ''}'),
+  );
+
+  static String _resolveUrl(String raw) {
+    final s = raw.trim();
+    if (s.isEmpty) return '';
+    if (s.startsWith('http://') || s.startsWith('https://')) return s;
+    return s.startsWith('/') ? '$kLibraryOrigin$s' : '$kLibraryOrigin/$s';
+  }
+
+  final String freeUrl;
+  final String bookUrl;
+  final String useUrl;
+  final String leaveUrl;
+  final String closeUrl;
+
+  bool get hasImage => freeUrl.isNotEmpty;
+}
+
+/// Visual status of an individual library seat.
+enum LibrarySeatStatus { free, leave, booked, inUse, closed }
+
+/// One individual seat in a reading area (`/api/Seat/seat`), including its
+/// percentage position (`0..100`) on the floorplan image.
 class LibrarySeat {
   const LibrarySeat({
     required this.id,
@@ -136,15 +177,29 @@ class LibrarySeat {
     required this.name,
     required this.status,
     required this.statusName,
+    this.pointX,
+    this.pointY,
+    this.width,
+    this.height,
+    this.inLabel = true,
   });
 
-  factory LibrarySeat.fromJson(Map<String, dynamic> j) => LibrarySeat(
-    id: '${j['id'] ?? ''}',
-    no: '${j['no'] ?? j['name'] ?? ''}',
-    name: '${j['name'] ?? j['no'] ?? ''}',
-    status: '${j['status'] ?? ''}',
-    statusName: '${j['status_name'] ?? j['statusName'] ?? ''}',
-  );
+  factory LibrarySeat.fromJson(Map<String, dynamic> j) {
+    double? d(Object? v) => v == null ? null : double.tryParse('$v');
+    final inLabelRaw = j['in_label'];
+    return LibrarySeat(
+      id: '${j['id'] ?? ''}',
+      no: '${j['no'] ?? j['name'] ?? ''}',
+      name: '${j['name'] ?? j['no'] ?? ''}',
+      status: '${j['status'] ?? ''}',
+      statusName: '${j['status_name'] ?? j['statusName'] ?? ''}',
+      pointX: d(j['point_x']),
+      pointY: d(j['point_y']),
+      width: d(j['width']),
+      height: d(j['height']),
+      inLabel: inLabelRaw == null || '$inLabelRaw' == '1' || inLabelRaw == true,
+    );
+  }
 
   final String id;
   final String no;
@@ -152,8 +207,107 @@ class LibrarySeat {
   final String status;
   final String statusName;
 
+  /// Percentage coordinates (`0..100`) on the area's floorplan image.
+  final double? pointX;
+  final double? pointY;
+  final double? width;
+  final double? height;
+  final bool inLabel;
+
+  bool get hasCoords =>
+      pointX != null &&
+      pointY != null &&
+      width != null &&
+      height != null &&
+      width! > 0 &&
+      height! > 0;
+
   /// `status == "1"` indicates a free/bookable seat in the official H5 app.
-  bool get isFree => status == '1' || statusName == '空闲' || statusName == '可预约';
+  bool get isFree =>
+      inLabel && (status == '1' || statusName == '空闲' || statusName == '可预约');
+
+  LibrarySeatStatus get visualStatus {
+    if (!inLabel) return LibrarySeatStatus.closed;
+    if (isFree) return LibrarySeatStatus.free;
+    if (status == '7') return LibrarySeatStatus.leave;
+    if (status == '2' || status == '10' || status == '11') {
+      return LibrarySeatStatus.booked;
+    }
+    if (status == '6' || status == '8' || status == '9') {
+      return LibrarySeatStatus.inUse;
+    }
+    return LibrarySeatStatus.closed;
+  }
+}
+
+/// A seminar room teammate returned by `/api/Seminar/group`.
+class LibraryTeamMember {
+  const LibraryTeamMember({
+    required this.id,
+    required this.name,
+    required this.card,
+  });
+
+  factory LibraryTeamMember.fromJson(Map<String, dynamic> j) =>
+      LibraryTeamMember(
+        id: '${j['id'] ?? ''}',
+        name: '${j['name'] ?? j['realname'] ?? ''}',
+        card: '${j['card'] ?? j['username'] ?? ''}',
+      );
+
+  final String id;
+  final String name;
+  final String card;
+}
+
+/// Bookable schedule info for a seminar room on one day (`/api/Seminar/seminar`).
+class LibrarySeminarDay {
+  const LibrarySeminarDay({
+    required this.day,
+    required this.minPerson,
+    required this.maxPerson,
+    required this.openStart,
+    required this.openEnd,
+    this.bookedRanges = const [],
+    this.minDurationMinutes = 60,
+    this.maxDurationMinutes = 240,
+  });
+
+  factory LibrarySeminarDay.fromJson(String day, Map<String, dynamic> j) {
+    int n(Object? v, int fallback) => int.tryParse('${v ?? ''}') ?? fallback;
+    final booked = <(String, String)>[];
+    final rawList = j['list'] ?? j['booked'] ?? j['books'];
+    if (rawList is List) {
+      for (final item in rawList.whereType<Map<String, dynamic>>()) {
+        final s = '${item['start_time'] ?? item['start'] ?? ''}'.trim();
+        final e = '${item['end_time'] ?? item['end'] ?? ''}'.trim();
+        if (s.isNotEmpty && e.isNotEmpty) booked.add((s, e));
+      }
+    }
+    final openStart =
+        '${j['start_time'] ?? j['open_start'] ?? j['begin'] ?? '08:00'}'.trim();
+    final openEnd =
+        '${j['end_time'] ?? j['open_end'] ?? j['end'] ?? '22:00'}'.trim();
+    return LibrarySeminarDay(
+      day: day,
+      minPerson: n(j['minPerson'] ?? j['min_person'], 1),
+      maxPerson: n(j['maxPerson'] ?? j['max_person'], 8),
+      openStart: openStart.isEmpty ? '08:00' : openStart,
+      openEnd: openEnd.isEmpty ? '22:00' : openEnd,
+      bookedRanges: booked,
+      minDurationMinutes: n(j['min_time'], 60),
+      maxDurationMinutes: n(j['max_time'], 240),
+    );
+  }
+
+  final String day;
+  final int minPerson;
+  final int maxPerson;
+  final String openStart;
+  final String openEnd;
+  final List<(String, String)> bookedRanges;
+  final int minDurationMinutes;
+  final int maxDurationMinutes;
 }
 
 /// A booking of the student's (seat or room).
@@ -478,6 +632,97 @@ class LibraryService {
               .where((s) => s.id.isNotEmpty)
               .toList()
         : const [];
+  }
+
+  /// Floorplan reference image URLs for a reading area (`/api/seat/map`).
+  Future<LibrarySeatMap?> seatMap(String areaId) async {
+    final r = await _post('/api/seat/map', {'id': areaId});
+    final d = r['data'];
+    if (d is Map<String, dynamic>) {
+      final map = LibrarySeatMap.fromJson(d);
+      return map.hasImage ? map : null;
+    }
+    return null;
+  }
+
+  /// Bookable dates for a seminar room (`/api/Seminar/date`).
+  Future<List<String>> seminarDates(String roomId) async {
+    final r = await _post('/api/Seminar/date', {'build_id': roomId});
+    final d = r['data'];
+    if (d is! List) return const [];
+    return d
+        .map((e) => e is Map ? '${e['day'] ?? ''}' : '$e')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+  }
+
+  /// Schedule and capacity constraints for a seminar room on [day].
+  Future<LibrarySeminarDay> seminarDay({
+    required String roomId,
+    required String areaId,
+    required String day,
+  }) async {
+    final r = await _post('/api/Seminar/seminar', {
+      'room': roomId,
+      'area': areaId,
+      'day': day,
+    });
+    final d = r['data'];
+    return LibrarySeminarDay.fromJson(
+      day,
+      d is Map<String, dynamic> ? d : const {},
+    );
+  }
+
+  /// Looks up a teammate by student card/id (`/api/Seminar/group`).
+  Future<LibraryTeamMember> lookupSeminarMember({
+    required String card,
+    String? areaId,
+    String? beginTime,
+    String? endTime,
+  }) async {
+    final r = await _post('/api/Seminar/group', {
+      'card': card.trim(),
+      if (areaId != null && areaId.isNotEmpty) 'area': areaId,
+      if (beginTime != null && beginTime.isNotEmpty) 'beginTime': beginTime,
+      if (endTime != null && endTime.isNotEmpty) 'endTime': endTime,
+    });
+    final d = r['data'];
+    if (d is! Map<String, dynamic> || '${d['id'] ?? ''}'.isEmpty) {
+      throw AppError(AppErrorKind.unknown, message: '未找到该学号对应的同学');
+    }
+    return LibraryTeamMember.fromJson(d);
+  }
+
+  /// Books a seminar room natively (`/reserve/index/confirm`, AES-encrypted).
+  Future<String> bookSeminar({
+    required String roomId,
+    required String day,
+    required String startTime,
+    required String endTime,
+    required String title,
+    required String content,
+    required String mobile,
+    List<String> teamUserIds = const [],
+    bool isOpen = true,
+  }) async {
+    final body = <String, dynamic>{
+      'day': day,
+      'start_time': startTime,
+      'end_time': endTime,
+      'title': title.trim(),
+      'content': content.trim(),
+      'mobile': mobile.trim(),
+      'room': roomId,
+      'open': isOpen ? '1' : '0',
+      'file_name': '',
+      'file_url': '',
+      if (teamUserIds.isNotEmpty) 'teamusers': teamUserIds.join(','),
+    };
+    final r = await _post('/reserve/index/confirm', body, encrypted: true);
+    final msg = '${r['msg'] ?? r['message'] ?? ''}'.trim();
+    return msg.isEmpty ? '研讨室预约成功' : msg;
   }
 
   /// Books a seat natively (AES-encrypted payload). Returns server message.

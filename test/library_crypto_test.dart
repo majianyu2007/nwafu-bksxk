@@ -63,4 +63,44 @@ void main() {
       expect(b.canCancel, isFalse);
     });
   });
+
+  group('LibrarySeatMap, coordinates & SeminarDay', () {
+    test('resolves relative floorplan image URLs', () {
+      final map = LibrarySeatMap.fromJson({'free': '/uploads/floor2.png'});
+      expect(map.hasImage, isTrue);
+      expect(map.freeUrl, 'https://booking-lib.nwafu.edu.cn/uploads/floor2.png');
+    });
+
+    test('parses seat percentage coordinates and visual status', () {
+      final seat = LibrarySeat.fromJson({
+        'id': '99',
+        'no': 'A012',
+        'status': '1',
+        'point_x': '12.5',
+        'point_y': '34.0',
+        'width': '3.2',
+        'height': '4.1',
+        'in_label': 1,
+      });
+      expect(seat.hasCoords, isTrue);
+      expect(seat.isFree, isTrue);
+      expect(seat.visualStatus, LibrarySeatStatus.free);
+      expect(seat.pointX, 12.5);
+    });
+
+    test('parses seminar day constraints and booked ranges', () {
+      final day = LibrarySeminarDay.fromJson('2026-11-20', {
+        'minPerson': 3,
+        'maxPerson': 8,
+        'start_time': '08:00',
+        'end_time': '22:00',
+        'list': [
+          {'start_time': '10:00', 'end_time': '12:00'},
+        ],
+      });
+      expect(day.minPerson, 3);
+      expect(day.maxPerson, 8);
+      expect(day.bookedRanges, [('10:00', '12:00')]);
+    });
+  });
 }

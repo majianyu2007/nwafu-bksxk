@@ -246,7 +246,7 @@ class _AreaTile extends ConsumerWidget {
               final booked = await showAdaptiveSheet<bool>(
                 context,
                 scrollControlled: true,
-                maxWidth: 720,
+                maxWidth: 820,
                 builder: (_) => _SeatPickerSheet(area: area),
               );
               if (booked == true) {
@@ -254,7 +254,18 @@ class _AreaTile extends ConsumerWidget {
                 ref.invalidate(_bookingsProvider);
               }
             }
-          : () => _openOfficial(context, '/SeatScreening/${kind.id}'),
+          : () async {
+              final booked = await showAdaptiveSheet<bool>(
+                context,
+                scrollControlled: true,
+                maxWidth: 680,
+                builder: (_) => _SeminarBookSheet(area: area),
+              );
+              if (booked == true) {
+                ref.invalidate(_areasProvider(LibraryKind.space));
+                ref.invalidate(_bookingsProvider);
+              }
+            },
       child: Row(
         children: [
           Expanded(
@@ -560,7 +571,8 @@ class _BookingTileState extends ConsumerState<_BookingTile> {
   }
 }
 
-/// Native seat picker: choose date & time slot, filter free seats, tap to book.
+/// Native seat picker: interactive floorplan map + searchable list, date &
+/// time slot selection, one-tap native booking.
 class _SeatPickerSheet extends ConsumerStatefulWidget {
   const _SeatPickerSheet({required this.area});
   final LibraryArea area;
@@ -571,33 +583,48 @@ class _SeatPickerSheet extends ConsumerStatefulWidget {
 
 class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
   List<LibraryBookDate>? _dates;
+  LibrarySeatMap? _seatMap;
   String? _errorText;
   int _dateIndex = 0;
   int _slotIndex = 0;
   List<LibrarySeat>? _seats;
+  LibrarySeat? _selectedSeat;
   bool _loadingSeats = false;
+  bool _mapMode = true;
   bool _freeOnly = true;
   bool _booking = false;
   String _query = '';
+  final _transform = TransformationController();
 
   @override
   void initState() {
     super.initState();
-    _loadDates();
+    _loadDatesAndMap();
   }
 
-  Future<void> _loadDates() async {
+  @override
+  void dispose() {
+    _transform.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadDatesAndMap() async {
     setState(() {
       _dates = null;
       _errorText = null;
+      _selectedSeat = null;
     });
+    final lib = ref.read(libraryServiceProvider);
+    // Fetch floorplan map in parallel; failure gracefully falls back to list.
+    final mapFuture = lib.seatMap(widget.area.id).catchError((Object _) => null);
     try {
-      final dates = await ref
-          .read(libraryServiceProvider)
-          .seatDates(widget.area.id);
+      final dates = await lib.seatDates(widget.area.id);
+      final map = await mapFuture;
       if (!mounted) return;
       setState(() {
         _dates = dates;
+        _seatMap = map;
+        _mapMode = map != null && map.hasImage;
         _dateIndex = 0;
         _slotIndex = 0;
       });
@@ -617,21 +644,27 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
     if (dates == null || dates.isEmpty) return;
     final day = dates[_dateIndex];
     if (day.times.isEmpty) {
-      setState(() => _seats = const []);
+      setState(() {
+        _seats = const [];
+        _selectedSeat = null;
+      });
       return;
     }
     final slot = day.times[_slotIndex.clamp(0, day.times.length - 1)];
     setState(() {
       _loadingSeats = true;
       _errorText = null;
+      _selectedSeat = null;
     });
     try {
       final list = await ref
           .read(libraryServiceProvider)
           .seats(widget.area.id, day: day.day, slot: slot);
       if (!mounted) return;
+      final hasAnyCoords = list.any((s) => s.hasCoords);
       setState(() {
         _seats = list;
+        if (!hasAnyCoords) _mapMode = false;
         _loadingSeats = false;
       });
     } catch (e) {
@@ -692,7 +725,12 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
     final currentDay = dates != null && dates.isNotEmpty
         ? dates[_dateIndex]
         : null;
-    final filtered = (_seats ?? const <LibrarySeat>[]).where((s) {
+    final allSeats = _seats ?? const <LibrarySeat>[];
+    final canShowMap =
+        _seatMap != null &&
+        _seatMap!.hasImage &&
+        allSeats.any((s) => s.hasCoords);
+    final filtered = allSeats.where((s) {
       if (_freeOnly && !s.isFree) return false;
       if (_query.isNotEmpty &&
           !s.no.toLowerCase().contains(_query.toLowerCase()) &&
@@ -701,12 +739,13 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
       }
       return true;
     }).toList();
+    final freeCount = allSeats.where((s) => s.isFree).length;
 
     return SafeArea(
       child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.78,
+        height: MediaQuery.sizeOf(context).height * 0.84,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -723,14 +762,38 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
                           ),
                         ),
                         Text(
-                          [widget.area.campus, widget.area.floor]
-                              .where((s) => s.isNotEmpty)
-                              .join(' · '),
+                          [
+                            widget.area.campus,
+                            widget.area.floor,
+                            if (_seats != null) '空座 $freeCount / ${allSeats.length}',
+                          ].where((s) => s.isNotEmpty).join(' · '),
                           style: theme.textTheme.bodySmall,
                         ),
                       ],
                     ),
                   ),
+                  if (canShowMap)
+                    SegmentedButton<bool>(
+                      style: const ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(
+                          value: true,
+                          icon: Icon(Icons.map_outlined, size: 16),
+                          label: Text('平面图'),
+                        ),
+                        ButtonSegment(
+                          value: false,
+                          icon: Icon(Icons.grid_view_outlined, size: 16),
+                          label: Text('列表'),
+                        ),
+                      ],
+                      selected: {_mapMode},
+                      onSelectionChanged: (v) =>
+                          setState(() => _mapMode = v.first),
+                    ),
                   IconButton(
                     tooltip: '关闭',
                     icon: const Icon(Icons.close),
@@ -738,7 +801,7 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               if (dates == null && _errorText == null)
                 const Expanded(
                   child: Center(child: CircularProgressIndicator()),
@@ -752,7 +815,7 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
                         Text(_errorText!),
                         const SizedBox(height: 8),
                         TextButton(
-                          onPressed: _loadDates,
+                          onPressed: _loadDatesAndMap,
                           child: const Text('重试'),
                         ),
                       ],
@@ -760,9 +823,7 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
                   ),
                 )
               else if (dates!.isEmpty)
-                const Expanded(
-                  child: Center(child: Text('当前没有可预约的日期')),
-                )
+                const Expanded(child: Center(child: Text('当前没有可预约的日期')))
               else ...[
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -787,7 +848,7 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
                   ),
                 ),
                 if (currentDay != null && currentDay.times.isNotEmpty) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -809,31 +870,54 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
                   ),
                 ],
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        decoration: const InputDecoration(
-                          isDense: true,
-                          prefixIcon: Icon(Icons.search, size: 18),
-                          hintText: '搜索座位号',
-                          border: OutlineInputBorder(),
+                if (!(_mapMode && canShowMap))
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            prefixIcon: Icon(Icons.search, size: 18),
+                            hintText: '搜索座位号',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (v) => setState(() => _query = v.trim()),
                         ),
-                        onChanged: (v) => setState(() => _query = v.trim()),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilterChip(
-                      label: const Text('仅空座'),
-                      selected: _freeOnly,
-                      onSelected: (v) => setState(() => _freeOnly = v),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
+                      const SizedBox(width: 8),
+                      FilterChip(
+                        label: const Text('仅空座'),
+                        selected: _freeOnly,
+                        onSelected: (v) => setState(() => _freeOnly = v),
+                      ),
+                    ],
+                  )
+                else
+                  Row(
+                    children: [
+                      const Expanded(child: _SeatMapLegend()),
+                      IconButton(
+                        tooltip: '重置缩放',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.center_focus_strong, size: 20),
+                        onPressed: () =>
+                            _transform.value = Matrix4.identity(),
+                      ),
+                    ],
+                  ),
+                const SizedBox(height: 8),
                 Expanded(
                   child: _loadingSeats
                       ? const Center(child: CircularProgressIndicator())
+                      : (_mapMode && canShowMap)
+                      ? _FloorplanSeatMap(
+                          imageUrl: _seatMap!.freeUrl,
+                          seats: allSeats,
+                          selectedSeatId: _selectedSeat?.id,
+                          controller: _transform,
+                          onSelect: (seat) =>
+                              setState(() => _selectedSeat = seat),
+                        )
                       : filtered.isEmpty
                       ? const Center(child: Text('该时段没有符合条件的座位'))
                       : LayoutBuilder(
@@ -850,8 +934,11 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
                               itemCount: filtered.length,
                               itemBuilder: (context, index) {
                                 final s = filtered[index];
+                                final picked = _selectedSeat?.id == s.id;
                                 return Material(
-                                  color: s.isFree
+                                  color: picked
+                                      ? scheme.primary
+                                      : s.isFree
                                       ? scheme.primaryContainer
                                       : scheme.surfaceContainerHighest,
                                   borderRadius: BorderRadius.circular(10),
@@ -868,7 +955,9 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
                                         style: theme.textTheme.labelLarge
                                             ?.copyWith(
                                               fontWeight: FontWeight.w700,
-                                              color: s.isFree
+                                              color: picked
+                                                  ? scheme.onPrimary
+                                                  : s.isFree
                                                   ? scheme.onPrimaryContainer
                                                   : scheme.onSurfaceVariant,
                                             ),
@@ -881,7 +970,687 @@ class _SeatPickerSheetState extends ConsumerState<_SeatPickerSheet> {
                           },
                         ),
                 ),
+                if (_selectedSeat != null && currentDay != null) ...[
+                  const SizedBox(height: 8),
+                  GlassCard(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+                    tint: scheme.primary,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '已选 ${_selectedSeat!.no} 号座',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Text(
+                                '${currentDay.day} ${currentDay.times[_slotIndex].label}',
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        FilledButton(
+                          onPressed: _booking
+                              ? null
+                              : () => _confirmBook(_selectedSeat!),
+                          child: Text(_booking ? '预约中…' : '立即预约'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SeatMapLegend extends StatelessWidget {
+  const _SeatMapLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget dot(Color color, String label) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+      ],
+    );
+    final scheme = Theme.of(context).colorScheme;
+    return Wrap(
+      spacing: 10,
+      runSpacing: 4,
+      children: [
+        dot(Colors.green.withValues(alpha: 0.75), '空闲'),
+        dot(scheme.primary, '已选'),
+        dot(Colors.orange.withValues(alpha: 0.75), '暂离'),
+        dot(Colors.blueGrey.withValues(alpha: 0.65), '已约/使用'),
+        dot(Colors.grey.withValues(alpha: 0.45), '不可用'),
+      ],
+    );
+  }
+}
+
+/// Interactive zoomable/pannable floorplan with percentage-positioned seats.
+class _FloorplanSeatMap extends StatefulWidget {
+  const _FloorplanSeatMap({
+    required this.imageUrl,
+    required this.seats,
+    required this.selectedSeatId,
+    required this.controller,
+    required this.onSelect,
+  });
+
+  final String imageUrl;
+  final List<LibrarySeat> seats;
+  final String? selectedSeatId;
+  final TransformationController controller;
+  final ValueChanged<LibrarySeat> onSelect;
+
+  @override
+  State<_FloorplanSeatMap> createState() => _FloorplanSeatMapState();
+}
+
+class _FloorplanSeatMapState extends State<_FloorplanSeatMap> {
+  double? _aspectRatio;
+  ImageStream? _stream;
+  ImageStreamListener? _listener;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveAspect();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FloorplanSeatMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.imageUrl != widget.imageUrl) {
+      _disposeStream();
+      _aspectRatio = null;
+      _resolveAspect();
+    }
+  }
+
+  void _resolveAspect() {
+    final provider = NetworkImage(widget.imageUrl);
+    final stream = provider.resolve(const ImageConfiguration());
+    final listener = ImageStreamListener((info, _) {
+      if (!mounted) return;
+      final img = info.image;
+      if (img.width > 0 && img.height > 0) {
+        setState(() => _aspectRatio = img.width / img.height);
+      }
+    });
+    stream.addListener(listener);
+    _stream = stream;
+    _listener = listener;
+  }
+
+  void _disposeStream() {
+    if (_stream != null && _listener != null) {
+      _stream!.removeListener(_listener!);
+    }
+    _stream = null;
+    _listener = null;
+  }
+
+  @override
+  void dispose() {
+    _disposeStream();
+    super.dispose();
+  }
+
+  Color _seatColor(LibrarySeat seat, bool selected, ColorScheme scheme) {
+    if (selected) return scheme.primary.withValues(alpha: 0.9);
+    return switch (seat.visualStatus) {
+      LibrarySeatStatus.free => Colors.green.withValues(alpha: 0.32),
+      LibrarySeatStatus.leave => Colors.orange.withValues(alpha: 0.55),
+      LibrarySeatStatus.booked => Colors.blueGrey.withValues(alpha: 0.5),
+      LibrarySeatStatus.inUse => Colors.blueGrey.withValues(alpha: 0.65),
+      LibrarySeatStatus.closed => Colors.grey.withValues(alpha: 0.45),
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final ratio = _aspectRatio ?? (16 / 10);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerLowest,
+          border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: InteractiveViewer(
+          transformationController: widget.controller,
+          minScale: 1.0,
+          maxScale: 5.0,
+          boundaryMargin: const EdgeInsets.all(24),
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: ratio,
+              child: LayoutBuilder(
+                builder: (context, c) {
+                  final w = c.maxWidth;
+                  final h = c.maxHeight;
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.network(
+                        widget.imageUrl,
+                        fit: BoxFit.fill,
+                        loadingBuilder: (context, child, progress) =>
+                            progress == null
+                            ? child
+                            : const Center(child: CircularProgressIndicator()),
+                        errorBuilder: (_, _, _) => const Center(
+                          child: Text('楼层参考图加载失败，请切换「列表」选座'),
+                        ),
+                      ),
+                      for (final seat in widget.seats)
+                        if (seat.hasCoords)
+                          Positioned(
+                            left: (seat.pointX! / 100) * w,
+                            top: (seat.pointY! / 100) * h,
+                            width: (seat.width! / 100) * w,
+                            height: (seat.height! / 100) * h,
+                            child: Tooltip(
+                              message:
+                                  '${seat.no} 号座 · ${seat.isFree ? '空闲' : seat.statusName}',
+                              child: GestureDetector(
+                                onTap: seat.isFree
+                                    ? () => widget.onSelect(seat)
+                                    : null,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: _seatColor(
+                                      seat,
+                                      seat.id == widget.selectedSeatId,
+                                      scheme,
+                                    ),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: seat.id == widget.selectedSeatId
+                                          ? scheme.onPrimary
+                                          : seat.isFree
+                                          ? Colors.green.shade700
+                                          : Colors.transparent,
+                                      width: seat.id == widget.selectedSeatId
+                                          ? 1.8
+                                          : 0.8,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Native seminar room booking sheet (date, time range, title/content/mobile,
+/// teammate lookup by student card, AES-encrypted submit).
+class _SeminarBookSheet extends ConsumerStatefulWidget {
+  const _SeminarBookSheet({required this.area});
+  final LibraryArea area;
+
+  @override
+  ConsumerState<_SeminarBookSheet> createState() => _SeminarBookSheetState();
+}
+
+class _SeminarBookSheetState extends ConsumerState<_SeminarBookSheet> {
+  List<String>? _dates;
+  int _dateIndex = 0;
+  LibrarySeminarDay? _dayInfo;
+  bool _loadingDay = false;
+  bool _submitting = false;
+  bool _addingMember = false;
+  String? _errorText;
+
+  String _startTime = '08:00';
+  String _endTime = '10:00';
+  final _title = TextEditingController();
+  final _content = TextEditingController();
+  final _mobile = TextEditingController();
+  final _card = TextEditingController();
+  final _members = <LibraryTeamMember>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDates();
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _content.dispose();
+    _mobile.dispose();
+    _card.dispose();
+    super.dispose();
+  }
+
+  List<String> _halfHourSlots(String start, String end) {
+    int toMin(String hhmm) {
+      final p = hhmm.split(':');
+      final h = int.tryParse(p.first) ?? 8;
+      final m = p.length > 1 ? int.tryParse(p[1]) ?? 0 : 0;
+      return h * 60 + m;
+    }
+
+    final s = toMin(start);
+    final e = toMin(end);
+    final out = <String>[];
+    for (var m = s; m <= e; m += 30) {
+      final hh = (m ~/ 60).toString().padLeft(2, '0');
+      final mm = (m % 60).toString().padLeft(2, '0');
+      out.add('$hh:$mm');
+    }
+    return out;
+  }
+
+  Future<void> _loadDates() async {
+    setState(() {
+      _dates = null;
+      _errorText = null;
+    });
+    try {
+      final dates = await ref
+          .read(libraryServiceProvider)
+          .seminarDates(widget.area.id);
+      if (!mounted) return;
+      setState(() {
+        _dates = dates;
+        _dateIndex = 0;
+      });
+      if (dates.isNotEmpty) await _loadDay();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorText = e is AppError ? e.message : '无法加载研讨室可预约日期';
+      });
+    }
+  }
+
+  Future<void> _loadDay() async {
+    final dates = _dates;
+    if (dates == null || dates.isEmpty) return;
+    final day = dates[_dateIndex];
+    setState(() => _loadingDay = true);
+    try {
+      final info = await ref
+          .read(libraryServiceProvider)
+          .seminarDay(
+            roomId: widget.area.id,
+            areaId: widget.area.parentId.isNotEmpty
+                ? widget.area.parentId
+                : widget.area.id,
+            day: day,
+          );
+      if (!mounted) return;
+      final slots = _halfHourSlots(info.openStart, info.openEnd);
+      setState(() {
+        _dayInfo = info;
+        _loadingDay = false;
+        if (slots.length >= 3) {
+          _startTime = slots.first;
+          _endTime = slots[2];
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingDay = false;
+        _errorText = e is AppError ? e.message : '无法加载研讨室时段信息';
+      });
+    }
+  }
+
+  Future<void> _addMember() async {
+    final card = _card.text.trim();
+    if (card.isEmpty || _addingMember) return;
+    final maxP = _dayInfo?.maxPerson ?? widget.area.capacity ?? 10;
+    if (_members.length + 1 >= maxP) {
+      showToast(context, '已达到最大参与人数 ($maxP 人)');
+      return;
+    }
+    setState(() => _addingMember = true);
+    try {
+      final day = _dates?[_dateIndex] ?? '';
+      final member = await ref
+          .read(libraryServiceProvider)
+          .lookupSeminarMember(
+            card: card,
+            areaId: widget.area.id,
+            beginTime: day.isNotEmpty ? '$day $_startTime' : null,
+            endTime: day.isNotEmpty ? '$day $_endTime' : null,
+          );
+      if (!mounted) return;
+      if (_members.any((m) => m.id == member.id)) {
+        showToast(context, '该成员已在列表中');
+      } else {
+        setState(() {
+          _members.add(member);
+          _card.clear();
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      showToast(context, e is AppError ? e.message : '查询成员失败');
+    } finally {
+      if (mounted) setState(() => _addingMember = false);
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_submitting || _dates == null || _dates!.isEmpty) return;
+    final minP = _dayInfo?.minPerson ?? 1;
+    if (_members.length + 1 < minP) {
+      showToast(context, '至少还需要添加 ${minP - 1 - _members.length} 名参与成员');
+      return;
+    }
+    if (_title.text.trim().isEmpty) {
+      showToast(context, '请填写预约主题');
+      return;
+    }
+    if (_content.text.trim().isEmpty) {
+      showToast(context, '请填写使用内容');
+      return;
+    }
+    if (_mobile.text.trim().isEmpty) {
+      showToast(context, '请填写联系电话');
+      return;
+    }
+    if (_startTime.compareTo(_endTime) >= 0) {
+      showToast(context, '结束时间需晚于开始时间');
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      final msg = await ref
+          .read(libraryServiceProvider)
+          .bookSeminar(
+            roomId: widget.area.id,
+            day: _dates![_dateIndex],
+            startTime: _startTime,
+            endTime: _endTime,
+            title: _title.text,
+            content: _content.text,
+            mobile: _mobile.text,
+            teamUserIds: [for (final m in _members) m.id],
+          );
+      if (!mounted) return;
+      showToast(context, msg);
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      showToast(context, e is AppError ? e.message : '研讨室预约失败');
+      setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final info = _dayInfo;
+    final slots = info == null
+        ? const ['08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00']
+        : _halfHourSlots(info.openStart, info.openEnd);
+    final minNeed = ((info?.minPerson ?? 1) - 1).clamp(0, 99);
+
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.84,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.area.name,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          [
+                            widget.area.campus,
+                            widget.area.floor,
+                            if (info != null)
+                              '${info.minPerson}–${info.maxPerson} 人',
+                          ].where((s) => s.isNotEmpty).join(' · '),
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '关闭',
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(false),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (_dates == null && _errorText == null)
+                const Expanded(
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_errorText != null)
+                Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_errorText!),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: _loadDates,
+                          child: const Text('重试'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else if (_dates!.isEmpty)
+                const Expanded(child: Center(child: Text('当前没有可预约的日期')))
+              else
+                Expanded(
+                  child: ListView(
+                    children: [
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (var i = 0; i < _dates!.length; i++)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ChoiceChip(
+                                  label: Text(_dates![i]),
+                                  selected: i == _dateIndex,
+                                  onSelected: (_) {
+                                    setState(() => _dateIndex = i);
+                                    _loadDay();
+                                  },
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (_loadingDay)
+                        const LinearProgressIndicator()
+                      else ...[
+                        if (info != null && info.bookedRanges.isNotEmpty) ...[
+                          Text(
+                            '当日已约时段：${info.bookedRanges.map((r) => '${r.$1}–${r.$2}').join('、')}',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                        Row(
+                          children: [
+                            Expanded(
+                              child: DropdownButtonFormField<String>(
+                                initialValue: slots.contains(_startTime)
+                                    ? _startTime
+                                    : slots.first,
+                                decoration: const InputDecoration(
+                                  labelText: '开始时间',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                                items: [
+                                  for (final t in slots)
+                                    DropdownMenuItem(value: t, child: Text(t)),
+                                ],
+                                onChanged: (v) {
+                                  if (v != null) setState(() => _startTime = v);
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: DropdownButtonFormField<String>(
+                                initialValue: slots.contains(_endTime)
+                                    ? _endTime
+                                    : slots.last,
+                                decoration: const InputDecoration(
+                                  labelText: '结束时间',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                                items: [
+                                  for (final t in slots)
+                                    DropdownMenuItem(value: t, child: Text(t)),
+                                ],
+                                onChanged: (v) {
+                                  if (v != null) setState(() => _endTime = v);
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _title,
+                          decoration: const InputDecoration(
+                            labelText: '预约主题',
+                            hintText: '例如：小组课程讨论',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _content,
+                          maxLines: 2,
+                          decoration: const InputDecoration(
+                            labelText: '使用内容',
+                            hintText: '简述研讨内容',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _mobile,
+                          keyboardType: TextInputType.phone,
+                          decoration: const InputDecoration(
+                            labelText: '联系电话',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          minNeed > 0
+                              ? '参与成员（含本人至少 ${info!.minPerson} 人，还需添加 ${(minNeed - _members.length).clamp(0, 99)} 人）'
+                              : '参与成员（可选）',
+                          style: theme.textTheme.labelLarge,
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _card,
+                                decoration: const InputDecoration(
+                                  hintText: '输入同伴学号',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                                onSubmitted: (_) => _addMember(),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton.tonal(
+                              onPressed: _addingMember ? null : _addMember,
+                              child: Text(_addingMember ? '查询中…' : '添加'),
+                            ),
+                          ],
+                        ),
+                        if (_members.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              for (final m in _members)
+                                InputChip(
+                                  label: Text('${m.name} (${m.card})'),
+                                  onDeleted: () => setState(
+                                    () => _members.removeWhere(
+                                      (x) => x.id == m.id,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        FilledButton(
+                          onPressed: _submitting ? null : _submit,
+                          child: Text(_submitting ? '提交中…' : '确认预约研讨室'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
             ],
           ),
         ),

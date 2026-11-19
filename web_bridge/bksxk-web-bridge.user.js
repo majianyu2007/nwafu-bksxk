@@ -116,8 +116,9 @@
     if (u.hostname === LIBRARY_HOST) {
       if (m === 'GET') return path === '/api/cas/cas';
       if (m === 'POST') {
-        return /^\/api\/(cas\/user|Member\/(my|seat|seminar)|Seat\/(date|seat|confirm)|seat\/xuzuoconfirm|Space\/(signin|leave|checkout|cancel)|Seminar\/roomCancel)$/.test(path) ||
-          path === '/reserve/index/list';
+        return /^\/api\/(cas\/user|Member\/(my|seat|seminar)|Seat\/(date|seat|confirm)|seat\/(map|xuzuoconfirm)|Space\/(signin|leave|checkout|cancel)|Seminar\/(date|detail|seminar|group|submit|roomConfirm|roomCancel)|Room\/detail)$/.test(path) ||
+          path === '/reserve/index/list' ||
+          path === '/reserve/index/confirm';
       }
       return false;
     }
