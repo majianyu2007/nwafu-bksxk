@@ -3,15 +3,15 @@
 /// and a message title can be private); native builds only.
 library;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/errors.dart';
+import '../core/web_env.dart';
 import '../data/portal_service.dart';
 import 'edu_providers.dart';
 
-/// The web bridge does not forward the portal hosts.
-const bool kPortalSupported = !kIsWeb;
+/// Supported natively, and on web when the bridge script is >= 1.4.0.
+bool get kPortalSupported => isFullCampusBridgeReady;
 
 class PortalState {
   const PortalState({this.inbox, this.loading = false, this.error});

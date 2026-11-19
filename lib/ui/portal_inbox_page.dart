@@ -11,8 +11,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app/edu_providers.dart';
 import '../app/portal_providers.dart';
 import '../core/errors.dart';
+import '../core/web_env.dart';
 import '../data/portal_service.dart';
 import 'edu_login_page.dart';
+import 'layout.dart';
 import 'widgets/glass.dart';
 
 /// Opens [uri] outside the app; offers to copy it when no browser opens.
@@ -63,37 +65,45 @@ class _PortalInboxPageState extends ConsumerState<PortalInboxPage> {
     final inbox = state.inbox;
     final theme = Theme.of(context);
     Future<void> refresh() => ref.read(portalProvider.notifier).refresh();
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('消息'),
-        actions: [
-          if (signedIn && kPortalSupported)
-            IconButton(
-              tooltip: '刷新',
-              onPressed: state.loading ? null : refresh,
-              icon: const Icon(Icons.refresh),
-            ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: refresh,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-          children: [
-            Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 760),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (!kPortalSupported)
-                      const _Hint(
-                        icon: Icons.desktop_windows_outlined,
-                        text: '网页版看不了学校消息，请用手机或电脑客户端。',
-                      )
-                    else if (!signedIn)
+    return AuroraBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          title: const Text('消息'),
+          actions: [
+            if (signedIn && kPortalSupported)
+              IconButton(
+                tooltip: '刷新',
+                onPressed: state.loading ? null : refresh,
+                icon: const Icon(Icons.refresh),
+              ),
+            const SizedBox(width: 8),
+          ],
+        ),
+        body: RefreshIndicator(
+          onRefresh: refresh,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            children: [
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1040),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (!kPortalSupported)
+                        _Hint(
+                          icon: Icons.extension_outlined,
+                          text: '网页版查看学校消息需要 1.4.0 及以上版本的桥接脚本，更新后刷新页面即可。',
+                          action: FilledButton.icon(
+                            onPressed: openWebBridgeInstaller,
+                            icon: const Icon(Icons.download_outlined),
+                            label: const Text('更新桥接脚本 (1.4.0)'),
+                          ),
+                        )
+                      else if (!signedIn)
                       _Hint(
                         icon: Icons.mail_outline,
                         text: '登录统一身份认证后，这里会显示一网通办的未读消息、待办和学校通知。',
@@ -118,37 +128,47 @@ class _PortalInboxPageState extends ConsumerState<PortalInboxPage> {
                       if (inbox != null) ...[
                         _Counts(inbox: inbox),
                         const SizedBox(height: 20),
-                        _Section(
-                          title: '待办',
-                          items: inbox.todos,
-                          error: inbox.errors['todos'],
-                          empty: (inbox.todo ?? 0) > 0
-                              ? '有 ${inbox.todo} 条待办，列表没取到，可以去一网通办看。'
-                              : '没有待办',
-                          more: Uri.parse(
-                            '$kNewEhallOrigin/ywtb-portal/Lite/index.html',
+                        TwoColumn(
+                          breakpoint: 840,
+                          primaryFlex: 1,
+                          secondaryFlex: 1,
+                          primary: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _Section(
+                                title: '待办',
+                                items: inbox.todos,
+                                error: inbox.errors['todos'],
+                                empty: (inbox.todo ?? 0) > 0
+                                    ? '有 ${inbox.todo} 条待办，列表没取到，可以去一网通办看。'
+                                    : '没有待办',
+                                more: Uri.parse(
+                                  '$kNewEhallOrigin/ywtb-portal/Lite/index.html',
+                                ),
+                              ),
+                              _Section(
+                                title: '消息',
+                                items: inbox.messages,
+                                error: inbox.errors['messages'],
+                                empty: (inbox.unread ?? 0) > 0
+                                    ? '有 ${inbox.unread} 条未读，列表没取到，可以去消息中心看。'
+                                    : '没有消息',
+                                more: Uri.parse(
+                                  '$kNewEhallOrigin/new/portal/html/message/scenes_message_center.html',
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        _Section(
-                          title: '消息',
-                          items: inbox.messages,
-                          error: inbox.errors['messages'],
-                          empty: (inbox.unread ?? 0) > 0
-                              ? '有 ${inbox.unread} 条未读，列表没取到，可以去消息中心看。'
-                              : '没有消息',
-                          more: Uri.parse(
-                            '$kNewEhallOrigin/new/portal/html/message/scenes_message_center.html',
+                          secondary: _Section(
+                            title: '通知公告',
+                            items: inbox.notices,
+                            error: inbox.errors['notices'],
+                            empty: '暂时没有通知',
+                            more: Uri.parse('$kEhallPortalOrigin/index.html'),
                           ),
-                        ),
-                        _Section(
-                          title: '通知公告',
-                          items: inbox.notices,
-                          error: inbox.errors['notices'],
-                          empty: '暂时没有通知',
-                          more: Uri.parse('$kEhallPortalOrigin/index.html'),
                         ),
                         Text(
-                          '消息只在打开本页时读取，不保存在手机上。',
+                          '消息只在打开本页时读取，不保存在本机上。',
                           style: theme.textTheme.bodySmall,
                         ),
                       ],
@@ -159,6 +179,7 @@ class _PortalInboxPageState extends ConsumerState<PortalInboxPage> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

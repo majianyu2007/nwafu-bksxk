@@ -29,6 +29,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../core/errors.dart';
+import '../core/web_env.dart';
 import 'cas_client.dart';
 
 const kNewEhallOrigin = 'https://newehall.nwafu.edu.cn';
@@ -239,8 +240,12 @@ class PortalService {
   void reset() => _ready.clear();
 
   static void _requireSessionSupport() {
-    if (kIsWeb) {
-      CasClient.requireBrowserSessionBridge();
+    if (kIsWeb && !isFullCampusBridgeReady) {
+      throw AppError(
+        AppErrorKind.schemaOrRedirect,
+        message: '请更新网页版桥接脚本（需 ≥ 1.4.0）',
+        hint: '旧版桥接脚本不支持一网通办消息接口，更新后刷新页面即可查看。',
+      );
     }
   }
 
