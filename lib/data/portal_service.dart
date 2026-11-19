@@ -19,7 +19,7 @@
 /// to-do list (`getTaskRestful.do`, `datas.queryTodoTask.taskData[]`) had no
 /// rows on the accounts checked, so their items are read defensively.
 ///
-/// Native only: the web bridge does not forward these hosts.
+/// Supported natively and on web when the companion bridge is >= 1.4.2.
 library;
 
 import 'dart:convert';
@@ -34,16 +34,18 @@ import 'cas_client.dart';
 
 const kNewEhallOrigin = 'https://newehall.nwafu.edu.cn';
 const kEhallPortalOrigin = 'https://ehall.nwafu.edu.cn';
+final _kNewEhallUri = Uri.parse(kNewEhallOrigin);
+final _kEhallPortalUri = Uri.parse(kEhallPortalOrigin);
 
 /// The two portal sessions this service opens.
 enum PortalHost {
-  newehall(kNewEhallOrigin),
-  ehall(kEhallPortalOrigin);
+  newehall(kNewEhallOrigin, 'newehall.nwafu.edu.cn'),
+  ehall(kEhallPortalOrigin, 'ehall.nwafu.edu.cn');
 
-  const PortalHost(this.origin);
+  const PortalHost(this.origin, this.host);
   final String origin;
+  final String host;
   String get loginUrl => '$origin/login';
-  String get host => Uri.parse(origin).host;
 }
 
 /// One message, to-do or notice, whatever its source called the fields.
@@ -137,6 +139,28 @@ class PortalItem {
     'mobileUrl',
   ];
 
+  static final _dateOnlyRe = RegExp(r'^[\d\-\s:.T]+$');
+  static final _hexIdRe = RegExp(r'^[0-9a-fA-F\-]{16,}$');
+  static final _htmlTagRe = RegExp(r'<[^>]*>');
+  static final _htmlEntityRe =
+      RegExp(r'&(?:#(\d+)|#x([0-9a-fA-F]+)|([a-zA-Z0-9]+));');
+  static final _multiSpaceRe = RegExp(r'\s+');
+  static const _namedEntities = {
+    'nbsp': ' ',
+    'amp': '&',
+    'lt': '<',
+    'gt': '>',
+    'quot': '"',
+    'apos': "'",
+    'ldquo': '“',
+    'rdquo': '”',
+    'lsquo': '‘',
+    'rsquo': '’',
+    'mdash': '—',
+    'ndash': '–',
+    'hellip': '…',
+  };
+
   /// Reads any row shape. Missing fields stay empty; a row with no
   /// recognisable title falls back to its first longer text value so it is
   /// still shown rather than dropped.
@@ -150,8 +174,8 @@ class PortalItem {
           final p = _plain(v);
           if (p.length >= 4 &&
               !p.startsWith('http') &&
-              !RegExp(r'^[\d\-\s:.T]+$').hasMatch(p) &&
-              !RegExp(r'^[0-9a-fA-F\-]{16,}$').hasMatch(p)) {
+              !_dateOnlyRe.hasMatch(p) &&
+              !_hexIdRe.hasMatch(p)) {
             title = p;
             break;
           }
@@ -159,11 +183,13 @@ class PortalItem {
       }
     }
     final read = row['read'] ?? row['isRead'] ?? row['readStatus'];
+    var source = _plain(_pick(row, _sourceKeys));
+    if (source.endsWith('/')) source = source.substring(0, source.length - 1);
     return PortalItem(
       title: title.isEmpty ? '（无标题）' : title,
       summary: summary == title ? '' : summary,
       time: _pick(row, _timeKeys),
-      source: _plain(_pick(row, _sourceKeys)).replaceAll(RegExp(r'/$'), ''),
+      source: source,
       url: safePortalLink(_pick(row, _urlKeys), base: base),
       unread: read == false || read == 0 || read == '0',
     );
@@ -180,40 +206,34 @@ class PortalItem {
     return '';
   }
 
-  /// Strips HTML tags, decodes common HTML entities, and squeezes whitespace.
+  /// Strips HTML tags, decodes HTML entities in a single pass (preventing
+  /// double-decoding like `&amp;lt;` -> `<`), and squeezes whitespace.
   static String _plain(String s) {
-    var out = s.replaceAll(RegExp(r'<[^>]*>'), ' ');
-    const named = {
-      '&nbsp;': ' ',
-      '&amp;': '&',
-      '&lt;': '<',
-      '&gt;': '>',
-      '&quot;': '"',
-      '&apos;': "'",
-      '&#39;': "'",
-      '&ldquo;': '“',
-      '&rdquo;': '”',
-      '&lsquo;': '‘',
-      '&rsquo;': '’',
-      '&mdash;': '—',
-      '&ndash;': '–',
-      '&hellip;': '…',
-    };
-    named.forEach((k, v) => out = out.replaceAll(k, v));
-    out = out.replaceAllMapped(RegExp(r'&#(\d+);'), (m) {
-      final cp = int.tryParse(m[1]!);
-      return cp != null && cp > 0 && cp <= 0x10FFFF
-          ? String.fromCharCode(cp)
-          : '';
-    });
-    out = out.replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]+);'), (m) {
-      final cp = int.tryParse(m[1]!, radix: 16);
-      return cp != null && cp > 0 && cp <= 0x10FFFF
-          ? String.fromCharCode(cp)
-          : '';
-    });
-    return out.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (s.isEmpty) return '';
+    var out = s.replaceAll(_htmlTagRe, ' ');
+    if (out.contains('&')) {
+      out = out.replaceAllMapped(_htmlEntityRe, (m) {
+        final dec = m[1];
+        if (dec != null) {
+          final cp = int.tryParse(dec);
+          return _validCodePoint(cp) ? String.fromCharCode(cp!) : '';
+        }
+        final hex = m[2];
+        if (hex != null) {
+          final cp = int.tryParse(hex, radix: 16);
+          return _validCodePoint(cp) ? String.fromCharCode(cp!) : '';
+        }
+        return _namedEntities[m[3]] ?? m[0]!;
+      });
+    }
+    return out.replaceAll(_multiSpaceRe, ' ').trim();
   }
+
+  static bool _validCodePoint(int? cp) =>
+      cp != null &&
+      cp > 0 &&
+      cp <= 0x10FFFF &&
+      (cp < 0xD800 || cp > 0xDFFF);
 }
 
 /// An http(s) link from a row, resolved against [base] when relative.
@@ -264,6 +284,9 @@ class PortalService {
   final CasClient cas;
   final Random _random;
   final _ready = <PortalHost>{};
+  final _opening = <PortalHost, Future<void>>{};
+  Future<bool>? _recovering;
+  int _generation = 0;
 
   /// Same contract as `EhallService.onLoginRequired`: sign in again silently
   /// and return true, or return false to surface the error.
@@ -271,7 +294,11 @@ class PortalService {
 
   Dio get _dio => cas.dio;
 
-  void reset() => _ready.clear();
+  void reset() {
+    _generation++;
+    _ready.clear();
+    _opening.clear();
+  }
 
   static void _requireSessionSupport() {
     if (kIsWeb && !isFullCampusBridgeReady) {
@@ -289,14 +316,25 @@ class PortalService {
     hint: '请重新登录。',
   );
 
-  /// Exchanges a CAS ticket for the host's session.
-  Future<void> open(PortalHost host) async {
+  /// Exchanges a CAS ticket for the host's session (coalesced per host).
+  Future<void> open(PortalHost host) {
     _requireSessionSupport();
-    final last = await cas.follow(host.loginUrl);
-    if (last.realUri.host != host.host || (last.statusCode ?? 500) >= 400) {
-      throw _expiredError;
-    }
-    _ready.add(host);
+    if (_ready.contains(host)) return Future.value();
+    final existing = _opening[host];
+    if (existing != null) return existing;
+    final gen = _generation;
+    late final Future<void> run;
+    run = () async {
+      final last = await cas.follow(host.loginUrl);
+      if (last.realUri.host != host.host || (last.statusCode ?? 500) >= 400) {
+        throw _expiredError;
+      }
+      if (gen == _generation) _ready.add(host);
+    }().whenComplete(() {
+      if (identical(_opening[host], run)) _opening.remove(host);
+    });
+    _opening[host] = run;
+    return run;
   }
 
   Future<Map<String, dynamic>> _call(
@@ -336,23 +374,39 @@ class PortalService {
     return body;
   }
 
-  Future<bool> _recover(PortalHost host) async {
-    if (!await cas.hasLogin(host.loginUrl)) {
-      if (!await (onLoginRequired?.call() ?? Future.value(false))) {
-        return false;
+  Future<bool> _recover(PortalHost host) {
+    final existing = _recovering;
+    if (existing != null) return existing;
+    late final Future<bool> run;
+    run = () async {
+      if (!await cas.hasLogin(host.loginUrl)) {
+        if (!await (onLoginRequired?.call() ?? Future.value(false))) {
+          return false;
+        }
       }
-    }
-    _ready.clear();
-    return true;
+      reset();
+      return true;
+    }().whenComplete(() {
+      if (identical(_recovering, run)) _recovering = null;
+    });
+    _recovering = run;
+    return run;
   }
 
   static bool _redirectedToLogin(Response<String> res) {
-    final text = (res.data ?? '').toLowerCase();
-    return res.statusCode == 302 ||
+    if (res.statusCode == 302 ||
         res.statusCode == 401 ||
         res.statusCode == 403 ||
-        (res.headers.value('location') ?? '').contains('authserver') ||
-        text.contains('/authserver/login') ||
+        (res.headers.value('location') ?? '').contains('authserver')) {
+      return true;
+    }
+    final trimmed = (res.data ?? '').trimLeft();
+    if (res.statusCode == 200 &&
+        (trimmed.startsWith('{') || trimmed.startsWith('['))) {
+      return false;
+    }
+    final text = trimmed.toLowerCase();
+    return text.contains('/authserver/login') ||
         text.contains('name="execution"');
   }
 
@@ -435,8 +489,7 @@ class PortalService {
     final d = _map(j['datas']);
     final rows = _list(_map(d['queryTodoTask'])['taskData']);
     return [
-      for (final r in rows)
-        PortalItem.fromRow(r, base: Uri.parse(kNewEhallOrigin)),
+      for (final r in rows) PortalItem.fromRow(r, base: _kNewEhallUri),
     ];
   }
 
@@ -446,14 +499,16 @@ class PortalService {
       '/jsonp/getTagsMessages?typeId=&size=$size&start=0&typeName=',
     );
     final data = j['data'];
-    final rows = data is List
-        ? _list(data)
-        : _list(_map(data)['children']).isNotEmpty
-        ? _list(_map(data)['children'])
-        : _list(_map(data)['rows'] ?? _map(data)['list']);
+    final List<Map<String, dynamic>> rows;
+    if (data is List) {
+      rows = _list(data);
+    } else {
+      final m = _map(data);
+      final children = _list(m['children']);
+      rows = children.isNotEmpty ? children : _list(m['rows'] ?? m['list']);
+    }
     return [
-      for (final r in rows)
-        PortalItem.fromRow(r, base: Uri.parse(kNewEhallOrigin)),
+      for (final r in rows) PortalItem.fromRow(r, base: _kNewEhallUri),
     ];
   }
 
@@ -512,8 +567,7 @@ class PortalService {
     });
     final rows = _list(_map(news['datas'])['data']);
     return [
-      for (final r in rows)
-        PortalItem.fromRow(r, base: Uri.parse(kEhallPortalOrigin)),
+      for (final r in rows) PortalItem.fromRow(r, base: _kEhallPortalUri),
     ];
   }
 

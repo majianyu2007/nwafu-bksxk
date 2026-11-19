@@ -56,9 +56,18 @@ final campusAutoVpnProvider = StateNotifierProvider<BoolSetting, bool>((ref) {
 });
 
 final campusAccessProvider =
-    StateNotifierProvider<CampusAccessController, CampusAccessState>(
-      (ref) => CampusAccessController(ref),
-    );
+    StateNotifierProvider<CampusAccessController, CampusAccessState>((ref) {
+      final ctrl = CampusAccessController(ref);
+      ref.listen<String?>(
+        eduSessionProvider.select((s) => s.account?.username),
+        (prev, next) {
+          if (prev != null && prev != next) {
+            unawaited(ctrl.disconnect());
+          }
+        },
+      );
+      return ctrl;
+    });
 
 class CampusAccessController extends StateNotifier<CampusAccessState> {
   CampusAccessController(this._ref, {DirectProbe? probe})
@@ -70,15 +79,21 @@ class CampusAccessController extends StateNotifier<CampusAccessState> {
   final DirectProbe _probe;
   final VpnBridge _vpn;
   Future<void>? _checking;
+  bool _userRequested = false;
   int _opGen = 0;
 
   bool get vpnAvailable => !kIsWeb && _vpn.available;
 
   /// Re-evaluates the route; starts the VPN when off campus and allowed.
-  Future<void> check({bool userInitiated = false}) =>
-      _checking ??= _check(userInitiated).whenComplete(() => _checking = null);
+  Future<void> check({bool userInitiated = false}) {
+    if (userInitiated) _userRequested = true;
+    return _checking ??= _check().whenComplete(() {
+      _checking = null;
+      _userRequested = false;
+    });
+  }
 
-  Future<void> _check(bool userInitiated) async {
+  Future<void> _check() async {
     if (kIsWeb) return;
     final gen = ++_opGen;
     if (CampusProxy.instance.address != null) {
@@ -99,7 +114,7 @@ class CampusAccessController extends StateNotifier<CampusAccessState> {
     }
     if (!mounted || gen != _opGen) return;
     final auto = _ref.read(campusAutoVpnProvider);
-    if (!vpnAvailable || (!auto && !userInitiated)) {
+    if (!vpnAvailable || (!auto && !_userRequested)) {
       state = state.copyWith(
         route: CampusRoute.unreachable,
         busy: false,
@@ -150,7 +165,7 @@ class CampusAccessController extends StateNotifier<CampusAccessState> {
           clientDataPath: '${dir.path}/vpn_client_${account.username}.json',
         ),
       );
-      if (gen != _opGen) {
+      if (!mounted || gen != _opGen) {
         if (reply.running) unawaited(_vpn.stop());
         return;
       }
@@ -173,7 +188,7 @@ class CampusAccessController extends StateNotifier<CampusAccessState> {
     state = state.copyWith(busy: true);
     try {
       final reply = await _vpn.submit(p.needs!, value);
-      if (gen != _opGen) {
+      if (!mounted || gen != _opGen) {
         if (reply.running) unawaited(_vpn.stop());
         return;
       }
@@ -185,10 +200,10 @@ class CampusAccessController extends StateNotifier<CampusAccessState> {
   }
 
   Future<void> disconnect() async {
-    ++_opGen;
+    final gen = ++_opGen;
     CampusProxy.instance.address = null;
     await _vpn.stop();
-    if (mounted) {
+    if (mounted && gen == _opGen) {
       state = const CampusAccessState(route: CampusRoute.unknown);
     }
   }
@@ -202,7 +217,12 @@ class CampusAccessController extends StateNotifier<CampusAccessState> {
         message: r.clientIp == null ? '已通过校外访问连接' : '已连接（${r.clientIp}）',
       );
     } else if (r.needs != null) {
-      state = state.copyWith(busy: false, pending: r, message: r.hint);
+      state = state.copyWith(
+        busy: false,
+        pending: r,
+        message: r.hint,
+        clearMessage: r.hint == null,
+      );
     } else {
       CampusProxy.instance.address = null;
       state = CampusAccessState(
@@ -225,6 +245,7 @@ class CampusAccessController extends StateNotifier<CampusAccessState> {
 
   @override
   void dispose() {
+    ++_opGen;
     unawaited(_vpn.stop());
     CampusProxy.instance.address = null;
     super.dispose();

@@ -77,9 +77,9 @@ class DegreeGroup {
   /// Still short of the requirement.
   bool get short => missing > 0;
 
-  /// Earned / required, clamped to 0..1 (1 when nothing is required).
+  /// Earned / required, clamped to 0..1 (1 when passed or nothing required).
   double get progress =>
-      goal <= 0 ? 1 : (earned / goal).clamp(0, 1).toDouble();
+      passed || goal <= 0 ? 1 : (earned / goal).clamp(0, 1).toDouble();
 
   factory DegreeGroup.fromRow(Map<String, dynamic> r) {
     final open = int.tryParse(_str(r['KXKCS']));
@@ -224,10 +224,17 @@ class DegreePlan {
     yield* walk(groups);
   }
 
+  static bool _hasShortDescendant(DegreeGroup g) {
+    for (final c in g.children) {
+      if (c.short || _hasShortDescendant(c)) return true;
+    }
+    return false;
+  }
+
   /// Lowest-level groups still short, for the "还差" summary.
   List<DegreeGroup> get shortLeaves => [
     for (final g in allGroups)
-      if (g.short && !g.children.any((c) => c.short)) g,
+      if (g.short && !_hasShortDescendant(g)) g,
   ];
 
   Map<String, dynamic> toJson() => {
@@ -271,11 +278,10 @@ class DegreePlan {
               : g,
     ];
     final goal = _num(audit?['YQXF']);
+    final planName = _str(plan['PYFAMC']);
     return DegreePlan(
       id: _str(plan['PYFADM']),
-      name: _str(plan['PYFAMC']).isNotEmpty
-          ? _str(plan['PYFAMC'])
-          : _str(audit?['PYFAMC']),
+      name: planName.isNotEmpty ? planName : _str(audit?['PYFAMC']),
       kind: _str(plan['XDLXDM_DISPLAY']),
       goal: goal > 0 ? goal : _num(plan['ZSYQXF']),
       earned: audit == null ? _num(plan['YWCXF']) : _num(audit['WCXF']),
@@ -319,5 +325,6 @@ double? selectedCreditsFrom(List<Map<String, dynamic>> rows) {
   if (rows.isEmpty) return null;
   final v = rows.first['XKXF'];
   if (v == null) return null;
-  return _num(v);
+  if (v is num) return v.toDouble();
+  return double.tryParse('$v'.trim());
 }

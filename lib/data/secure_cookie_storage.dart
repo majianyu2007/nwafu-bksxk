@@ -16,14 +16,16 @@ class SecureCookieStorage implements cj.Storage {
   final String accountId;
   final _keys = <String>{};
   bool _closed = false;
+  bool _cleared = false;
   Future<void> _pending = Future.value();
 
   /// Stops retired responses from writing or deleting a replacement session.
   /// Explicit sign-out also removes jars that were never loaded this run.
   Future<void> close({bool clear = false}) {
     _closed = true;
-    if (clear) {
-      _pending = _pending.then((_) async {
+    if (clear && !_cleared) {
+      _cleared = true;
+      final next = _pending.then((_) async {
         final keys = <String>{'.index', '.domains', ..._keys};
         final index = await _storage.eduCookie(accountId, '.index');
         if (index != null) {
@@ -40,6 +42,8 @@ class SecureCookieStorage implements cj.Storage {
         }
         _keys.clear();
       });
+      _pending = next.catchError((Object _) {});
+      return next;
     }
     return _pending;
   }
@@ -56,13 +60,16 @@ class SecureCookieStorage implements cj.Storage {
   Future<void> init(bool persistSession, bool ignoreExpires) async {}
 
   @override
-  Future<String?> read(String key) async {
-    await _pending;
-    if (_closed) return null;
-    final value = await _storage.eduCookie(accountId, key);
-    if (_closed) return null;
-    if (value != null) _keys.add(key);
-    return value;
+  Future<String?> read(String key) {
+    final next = _pending.then((_) async {
+      if (_closed) return null;
+      final value = await _storage.eduCookie(accountId, key);
+      if (_closed) return null;
+      if (value != null) _keys.add(key);
+      return value;
+    });
+    _pending = next.then((_) {}, onError: (Object _) {});
+    return next;
   }
 
   @override

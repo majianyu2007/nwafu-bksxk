@@ -63,7 +63,6 @@ class Watch {
     this.allowConflict = false,
     this.volunteerGrade,
     this.status = WatchStatus.watching,
-    this.lastRemaining = 0,
     this.lastCheckedAt,
     this.attempts = 0,
     this.note = '',
@@ -103,10 +102,13 @@ class Watch {
   String? lastRejection;
 
   WatchStatus status;
-  int lastRemaining;
   DateTime? lastCheckedAt;
   int attempts;
   String note;
+
+  /// Pre-resolved submission plan cached by [MonitorEngine._validate] so the
+  /// grab hot path avoids rebuilding and JSON-encoding the form on every attempt.
+  AddParamPlan? _cachedPlan;
 
   /// Consecutive transient errors, used to grow the backoff delay. Reset on any
   /// successful poll.
@@ -327,12 +329,13 @@ class MonitorEngine {
   /// account/captcha errors this is not the watch's fault, so nothing is
   /// marked failed.
   void haltForSession() {
+    if (_disposed) return;
     _haltedForSession = true;
     if (_running) {
       _haltAll('登录已失效，重新登录后可继续');
     } else {
       _stopReason = '登录已失效，重新登录后可继续';
-      _changes.add(null);
+      _notifyChanged();
     }
   }
 
@@ -352,11 +355,11 @@ class MonitorEngine {
   /// grab — used for pre-open "plan" watches that should fire only once the
   /// batch opens. Flip to true (via [openGate]) the instant the batch opens.
   bool _gateOpen = true;
-  bool get gateOpen => _gateOpen;
 
   /// Opens the grab gate: armed watches sitting on an open seat will grab on
   /// their next (immediate) tick. Optionally re-arms every watch to fire now.
   void openGate({bool grabNow = true}) {
+    if (_disposed) return;
     _gateOpen = true;
     _emit('', '轮次已开放，开始提交', kind: MonitorEventKind.info);
     if (grabNow && _running) {
@@ -364,43 +367,48 @@ class MonitorEngine {
         if (w.status == WatchStatus.watching) _schedule(w, immediate: true);
       }
     }
-    _changes.add(null);
+    _notifyChanged();
   }
 
   /// Closes the gate (plans are armed but held). New engines start open; call
   /// this before adding plan watches you want to hold until batch-open.
   void closeGate() {
+    if (_disposed) return;
     _gateOpen = false;
-    _changes.add(null);
+    _notifyChanged();
   }
 
   /// Arms a watch. Pre-resolves the add param to catch missing test/textbook
   /// selections up front (sets status=needsSetup instead of failing at grab).
   void addWatch(Watch watch) {
+    if (_disposed) return;
     _watches[watch.id] = watch;
     _validate(watch);
     if (_running && watch.status == WatchStatus.watching) {
       _schedule(watch, immediate: true);
     }
-    _changes.add(null);
+    _notifyChanged();
   }
 
   void removeWatch(String id) {
+    if (_disposed) return;
     _timers.remove(id)?.cancel();
     _watches.remove(id);
-    _changes.add(null);
+    _notifyChanged();
   }
 
   void pauseWatch(String id) {
+    if (_disposed) return;
     final w = _watches[id];
     if (w == null || w.status != WatchStatus.watching) return;
     _timers.remove(id)?.cancel();
     w._pollGeneration++;
     w.status = WatchStatus.paused;
-    _changes.add(null);
+    _notifyChanged();
   }
 
   void resumeWatch(String id) {
+    if (_disposed) return;
     final w = _watches[id];
     if (w == null) return;
     if (w.status == WatchStatus.paused || w.status == WatchStatus.needsSetup) {
@@ -410,11 +418,12 @@ class MonitorEngine {
         _schedule(w, immediate: true);
       }
     }
-    _changes.add(null);
+    _notifyChanged();
   }
 
   /// Resets a failed watch so the user can retry it without re-adding.
   void retryWatch(String id) {
+    if (_disposed) return;
     final w = _watches[id];
     if (w == null || w.status != WatchStatus.failed) return;
     w.status = WatchStatus.watching;
@@ -427,13 +436,14 @@ class MonitorEngine {
     if (w.status == WatchStatus.watching && _running) {
       _schedule(w, immediate: true);
     }
-    _changes.add(null);
+    _notifyChanged();
   }
 
   /// Provide/refresh the experiment class or textbook string for a watch that
   /// needs setup, then re-validate.
   void configureWatch(String id,
       {String? testTeachingClassId, String? bookSelection}) {
+    if (_disposed) return;
     final w = _watches[id];
     if (w == null) return;
     if (testTeachingClassId != null) {
@@ -444,14 +454,15 @@ class MonitorEngine {
     if (w.status == WatchStatus.watching && _running) {
       _schedule(w, immediate: true);
     }
-    _changes.add(null);
+    _notifyChanged();
   }
 
   void _validate(Watch w) {
     if (w.status == WatchStatus.grabbed) return;
     try {
-      // Dry-run the resolver; throws MissingSelectionError when incomplete.
-      resolveAddParam(
+      // Dry-run and cache the resolved plan; throws MissingSelectionError when
+      // required experiment/textbook selections are incomplete.
+      w._cachedPlan = resolveAddParam(
         tc: w.teachingClass,
         studentCode: w.studentCode,
         electiveBatchCode: w.batchCode,
@@ -464,6 +475,7 @@ class MonitorEngine {
       );
       if (w.status == WatchStatus.needsSetup) w.status = WatchStatus.watching;
     } on MissingSelectionError catch (e) {
+      w._cachedPlan = null;
       w.status = WatchStatus.needsSetup;
       w.note = e.reason;
     }
@@ -483,11 +495,12 @@ class MonitorEngine {
       if (w.status == WatchStatus.watching) _schedule(w, immediate: true);
     }
     _emit('', '监控已启动');
-    _changes.add(null);
+    _notifyChanged();
   }
 
   /// Stops all polling (watches retain their state).
   void stop() {
+    if (_disposed) return;
     _running = false;
     _pollGeneration++;
     for (final t in _timers.values) {
@@ -495,7 +508,7 @@ class MonitorEngine {
     }
     _timers.clear();
     _emit('', '监控已停止');
-    _changes.add(null);
+    _notifyChanged();
   }
 
   Duration _nextInterval(Watch w) {
@@ -541,19 +554,20 @@ class MonitorEngine {
         watchGeneration == w._pollGeneration &&
         w.status == WatchStatus.watching &&
         identical(_watches[w.id], w);
+    var attemptedGrab = false;
     try {
       final fresh =
           await _course.refreshCapacity(w.teachingClass, w.studentCode);
       if (!active()) return;
       w.teachingClass = fresh;
-      w.lastRemaining = fresh.remaining;
       w.lastCheckedAt = DateTime.now();
       w.consecutiveErrors = 0; // healthy poll resets backoff
-      _changes.add(null);
+      _notifyChanged();
 
       final grabbable =
           fresh.remaining > 0 && (!fresh.isConflict || w.allowConflict);
       if (grabbable && _gateOpen) {
+        attemptedGrab = true;
         await _attemptGrab(w);
       }
     } on AppError catch (e) {
@@ -565,7 +579,9 @@ class MonitorEngine {
       w.consecutiveErrors++;
       w.note = '$e';
     } finally {
-      if (active()) _schedule(w);
+      // _attemptGrab already schedules the next tick on exit; avoid scheduling
+      // twice and burning an extra RNG draw.
+      if (!attemptedGrab && active()) _schedule(w);
     }
   }
 
@@ -600,7 +616,7 @@ class MonitorEngine {
       w.status = WatchStatus.failed;
       _timers.remove(w.id)?.cancel();
       _emit(w.id, '需要人工处理，已停止该监控：${e.message}', success: false);
-      _changes.add(null);
+      _notifyChanged();
       return;
     }
     // Retryable: grow backoff.
@@ -617,7 +633,53 @@ class MonitorEngine {
     _timers.clear();
     _stopReason = reason;
     _emit('', reason, success: false, kind: MonitorEventKind.stopped);
-    _changes.add(null);
+    _notifyChanged();
+  }
+
+  void _handleBusinessRejection(Watch w, String code, String message) {
+    final err = AppError.fromBusiness(code, message);
+    w.lastResultAt = DateTime.now();
+    w.lastRawResult = '$code: $message';
+    if (err.kind == AppErrorKind.sessionExpired) {
+      w.status = WatchStatus.watching;
+      w.note = err.message;
+      _emit(w.id, '登录已失效，监控暂停：${err.message}', success: false);
+      haltForSession();
+    } else if (err.kind == AppErrorKind.maintenanceOrThrottle &&
+        !config.rushMode) {
+      w.status = WatchStatus.watching;
+      w.note = err.message;
+      _emit(w.id, '系统繁忙/维护，已停止全部监控：${err.message}', success: false);
+      _haltAll('系统繁忙或维护中');
+    } else if (err.kind == AppErrorKind.maintenanceOrThrottle) {
+      // Rush mode: overload is transient — keep trying with backoff.
+      w.status = WatchStatus.watching;
+      w.note = err.message;
+      w.consecutiveErrors++;
+      _emit(w.id, '服务器繁忙，稍后重试（抢开模式）：${err.message}', success: false);
+    } else if (err.isHardStop) {
+      w.status = WatchStatus.failed;
+      w.note = err.message;
+      _timers.remove(w.id)?.cancel();
+      _emit(w.id, '需要人工处理，已停止该监控：${err.message}', success: false);
+    } else if (_capReached(w)) {
+      w.status = WatchStatus.failed;
+      w.note = err.message;
+      _emit(w.id, '抢课失败次数过多，已停止：${w.title}', success: false);
+    } else if (err.kind != AppErrorKind.courseFull &&
+        _repeatedRejection(w, err.message)) {
+      // The same non-capacity refusal three times in a row (credit cap,
+      // eligibility, …) is a rule, not a race; stop hammering the server.
+      w.status = WatchStatus.failed;
+      w.note = err.message;
+      _timers.remove(w.id)?.cancel();
+      _emit(w.id, '服务器连续拒绝，已停止该监控：${err.message}', success: false);
+    } else {
+      // Seat vanished (courseFull) or a soft rejection — keep watching.
+      w.status = WatchStatus.watching;
+      w.note = err.message;
+      _emit(w.id, '空位已被抢走或提交失败：${err.message}', success: false);
+    }
   }
 
   Future<void> _attemptGrab(Watch w) async {
@@ -626,21 +688,22 @@ class MonitorEngine {
     w.submitInFlight = true;
     w.status = WatchStatus.grabbing;
     w.attempts++;
-    _changes.add(null);
+    _notifyChanged();
     _emit(w.id, '发现空位，正在抢 ${w.title}');
 
     try {
-      final plan = resolveAddParam(
-        tc: w.teachingClass,
-        studentCode: w.studentCode,
-        electiveBatchCode: w.batchCode,
-        campus: w.campus,
-        kind: w.kind,
-        selectedTestTeachingClassId: w.selectedTestTeachingClassId,
-        bookSelection: w.bookSelection,
-        textbookOrderingOpen: w.textbookOrderingOpen,
-        volunteerGrade: w.volunteerGrade,
-      );
+      final plan = w._cachedPlan ??
+          resolveAddParam(
+            tc: w.teachingClass,
+            studentCode: w.studentCode,
+            electiveBatchCode: w.batchCode,
+            campus: w.campus,
+            kind: w.kind,
+            selectedTestTeachingClassId: w.selectedTestTeachingClassId,
+            bookSelection: w.bookSelection,
+            textbookOrderingOpen: w.textbookOrderingOpen,
+            volunteerGrade: w.volunteerGrade,
+          );
       final outcome = await _enroll.submitAdd(plan);
       if (_disposed) return;
 
@@ -648,17 +711,22 @@ class MonitorEngine {
       // studentstatus.do before declaring victory.
       if (outcome.success) {
         var confirmed = true;
+        String? confirmMsg;
+        ApiResult? rejectedStatus;
         if (config.confirmAfterGrab) {
           final status = await _enroll.confirmStatus(w.studentCode);
           if (_disposed) return;
           // A non-ok confirmation means the seat did not actually stick.
           confirmed = status.ok;
-          if (status.msg.isNotEmpty) w.note = status.msg;
+          if (status.msg.isNotEmpty) confirmMsg = status.msg;
+          if (!confirmed && status.code == '-1') {
+            rejectedStatus = status;
+          }
         }
         if (confirmed) {
           w.status = WatchStatus.grabbed;
           w.note =
-              '已抢到，${plan.shapeLabel}${w.note.isNotEmpty ? '，${w.note}' : ''}';
+              '已抢到，${plan.shapeLabel}${confirmMsg != null ? '，$confirmMsg' : ''}';
           w.lastResultAt = DateTime.now();
           w.lastRawResult = outcome.message;
           _timers.remove(w.id)?.cancel();
@@ -682,48 +750,15 @@ class MonitorEngine {
               _emit(other.id, '同课程已抢到，自动暂停备选：${other.title}');
             }
           }
+        } else if (rejectedStatus != null) {
+          _handleBusinessRejection(w, rejectedStatus.code, rejectedStatus.msg);
         } else {
           w.status = WatchStatus.watching;
-          _emit(w.id, '提交后未确认成功，继续监控：${w.note}', success: false);
+          if (confirmMsg != null) w.note = confirmMsg;
+          _emit(w.id, '提交后未确认成功，继续监控：${confirmMsg ?? ''}', success: false);
         }
       } else {
-        // Classify the business rejection to decide stop-vs-continue.
-        final err = AppError.fromBusiness(outcome.code, outcome.message);
-        w.lastResultAt = DateTime.now();
-        w.lastRawResult = '${outcome.code}: ${outcome.message}';
-        if (err.kind == AppErrorKind.maintenanceOrThrottle &&
-            !config.rushMode) {
-          _emit(w.id, '系统繁忙/维护，已停止全部监控：${err.message}', success: false);
-          _haltAll('系统繁忙或维护中');
-        } else if (err.kind == AppErrorKind.maintenanceOrThrottle) {
-          // Rush mode: overload is transient — keep trying with backoff.
-          w.status = WatchStatus.watching;
-          w.note = err.message;
-          w.consecutiveErrors++;
-          _emit(w.id, '服务器繁忙，稍后重试（抢开模式）：${err.message}', success: false);
-        } else if (err.isHardStop) {
-          w.status = WatchStatus.failed;
-          w.note = err.message;
-          _timers.remove(w.id)?.cancel();
-          _emit(w.id, '需要人工处理，已停止该监控：${err.message}', success: false);
-        } else if (_capReached(w)) {
-          w.status = WatchStatus.failed;
-          w.note = err.message;
-          _emit(w.id, '抢课失败次数过多，已停止：${w.title}', success: false);
-        } else if (err.kind != AppErrorKind.courseFull &&
-            _repeatedRejection(w, err.message)) {
-          // The same non-capacity refusal three times in a row (credit cap,
-          // eligibility, …) is a rule, not a race; stop hammering the server.
-          w.status = WatchStatus.failed;
-          w.note = err.message;
-          _timers.remove(w.id)?.cancel();
-          _emit(w.id, '服务器连续拒绝，已停止该监控：${err.message}', success: false);
-        } else {
-          // Seat vanished (courseFull) or a soft rejection — keep watching.
-          w.status = WatchStatus.watching;
-          w.note = err.message;
-          _emit(w.id, '空位已被抢走或提交失败：${err.message}', success: false);
-        }
+        _handleBusinessRejection(w, outcome.code, outcome.message);
       }
     } on MissingSelectionError catch (e) {
       if (_disposed) return;
@@ -752,7 +787,7 @@ class MonitorEngine {
     } finally {
       w.submitInFlight = false;
       if (!_disposed) {
-        _changes.add(null);
+        _notifyChanged();
         if (_running && w.status == WatchStatus.watching) _schedule(w);
       }
     }
@@ -773,10 +808,15 @@ class MonitorEngine {
     return w.repeatedRejections >= 3;
   }
 
+  void _notifyChanged() {
+    if (!_disposed && !_changes.isClosed) _changes.add(null);
+  }
+
   void _emit(String watchId, String message,
       {bool? success,
       MonitorEventKind kind = MonitorEventKind.info,
       Watch? watch}) {
+    if (_disposed || _events.isClosed) return;
     _events.add(MonitorEvent(watchId, message,
         success: success, at: DateTime.now(), kind: kind, watch: watch));
   }
@@ -787,6 +827,7 @@ class MonitorEngine {
 
   /// Restores watches from persisted JSON (does not auto-start).
   void loadWatches(String json) {
+    if (_disposed) return;
     final list = jsonDecode(json) as List;
     for (final e in list) {
       final w = Watch.fromJson((e as Map).cast<String, dynamic>());
@@ -794,7 +835,7 @@ class MonitorEngine {
       _watches[w.id] = w;
       _validate(w);
     }
-    _changes.add(null);
+    _notifyChanged();
   }
 
   void dispose() {

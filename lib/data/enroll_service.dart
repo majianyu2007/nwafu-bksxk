@@ -8,6 +8,7 @@
 library;
 
 import '../core/constants.dart';
+import '../core/errors.dart';
 import 'api_client.dart';
 import 'models.dart';
 import 'param_builders.dart';
@@ -171,6 +172,13 @@ class EnrollService {
         last = await pollStatus(studentCode);
         transientErrors = 0;
         if (last.code == '1' || last.code == '-1') return last;
+      } on AppError catch (e) {
+        if (e.isHardStop || !e.retryable) rethrow;
+        transientErrors++;
+        if (transientErrors > 2 || i + 1 >= attempts) {
+          if (last != null) return last;
+          rethrow;
+        }
       } catch (_) {
         transientErrors++;
         if (transientErrors > 2 || i + 1 >= attempts) {

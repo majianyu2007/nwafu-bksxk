@@ -8,7 +8,7 @@ library;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/data/latest.dart' as tzdata;
+import 'package:timezone/data/latest_10y.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 import 'background_sync.dart' show EduAlerts;
 import 'browser_notifications.dart';
@@ -171,7 +171,7 @@ class NotificationService implements EduAlerts {
         body: body,
         tag: tag,
         payload: payload,
-        onTap: _onTap,
+        onTap: _dispatchTap,
       );
       return;
     }
@@ -352,21 +352,34 @@ class NotificationService implements EduAlerts {
   ) async {
     if (generation != _reminderGeneration) return 0;
     if (!_ready) await init();
-    if (!_ready || !canSchedule) return 0;
+    if (generation != _reminderGeneration || !_ready || !canSchedule) return 0;
     if (!_tzReady) {
       tzdata.initializeTimeZones();
       _tzReady = true;
     }
     final shanghai = tz.getLocation('Asia/Shanghai');
-    final wanted = {for (final p in plans) p.id};
+    // iOS UNUserNotificationCenter caps pending local notifications at 64;
+    // keep the 64 soonest so later entries never evict imminent classes.
+    final effectivePlans =
+        !kIsWeb &&
+            defaultTargetPlatform == TargetPlatform.iOS &&
+            plans.length > _kIosMaxPendingReminders
+        ? ([...plans]..sort((a, b) => a.at.compareTo(b.at)))
+              .sublist(0, _kIosMaxPendingReminders)
+        : plans;
+    final wanted = {for (final p in effectivePlans) p.id};
     final known = {..._scheduled};
     try {
       final pending = await _plugin.pendingNotificationRequests();
-      known.addAll(pending.where((p) => p.id >= _reminderIdBase).map((p) => p.id));
+      known.addAll(
+        pending.where((p) => p.id >= _reminderIdBase).map((p) => p.id),
+      );
     } catch (_) {
       // Keep our successful writes when the OS cannot enumerate its queue.
     }
+    if (generation != _reminderGeneration) return 0;
     for (final id in known.difference(wanted)) {
+      if (generation != _reminderGeneration) return 0;
       try {
         await _plugin.cancel(id: id);
         _scheduled.remove(id);
@@ -376,7 +389,7 @@ class NotificationService implements EduAlerts {
       }
     }
     var mode = AndroidScheduleMode.inexactAllowWhileIdle;
-    if (_isAndroid && plans.isNotEmpty) {
+    if (_isAndroid && effectivePlans.isNotEmpty) {
       try {
         if (await _android?.canScheduleExactNotifications() ?? false) {
           mode = AndroidScheduleMode.exactAllowWhileIdle;
@@ -385,7 +398,7 @@ class NotificationService implements EduAlerts {
     }
     var count = 0;
     DateTime? until;
-    for (final p in plans) {
+    for (final p in effectivePlans) {
       if (generation != _reminderGeneration) break;
       try {
         await _plugin.zonedSchedule(
@@ -421,4 +434,5 @@ class NotificationService implements EduAlerts {
       _show(title, body, payload: 'timetable', tag: 'class-reminder');
 
   static const _reminderIdBase = 1 << 30;
+  static const _kIosMaxPendingReminders = 64;
 }

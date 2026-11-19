@@ -75,8 +75,7 @@ Future<bool> bindThisDeviceFlow(
 
 Future<T> _withProgress<T>(BuildContext context, Future<T> work) async {
   final nav = Navigator.of(context, rootNavigator: true);
-  var shown = true;
-  showDialog<void>(
+  final route = DialogRoute<void>(
     context: context,
     barrierDismissible: false,
     builder: (_) => const PopScope(
@@ -94,133 +93,156 @@ Future<T> _withProgress<T>(BuildContext context, Future<T> work) async {
         ),
       ),
     ),
-  ).whenComplete(() => shown = false);
+  );
+  nav.push(route);
   try {
     return await work;
   } finally {
-    if (shown) nav.pop();
+    if (route.isActive) nav.removeRoute(route);
   }
 }
 
 void _snack(BuildContext context, String text) =>
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(text)));
 
-Future<String?> _askDeviceName(BuildContext context, String label) async {
-  final c = TextEditingController(text: defaultDeviceName());
-  try {
-    return await showDialog<String>(
+Future<String?> _askDeviceName(BuildContext context, String label) =>
+    showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (_) => _TextPromptDialog(
         icon: Icon(unlockIcon(label)),
-        title: Text('开启$label登录'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '会在学校统一身份认证里添加一台“生物识别”设备。'
-              '密钥只存在这台设备上，每次登录都要验证$label。'
-              '可在设置或学校个人中心解绑。',
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: c,
-              decoration: const InputDecoration(labelText: '设备名称'),
-              maxLength: 30,
+        title: '开启$label登录',
+        header: Text(
+          '会在学校统一身份认证里添加一台“生物识别”设备。'
+          '密钥只存在这台设备上，每次登录都要验证$label。'
+          '可在设置或学校个人中心解绑。',
+        ),
+        labelText: '设备名称',
+        initialText: defaultDeviceName(),
+        maxLength: 30,
+        confirmLabel: '继续',
+        trimResult: true,
+      ),
+    );
+
+Future<String?> _askPassword(BuildContext context) => showDialog<String>(
+  context: context,
+  builder: (_) => const _TextPromptDialog(
+    title: '确认统一身份认证密码',
+    labelText: '密码',
+    obscureText: true,
+    autofocus: true,
+    confirmLabel: '确定',
+    trimResult: false,
+  ),
+);
+
+Future<String?> _askCaptcha(BuildContext context, Uint8List image) {
+  if (!context.mounted) return Future<String?>.value();
+  return showDialog<String>(
+    context: context,
+    builder: (_) => _TextPromptDialog(
+      title: '学校要求安全校验',
+      header: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('输入图中的字符'),
+          if (image.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.memory(image, height: 48, gaplessPlayback: true),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final v = c.text.trim();
-              if (v.isNotEmpty) Navigator.pop(context, v);
-            },
-            child: const Text('继续'),
-          ),
         ],
       ),
-    );
-  } finally {
-    c.dispose();
-  }
+      labelText: '验证码',
+      autofocus: true,
+      confirmLabel: '确定',
+      trimResult: true,
+    ),
+  );
 }
 
-Future<String?> _askPassword(BuildContext context) async {
-  final c = TextEditingController();
-  try {
-    return await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认统一身份认证密码'),
-        content: TextField(
-          controller: c,
-          obscureText: true,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: '密码'),
-          onSubmitted: (v) => Navigator.pop(context, v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, c.text),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
-  } finally {
-    c.dispose();
-  }
+class _TextPromptDialog extends StatefulWidget {
+  const _TextPromptDialog({
+    required this.title,
+    required this.labelText,
+    required this.confirmLabel,
+    this.icon,
+    this.header,
+    this.initialText = '',
+    this.obscureText = false,
+    this.autofocus = false,
+    this.maxLength,
+    this.trimResult = true,
+  });
+
+  final Widget? icon;
+  final String title;
+  final Widget? header;
+  final String labelText;
+  final String initialText;
+  final bool obscureText;
+  final bool autofocus;
+  final int? maxLength;
+  final String confirmLabel;
+  final bool trimResult;
+
+  @override
+  State<_TextPromptDialog> createState() => _TextPromptDialogState();
 }
 
-Future<String?> _askCaptcha(BuildContext context, Uint8List image) async {
-  if (!context.mounted) return null;
-  final c = TextEditingController();
-  try {
-    return await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('学校要求安全校验'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('输入图中的字符'),
+class _TextPromptDialogState extends State<_TextPromptDialog> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialText);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final value = widget.trimResult ? _ctrl.text.trim() : _ctrl.text;
+    if (value.isEmpty) return;
+    Navigator.pop(context, value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      icon: widget.icon,
+      title: Text(widget.title),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.header != null) ...[
+            widget.header!,
             const SizedBox(height: 12),
-            if (image.isNotEmpty)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.memory(image, height: 48, gaplessPlayback: true),
-              ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: c,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: '验证码'),
-              onSubmitted: (v) => Navigator.pop(context, v),
-            ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, c.text),
-            child: const Text('确定'),
+          TextField(
+            controller: _ctrl,
+            obscureText: widget.obscureText,
+            autofocus: widget.autofocus,
+            maxLength: widget.maxLength,
+            decoration: InputDecoration(labelText: widget.labelText),
+            onSubmitted: (_) => _submit(),
           ),
         ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(onPressed: _submit, child: Text(widget.confirmLabel)),
+      ],
     );
-  } finally {
-    c.dispose();
   }
 }

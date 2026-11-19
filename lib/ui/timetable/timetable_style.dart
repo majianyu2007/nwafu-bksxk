@@ -124,26 +124,44 @@ class CellMetrics {
       math.max(12.0, columnWidth - 2 * inset - 2 * padH - 3);
 }
 
+final _latinRunRe = RegExp(r'[A-Za-z0-9ⅠⅡⅢⅣⅤ()（）.+#-]{3,}');
+final _examDateRe = RegExp(
+  r'(\d{4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})',
+);
+
 /// The name font size for a cell [width] wide: [base], shrunk (down to 10)
 /// just enough that the longest run of Latin letters/digits ("Java", "III")
 /// fits on one line, so a narrow phone column never splits it mid-word.
-double fittedNameSize(String name, double width, double base) {
-  final runs = RegExp(r'[A-Za-z0-9ⅠⅡⅢⅣⅤ()（）.+#-]{3,}').allMatches(name);
+double fittedNameSize(
+  String name,
+  double width,
+  double base, {
+  TextScaler scaler = TextScaler.noScaling,
+}) {
+  final runs = _latinRunRe.allMatches(name);
   var size = base;
+  var shrunk = false;
   for (final m in runs) {
     final painter = TextPainter(
       textDirection: TextDirection.ltr,
+      textScaler: scaler,
       maxLines: 1,
       text: TextSpan(
         text: m[0],
-        style: TextStyle(fontSize: base, fontWeight: FontWeight.w700),
+        style: TextStyle(
+          fontFamily: AppTheme.fontFamily,
+          fontSize: base,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     )..layout();
     if (painter.width > width) {
       size = math.min(size, base * width / painter.width);
+      shrunk = true;
     }
     painter.dispose();
   }
+  if (!shrunk) return base;
   return math.max(10, size.floorToDouble() == size ? size : size - 0.1);
 }
 
@@ -185,7 +203,10 @@ double termRowHeight(
       text: TextSpan(
         text: text.name,
         style: TextStyle(
-          fontSize: m.dense ? fittedNameSize(text.name, inner, m.name) : m.name,
+          fontFamily: AppTheme.fontFamily,
+          fontSize: m.dense
+              ? fittedNameSize(text.name, inner, m.name, scaler: scaler)
+              : m.name,
           height: 1.2,
           fontWeight: FontWeight.w700,
         ),
@@ -205,7 +226,11 @@ double termRowHeight(
           textScaler: scaler,
           text: TextSpan(
             text: text.meta,
-            style: TextStyle(fontSize: m.meta, height: 1.2),
+            style: TextStyle(
+              fontFamily: AppTheme.fontFamily,
+              fontSize: m.meta,
+              height: 1.2,
+            ),
           ),
         )..layout(maxWidth: inner);
         height += meta.height;
@@ -343,9 +368,7 @@ String syncLabel(DateTime instant) {
 /// Exam date as a UTC-midnight calendar day, when the free text contains
 /// one (`2027-01-10`, `2027/1/10`, `2027年1月10日`).
 DateTime? examDate(ExamEntry e) {
-  final m = RegExp(
-    r'(\d{4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})',
-  ).firstMatch('${e.date} ${e.time}');
+  final m = _examDateRe.firstMatch('${e.date} ${e.time}');
   if (m == null) return null;
   return DateTime.utc(int.parse(m[1]!), int.parse(m[2]!), int.parse(m[3]!));
 }

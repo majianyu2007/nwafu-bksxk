@@ -23,15 +23,23 @@ bool get supportsTray => _desktop;
 bool get supportsForegroundService => Platform.isAndroid;
 
 BackgroundHost? _host;
+bool _initialized = false;
 bool _trayShown = false;
 bool _closeToTray = false;
 bool _serviceRunning = false;
-Future<void> _monitoringUpdate = Future<void>.value();
-Future<void> _trayUpdate = Future<void>.value();
+Future<void> _ops = Future<void>.value();
 final _windowListener = _WindowCloser();
 final _trayListener = _TrayHandler();
 
+Future<T> _enqueue<T>(Future<T> Function() action) {
+  final next = _ops.then((_) => action());
+  _ops = next.then<void>((_) {}, onError: (Object _) {});
+  return next;
+}
+
 Future<void> init() async {
+  if (_initialized) return;
+  _initialized = true;
   if (_desktop) {
     await windowManager.ensureInitialized();
     try {
@@ -80,11 +88,8 @@ void detach(BackgroundHost host) {
   if (identical(_host, host)) _host = null;
 }
 
-Future<void> setCloseToTray(bool enabled) {
-  final next = _trayUpdate.then((_) => _applyCloseToTray(enabled));
-  _trayUpdate = next.catchError((Object _) {});
-  return next;
-}
+Future<void> setCloseToTray(bool enabled) =>
+    _enqueue(() => _applyCloseToTray(enabled));
 
 Future<void> _applyCloseToTray(bool enabled) async {
   if (!_desktop) return;
@@ -96,12 +101,14 @@ Future<void> _applyCloseToTray(bool enabled) async {
   try {
     await windowManager.setPreventClose(_closeToTray);
   } catch (_) {}
-  if (!enabled && _trayShown) {
+  if (enabled && _trayShown) {
+    await _doUpdateStatus(_host?.statusLine ?? '');
+  } else if (!enabled && _trayShown) {
+    _trayShown = false;
     trayManager.removeListener(_trayListener);
     try {
       await trayManager.destroy();
     } catch (_) {}
-    _trayShown = false;
   }
 }
 
@@ -109,19 +116,16 @@ Future<void> setMonitoring(
   bool running, {
   required bool runInBackground,
   required bool keepAwake,
-}) {
-  // A stop must wait for an in-flight permission prompt/start to finish;
-  // otherwise it can observe _serviceRunning=false and leave a late start alive.
-  final next = _monitoringUpdate.then(
-    (_) => _applyMonitoring(
-      running,
-      runInBackground: runInBackground,
-      keepAwake: keepAwake,
-    ),
-  );
-  _monitoringUpdate = next.catchError((Object _) {});
-  return next;
-}
+}) =>
+    // A stop must wait for an in-flight permission prompt/start to finish;
+    // otherwise it can observe _serviceRunning=false and leave a late start alive.
+    _enqueue(
+      () => _applyMonitoring(
+        running,
+        runInBackground: runInBackground,
+        keepAwake: keepAwake,
+      ),
+    );
 
 Future<void> _applyMonitoring(
   bool running, {
@@ -145,10 +149,11 @@ Future<void> _applyMonitoring(
         if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
           await FlutterForegroundTask.requestIgnoreBatteryOptimization();
         }
+        final statusText = _host?.statusLine ?? '';
         final res = await FlutterForegroundTask.startService(
           serviceTypes: [ForegroundServiceTypes.dataSync],
           notificationTitle: '西农教务助手',
-          notificationText: _host?.statusLine ?? '监控运行中',
+          notificationText: statusText.isEmpty ? '监控运行中' : statusText,
           notificationIcon: const NotificationIcon(
             metaDataName: 'cn.edu.nwafu.nwafu_bksxk.NOTIFICATION_ICON',
           ),
@@ -181,11 +186,8 @@ Future<bool> _isServiceRunning() async {
   }
 }
 
-Future<void> updateStatus(String text) {
-  final next = _monitoringUpdate.then((_) => _doUpdateStatus(text));
-  _monitoringUpdate = next.catchError((Object _) {});
-  return next;
-}
+Future<void> updateStatus(String text) =>
+    _enqueue(() => _doUpdateStatus(text));
 
 Future<void> _doUpdateStatus(String text) async {
   if (_trayShown) {
@@ -197,7 +199,7 @@ Future<void> _doUpdateStatus(String text) async {
     try {
       await FlutterForegroundTask.updateService(
         notificationTitle: '西农教务助手',
-        notificationText: text,
+        notificationText: text.isEmpty ? '监控运行中' : text,
       );
     } catch (_) {}
   }
@@ -216,7 +218,11 @@ Future<void> _ensureTray() async {
     } else {
       await trayManager.setIcon('assets/icons/tray_color.png');
     }
-    await trayManager.setToolTip('西农教务助手');
+    try {
+      await trayManager.setToolTip('西农教务助手');
+    } catch (_) {
+      // Linux AppIndicator may not support tooltips; continue setting up menu.
+    }
     await trayManager.setContextMenu(
       Menu(
         items: [
@@ -230,11 +236,19 @@ Future<void> _ensureTray() async {
     _trayShown = true;
   } catch (_) {
     _trayShown = false;
+    try {
+      await trayManager.destroy();
+    } catch (_) {}
   }
 }
 
 class _WindowCloser with WindowListener {
   Timer? _saveDebounce;
+
+  void cancelPending() {
+    _saveDebounce?.cancel();
+    _saveDebounce = null;
+  }
 
   @override
   void onWindowResized() {
@@ -258,7 +272,7 @@ class _WindowCloser with WindowListener {
 
   @override
   void onWindowClose() async {
-    _saveDebounce?.cancel();
+    cancelPending();
     try {
       if (_closeToTray && await windowManager.isPreventClose()) {
         await windowManager.hide();
@@ -271,33 +285,45 @@ class _TrayHandler with TrayListener {
   @override
   void onTrayIconMouseDown() {
     if (Platform.isWindows || Platform.isLinux) {
-      _show();
+      unawaited(_show());
     } else {
-      try {
-        trayManager.popUpContextMenu();
-      } catch (_) {}
+      unawaited(trayManager.popUpContextMenu().catchError((Object _) {}));
     }
   }
 
   @override
   void onTrayIconRightMouseDown() {
-    try {
-      trayManager.popUpContextMenu();
-    } catch (_) {}
+    unawaited(trayManager.popUpContextMenu().catchError((Object _) {}));
   }
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
     switch (menuItem.key) {
       case 'show':
-        _show();
+        unawaited(_show());
       case 'quit':
-        _host?.quitApp();
-        windowManager
-            .setPreventClose(false)
-            .then((_) => windowManager.destroy())
-            .catchError((Object _) {});
+        unawaited(_quit());
     }
+  }
+
+  Future<void> _quit() async {
+    _windowListener.cancelPending();
+    windowManager.removeListener(_windowListener);
+    _host?.quitApp();
+    if (_trayShown) {
+      _trayShown = false;
+      trayManager.removeListener(_trayListener);
+      try {
+        await trayManager.destroy();
+      } catch (_) {}
+    }
+    try {
+      await WakelockPlus.disable();
+    } catch (_) {}
+    try {
+      await windowManager.setPreventClose(false);
+      await windowManager.destroy();
+    } catch (_) {}
   }
 
   Future<void> _show() async {

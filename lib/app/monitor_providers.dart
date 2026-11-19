@@ -16,12 +16,11 @@ import 'providers.dart';
 final monitorChangesProvider = StreamProvider.family<void, String>(
     (ref, id) => ref.watch(sessionScopeProvider(id)).engine.changes);
 
-/// [id]'s watch list, rebuilt on every engine change and persisted.
+/// [id]'s watch list, rebuilt on every engine change.
+/// Persistence is handled inside `sessionScopeProvider(id)` on a debounced diff.
 final watchesOfProvider = Provider.family<List<Watch>, String>((ref, id) {
   ref.watch(monitorChangesProvider(id));
-  final engine = ref.watch(sessionScopeProvider(id)).engine;
-  ref.read(storageProvider).setWatchesJson(id, engine.encodeWatches());
-  return engine.watches;
+  return ref.watch(sessionScopeProvider(id)).engine.watches;
 });
 
 /// The shown account's watch list.
@@ -31,6 +30,14 @@ final watchesProvider = Provider<List<Watch>>((ref) {
   return ref.watch(watchesOfProvider(id));
 });
 
+/// Whether a specific watch [watchId] is actively on the shown account's watch
+/// list (not yet grabbed). Watching this boolean avoids rebuilding every course
+/// card on every monitor poll tick.
+final watchActiveOfProvider = Provider.family<bool, String>((ref, watchId) {
+  final watches = ref.watch(watchesProvider);
+  return watches.any((w) => w.id == watchId && w.status != WatchStatus.grabbed);
+});
+
 /// Count of the shown account's watches that are watching or grabbing.
 final watchCountProvider = Provider<int>((ref) => ref
     .watch(watchesProvider)
@@ -38,12 +45,25 @@ final watchCountProvider = Provider<int>((ref) => ref
         w.status == WatchStatus.watching || w.status == WatchStatus.grabbing)
     .length);
 
+/// Whether [id]'s engine is running.
+final monitorRunningOfProvider = Provider.family<bool, String>((ref, id) {
+  ref.watch(monitorChangesProvider(id));
+  return ref.watch(sessionScopeProvider(id)).engine.isRunning;
+});
+
 /// Whether the shown account's engine is running.
 final monitorRunningProvider = Provider<bool>((ref) {
   final id = ref.watch(activeAccountIdProvider);
   if (id == null) return false;
+  return ref.watch(monitorRunningOfProvider(id));
+});
+
+/// Stop reason of the shown account's engine (e.g. maintenance/throttle/session).
+final monitorStopReasonProvider = Provider<String?>((ref) {
+  final id = ref.watch(activeAccountIdProvider);
+  if (id == null) return null;
   ref.watch(monitorChangesProvider(id));
-  return ref.watch(sessionScopeProvider(id)).engine.isRunning;
+  return ref.watch(sessionScopeProvider(id)).engine.stopReason;
 });
 
 /// Rolling activity log (newest first, capped) kept outside the widget tree
@@ -86,8 +106,8 @@ final monitorLogProvider = Provider<List<MonitorEvent>>((ref) {
 /// notifications fire for accounts that are not on screen.
 final notificationBridgeProvider = Provider.family<void, String>((ref, id) {
   final engine = ref.watch(sessionScopeProvider(id)).engine;
-  final who = ref.read(sessionControllerProvider(id)).displayName;
   final sub = engine.events.listen((e) {
+    final who = ref.read(sessionControllerProvider(id)).displayName;
     final w = e.watch;
     switch (e.kind) {
       case MonitorEventKind.grabbed:
@@ -175,9 +195,14 @@ class PlanController extends StateNotifier<PlanState> {
     _checking = true;
     try {
       final open = await _scope.auth.isBatchOpen(batch.code);
-      if (!mounted) return;
+      if (!mounted ||
+          !state.armed ||
+          _ref.read(sessionControllerProvider(accountId)).activeBatch?.code !=
+              batch.code) {
+        return;
+      }
       state = state.copyWith(batchOpen: open, lastCheckedAt: DateTime.now());
-      if (open && state.armed) {
+      if (open) {
         _scope.engine.openGate(grabNow: true);
         _timer?.cancel();
         _timer = null;

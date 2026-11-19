@@ -68,7 +68,7 @@ void main() {
 
     final cose = cborDecode(Uint8List.sublistView(auth, 55 + idLen)) as Map;
     expect(cose[3], -7);
-    final q = registrationPublicKey(reg.credential);
+    final q = publicPointOf(reg.credential.keyValue);
     BigInt n(Uint8List b) =>
         b.fold(BigInt.zero, (a, x) => (a << 8) | BigInt.from(x));
     expect(n(cose[-2] as Uint8List), q.x!.toBigInteger());
@@ -102,7 +102,7 @@ void main() {
     ]);
     expect(
       verifyP256(
-        registrationPublicKey(c),
+        publicPointOf(c.keyValue),
         signed,
         b64Decode(r['signature'] as String),
       ),
@@ -127,7 +127,7 @@ void main() {
       ...att['authData'] as Uint8List,
       ...hash.sha256.convert(b64Decode(resp['clientDataJSON'] as String)).bytes,
     ]);
-    final ECPoint q = registrationPublicKey(reg.credential);
+    final ECPoint q = publicPointOf(reg.credential.keyValue);
     expect(verifyP256(q, signed, stmt['sig'] as Uint8List), isTrue);
   });
 

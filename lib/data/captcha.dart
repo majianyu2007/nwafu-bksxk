@@ -11,6 +11,17 @@
 /// by tests). A null answer means "fall back to manual entry".
 library;
 
+final _whitespaceRe = RegExp(r'\s+');
+
+/// Strips whitespace and checks [expectedLength] (>0) on a raw OCR answer.
+String? normalizeCaptchaAnswer(String? raw, {int expectedLength = 4}) {
+  if (raw == null) return null;
+  final cleaned = raw.replaceAll(_whitespaceRe, '');
+  if (cleaned.isEmpty) return null;
+  if (expectedLength > 0 && cleaned.length != expectedLength) return null;
+  return cleaned;
+}
+
 /// Answers a captcha image, or returns null if it cannot.
 abstract class CaptchaSolver {
   Future<String?> solve(List<int> imageBytes);
@@ -19,6 +30,9 @@ abstract class CaptchaSolver {
   /// no-op; the ONNX solver overrides to load the model into memory ahead of
   /// the login screen mount.
   Future<void> warmUp() async {}
+
+  /// Releases any underlying native/HTTP resources.
+  Future<void> dispose() async {}
 }
 
 /// Wraps a user-supplied OCR callback. The callback can call a bundled model, a
@@ -35,13 +49,19 @@ class OcrCaptchaSolver implements CaptchaSolver {
 
   @override
   Future<String?> solve(List<int> imageBytes) async {
-    final raw = await _ocr(imageBytes);
-    if (raw == null) return null;
-    final cleaned = raw.replaceAll(RegExp(r'\s+'), '');
-    if (cleaned.isEmpty) return null;
-    if (expectedLength > 0 && cleaned.length != expectedLength) return null;
-    return cleaned;
+    try {
+      return normalizeCaptchaAnswer(
+        await _ocr(imageBytes),
+        expectedLength: expectedLength,
+      );
+    } catch (_) {
+      return null;
+    }
   }
+
   @override
   Future<void> warmUp() async {}
+
+  @override
+  Future<void> dispose() async {}
 }

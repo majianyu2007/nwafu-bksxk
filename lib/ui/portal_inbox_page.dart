@@ -20,12 +20,18 @@ import 'widgets/glass.dart';
 /// Opens [uri] outside the app; offers to copy it when no browser opens.
 Future<void> openPortalLink(BuildContext context, Uri uri) async {
   try {
-    if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
+    if (await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+      webOnlyWindowName: '_blank',
+    )) {
+      return;
+    }
   } catch (_) {
     // Fall through to the copy offer.
   }
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
+  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
     SnackBar(
       content: const Text('打不开浏览器，可以复制链接自己打开。'),
       action: SnackBarAction(
@@ -64,10 +70,8 @@ class _PortalInboxPageState extends ConsumerState<PortalInboxPage> {
   }
 
   Future<void> _login() async {
-    final ok = await Navigator.of(
-      context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => const EduLoginPage()));
-    if (ok == true && mounted) {
+    final ok = await pushEduLogin(context);
+    if (ok == true && mounted && !ref.read(portalProvider).loading) {
       await ref.read(portalProvider.notifier).refresh();
     }
   }
@@ -130,11 +134,14 @@ class _PortalInboxPageState extends ConsumerState<PortalInboxPage> {
                       if (!kPortalSupported)
                         _Hint(
                           icon: Icons.extension_outlined,
-                          text: '网页版查看学校消息需要 1.4.2 及以上版本的桥接脚本，更新后刷新页面即可。',
+                          text:
+                              '网页版查看学校消息需要 1.4.2 及以上版本的桥接脚本（推荐 $kRecommendedWebBridgeVersion），更新后刷新页面即可。',
                           action: FilledButton.icon(
                             onPressed: openWebBridgeInstaller,
                             icon: const Icon(Icons.download_outlined),
-                            label: const Text('更新桥接脚本 (1.4.2)'),
+                            label: const Text(
+                              '更新桥接脚本 ($kRecommendedWebBridgeVersion)',
+                            ),
                           ),
                         )
                       else if (!signedIn)
@@ -456,33 +463,6 @@ class _ErrorNote extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Entry point for 我的: opens [PortalInboxPage], with the last known
-/// unread + to-do count as a badge. Hidden on web and when signed out.
-class PortalInboxTile extends ConsumerWidget {
-  const PortalInboxTile({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (!kPortalSupported) return const SizedBox.shrink();
-    final signedIn = ref.watch(eduSessionProvider.select((s) => s.signedIn));
-    if (!signedIn) return const SizedBox.shrink();
-    final badge = ref.watch(portalBadgeProvider);
-    return ListTile(
-      leading: Badge(
-        isLabelVisible: (badge ?? 0) > 0,
-        label: Text('${badge ?? 0}'),
-        child: const Icon(Icons.mail_outline),
-      ),
-      title: const Text('消息'),
-      subtitle: const Text('一网通办的未读消息、待办和学校通知'),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const PortalInboxPage()),
       ),
     );
   }

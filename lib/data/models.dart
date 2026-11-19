@@ -27,10 +27,11 @@ Map<String, dynamic> _nonNull(Map<String, dynamic> m) => {
 String teacherDisplayName(dynamic v) {
   final s = _s(v);
   if (!s.contains('|')) return s;
-  final names = <String>[];
+  final names = <String>{};
   for (final part in s.split(',')) {
-    final name = part.split('|').first.trim();
-    if (name.isNotEmpty && !names.contains(name)) names.add(name);
+    final pipe = part.indexOf('|');
+    final name = (pipe < 0 ? part : part.substring(0, pipe)).trim();
+    if (name.isNotEmpty) names.add(name);
   }
   return names.join('、');
 }
@@ -217,15 +218,26 @@ class StudentInfo {
   /// Fills blanks from a [CreditInfo] payload. The credit-info endpoint
   /// (student/xkxf.do) returns name/college/major/grade/campus that the
   /// student/<code>.do profile omits, so we merge by best-effort.
-  StudentInfo mergeFromCredit(CreditInfo c) => copyWith(
-        name: name.isEmpty ? c.raw['name']?.toString() : null,
-        campus: campus.isEmpty ? (c.raw['campus']?.toString()) : null,
-        collegeName: collegeName.isEmpty ? c.collegeName : null,
-        majorName: majorName.isEmpty ? c.majorName : null,
-        grade: grade.isEmpty ? c.grade : null,
-        schoolClassName: schoolClassName.isEmpty ? c.schoolClassName : null,
-        raw: _nonNull(c.raw),
-      );
+  StudentInfo mergeFromCredit(CreditInfo c) {
+    final creditName = _s(c.raw['name']);
+    final creditCampus = _s(c.raw['campus']);
+    return copyWith(
+      name: name.isEmpty && creditName.isNotEmpty ? creditName : null,
+      campus: campus.isEmpty && creditCampus.isNotEmpty ? creditCampus : null,
+      collegeName:
+          collegeName.isEmpty && c.collegeName.isNotEmpty ? c.collegeName : null,
+      majorName: majorName.isEmpty && c.majorName.isNotEmpty ? c.majorName : null,
+      grade: grade.isEmpty && c.grade.isNotEmpty ? c.grade : null,
+      schoolClassName: schoolClassName.isEmpty && c.schoolClassName.isNotEmpty
+          ? c.schoolClassName
+          : null,
+      raw: {
+        for (final e in c.raw.entries)
+          if (e.value != null && e.value.toString().trim().isNotEmpty)
+            e.key: e.value,
+      },
+    );
+  }
 }
 
 /// A course summary row (from programCourse/recommendedCourse/publicCourse).
@@ -774,6 +786,7 @@ class CreditInfo {
   double get selectedCredit => needCredit;
 
   static final _reqSepRe = RegExp(r'[,，;；]');
+  static final _reqColonRe = RegExp(r'[:：]');
   static final _reqNeedRe = RegExp(r'要求学分[:：]([^】]*)');
   static final _reqGotRe = RegExp(r'已修学分[:：]([^】]*)');
 
@@ -782,7 +795,7 @@ class CreditInfo {
     if (spCourseDescription.isEmpty) return const [];
     final out = <CreditRequirement>[];
     for (final part in spCourseDescription.split(_reqSepRe)) {
-      final i = part.indexOf(RegExp(r'[:：]'));
+      final i = part.indexOf(_reqColonRe);
       if (i <= 0) continue;
       final name = part.substring(0, i).trim();
       final rest = part.substring(i + 1);

@@ -11,14 +11,12 @@ library;
 
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:pointycastle/export.dart';
 
 const _aesChars = 'ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678';
 
-String casRandomString(int length, [Random? random]) {
-  final r = random ?? Random.secure();
+String _casRandomString(int length, Random r) {
   final b = StringBuffer();
   for (var i = 0; i < length; i++) {
     b.write(_aesChars[r.nextInt(_aesChars.length)]);
@@ -28,37 +26,30 @@ String casRandomString(int length, [Random? random]) {
 
 /// Encrypts [password] with the login page's [salt]. An empty salt returns
 /// the password unchanged, as `encrypt.js` does.
+///
+/// Throws [ArgumentError] if a non-empty [salt] is not a valid AES key length
+/// (16, 24, or 32 UTF-8 bytes).
 String encryptCasPassword(String password, String salt, {Random? random}) {
   final key = salt.trim();
   if (key.isEmpty) return password;
-  final iv = casRandomString(16, random);
-  final plain = utf8.encode(casRandomString(64, random) + password);
+  final keyBytes = utf8.encode(key);
+  if (keyBytes.length != 16 && keyBytes.length != 24 && keyBytes.length != 32) {
+    throw ArgumentError.value(
+      keyBytes.length,
+      'salt',
+      'AES key must be 16, 24, or 32 bytes',
+    );
+  }
+  final r = random ?? Random.secure();
+  final ivBytes = utf8.encode(_casRandomString(16, r));
+  final plain = utf8.encode(_casRandomString(64, r) + password);
   final cipher = PaddedBlockCipherImpl(PKCS7Padding(), CBCBlockCipher(AESEngine()))
     ..init(
       true,
       PaddedBlockCipherParameters<CipherParameters, CipherParameters>(
-        ParametersWithIV(
-            KeyParameter(Uint8List.fromList(utf8.encode(key))),
-            Uint8List.fromList(utf8.encode(iv))),
+        ParametersWithIV(KeyParameter(keyBytes), ivBytes),
         null,
       ),
     );
-  return base64.encode(cipher.process(Uint8List.fromList(plain)));
-}
-
-/// Decrypts a value produced by [encryptCasPassword] given the IV it used.
-/// Only tests need this; the server does the real decryption.
-String decryptCasPasswordForTest(String encoded, String salt, String iv) {
-  final cipher = PaddedBlockCipherImpl(PKCS7Padding(), CBCBlockCipher(AESEngine()))
-    ..init(
-      false,
-      PaddedBlockCipherParameters<CipherParameters, CipherParameters>(
-        ParametersWithIV(
-            KeyParameter(Uint8List.fromList(utf8.encode(salt.trim()))),
-            Uint8List.fromList(utf8.encode(iv))),
-        null,
-      ),
-    );
-  final plain = utf8.decode(cipher.process(base64.decode(encoded)));
-  return plain.substring(64);
+  return base64.encode(cipher.process(plain));
 }

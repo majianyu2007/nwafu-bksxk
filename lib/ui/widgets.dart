@@ -2,7 +2,14 @@
 library;
 
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+
+import '../core/errors.dart';
+import '../data/course_service.dart';
+import '../data/info_service.dart';
+import '../data/models.dart';
+import 'widgets/glass.dart';
 
 /// A soft status pill.
 class StatusPill extends StatelessWidget {
@@ -27,10 +34,14 @@ class StatusPill extends StatelessWidget {
             Icon(icon, size: 13, color: color),
             const SizedBox(width: 4),
           ],
-          Text(
-            label,
-            style: TextStyle(
-                color: color, fontSize: 12, fontWeight: FontWeight.w600),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: color, fontSize: 12, fontWeight: FontWeight.w600),
+            ),
           ),
         ],
       ),
@@ -238,16 +249,143 @@ class DetailRow extends StatelessWidget {
             Icon(icon, size: 18, color: scheme.onSurfaceVariant),
             const SizedBox(width: 12),
           ],
-          SizedBox(
-            width: 80,
-            child: Text(label,
-                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 72, maxWidth: 112),
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Text(
+                label,
+                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+              ),
+            ),
           ),
           Expanded(
               child:
                   SelectableText(value, style: const TextStyle(fontSize: 14))),
         ],
       ),
+    );
+  }
+}
+
+/// Formats credits without trailing `.0` (e.g. `2.0` -> `2`, `2.5` -> `2.5`).
+String formatCredit(double credit) =>
+    credit == credit.roundToDouble()
+        ? credit.toStringAsFixed(0)
+        : credit.toStringAsFixed(1);
+
+/// Fetches textbook options for a teaching class annotated with decline reasons.
+Future<List<TextbookOption>> fetchAnnotatedTextbookOptions({
+  required CourseService course,
+  required InfoService info,
+  required String studentCode,
+  required String batchCode,
+  required String teachingClassId,
+}) async {
+  final results = await Future.wait([
+    course.fetchTextbookOptions(
+      studentCode: studentCode,
+      batchCode: batchCode,
+      teachingClassId: teachingClassId,
+    ),
+    info.fetchTextbookReasons(),
+  ]);
+  final reasons = results[1] as List<TextbookReason>;
+  return [
+    for (final o in results[0] as List<TextbookOption>)
+      o.copyWith(reasonCodes: reasons),
+  ];
+}
+
+/// Centered GlassCard empty / sign-in prompt shared by academic pages.
+class ActionEmptyCard extends StatelessWidget {
+  const ActionEmptyCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: GlassCard(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 40, color: scheme.primary),
+                const SizedBox(height: 12),
+                Text(
+                  title,
+                  style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                  textAlign: TextAlign.center,
+                ),
+                if (subtitle != null && subtitle!.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    subtitle!,
+                    style: text.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+                if (actionLabel != null && onAction != null) ...[
+                  const SizedBox(height: 18),
+                  FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Error card for unified-identity / ehall / portal pages, offering re-login
+/// when the error is [AppErrorKind.sessionExpired] and retry otherwise.
+class EduErrorCard extends StatelessWidget {
+  const EduErrorCard({
+    super.key,
+    required this.error,
+    required this.onRetry,
+    this.onRelogin,
+    this.fallbackMessage = '加载失败，请稍后重试',
+  });
+
+  final Object error;
+  final VoidCallback onRetry;
+  final VoidCallback? onRelogin;
+  final String fallbackMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    final appError = error is AppError ? error as AppError : null;
+    final expired = appError?.kind == AppErrorKind.sessionExpired;
+    final msg = appError?.message ?? fallbackMessage;
+    final hint = appError?.hint;
+    return ActionEmptyCard(
+      icon: expired ? Icons.lock_clock_outlined : Icons.cloud_off_outlined,
+      title: msg,
+      subtitle: hint,
+      actionLabel: expired && onRelogin != null ? '重新登录' : '重试',
+      onAction: expired && onRelogin != null ? onRelogin : onRetry,
     );
   }
 }

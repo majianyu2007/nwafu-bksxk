@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'widgets/simple_markdown.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -8,9 +7,21 @@ import '../app/update_providers.dart';
 import '../core/update_links.dart';
 import '../core/web_env.dart';
 import '../data/update_service.dart';
+import 'widgets/simple_markdown.dart';
 
 Future<void> _openUpdateLink(BuildContext context, Uri uri) async {
-  if (!isOfficialUpdateLink(uri)) return;
+  if (!isOfficialUpdateLink(uri)) {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(
+        content: const Text('非官方发布链接，出于安全原因未自动打开。'),
+        action: SnackBarAction(
+          label: '复制链接',
+          onPressed: () => Clipboard.setData(ClipboardData(text: uri.toString())),
+        ),
+      ),
+    );
+    return;
+  }
   try {
     if (await launchUrl(
       uri,
@@ -23,7 +34,7 @@ Future<void> _openUpdateLink(BuildContext context, Uri uri) async {
     // Platform launchers may be unavailable; keep the URL accessible to copy.
   }
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
+  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
     SnackBar(
       content: const Text('无法打开浏览器，可复制官方链接后手动访问。'),
       action: SnackBarAction(
@@ -93,7 +104,7 @@ class UpdateNoticeBanner extends ConsumerWidget {
                       icon: const Icon(Icons.open_in_new, size: 18),
                       label: Text(isWebRuntime ? '在新标签页打开' : '查看应用更新'),
                     ),
-                  if (state.bridge.hasUpdate)
+                  if (isWebRuntime && state.bridge.hasUpdate)
                     TextButton.icon(
                       onPressed: () =>
                           _openUpdateLink(context, bridgeInstallerUri),

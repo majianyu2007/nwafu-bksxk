@@ -20,7 +20,7 @@ Flutter is at `/opt/homebrew/bin/flutter` (3.44.6 / Dart 3.12.2). No codegen (no
 ```bash
 flutter pub get
 flutter analyze                                   # must be clean (lints in analysis_options.yaml)
-flutter test                                      # ~120 tests, no network needed
+flutter test                                      # ~290 tests, no network needed
 flutter test test/monitor_engine_test.dart        # one file
 flutter test --plain-name "double-fired"          # one test by name substring
 flutter run -d macos                              # or android / ios / windows / linux / chrome
@@ -85,10 +85,10 @@ Other global features: `UpdatesController` (`lib/app/update_providers.dart`) che
 
 ### Platform split via conditional imports
 
-Web cannot use `dart:io`/`dart:ffi` and native must not import `dart:js_interop`, so three seams use `stub if (dart.library.X) impl` files:
-- `core/web_env*.dart` — is-web + "is the CORS bridge userscript installed" checks.
-- `data/captcha_solver_factory*.dart` — both sides currently return `OnnxCaptchaSolver`; on web it only works if `web/index.html` has loaded `window.ort` from `web/ort/`.
+Web cannot use `dart:io`/`dart:ffi` and native must not import `dart:js_interop`, so platform seams use `stub if (dart.library.X) impl` files:
+- `core/web_env*.dart` — is-web + "is the CORS bridge userscript installed" checks (recommended bridge version in `kRecommendedWebBridgeVersion`).
 - `data/browser_notifications*.dart` — Web Notifications vs no-op; `NotificationService` wraps this plus `flutter_local_notifications`.
+- `data/background*.dart`, `data/background_sync_task*.dart`, `data/calendar_sync*.dart`, `data/ics_export*.dart`, `data/secure_cookie_storage*.dart`, `data/vpn/*_ffi.dart` — native IO/FFI implementations with web stubs.
 
 Keep new platform-specific code behind the same pattern; a bare `dart:io` import in shared code breaks `flutter build web`.
 
@@ -98,7 +98,7 @@ The bundled model is `assets/models/autoverify.onnx` (quantized ddddocr CRNN fro
 
 ### Web build
 
-The school server sends no CORS headers, so the web app only works with the Tampermonkey/ScriptCat bridge in `web_bridge/bksxk-web-bridge.user.js` (v1.4.0; the app requires ≥ 1.3.0), which replaces `XMLHttpRequest` for the selection host, ehall/authserver, newehall portal, and booking-lib hosts with `GM_xmlhttpRequest`. Dio's browser adapter sends bodies as `Uint8Array`; the bridge must decode them to a string (`normaliseBody`) or GM sends the text "[object Uint8Array]" and every POST (course queries, selection) fails while GETs (login, courseResult) work, which is exactly the "can log in but nothing else works" symptom. Test the shim without a browser with a fake `GM_xmlhttpRequest` under Node. The app detects it via `window.__bksxkBridgeReady` or the `data-bksxk-bridge-ready` DOM attribute. If you change the deployed URL, update the `@match`/`@downloadURL` lines in the userscript header. Build with `--no-web-resources-cdn` (CI does) so CanvasKit ships next to the app instead of from gstatic.com, which is slow or blocked on campus; `web/index.html` shows a boot screen until `flutter-first-frame` and loads onnxruntime-web deferred. The fonts are a GB2312 + course-catalogue subset (2.3 MB each, was 7.7 MB); regenerate with fontTools if the catalogue grows characters outside GB2312.
+The school server sends no CORS headers, so the web app only works with the Tampermonkey/ScriptCat bridge in `web_bridge/bksxk-web-bridge.user.js` (v1.5.1; `kRecommendedWebBridgeVersion`), which replaces `XMLHttpRequest` for the selection host, ehall/authserver, newehall portal, and booking-lib hosts with `GM_xmlhttpRequest` (including in-app CAS login/MFA and `X-Bksxk-Refresh-Route` cluster node refresh). Dio's browser adapter sends bodies as `Uint8Array`; the bridge must decode them to a string (`normaliseBody`) or GM sends the text "[object Uint8Array]" and every POST (course queries, selection) fails while GETs (login, courseResult) work, which is exactly the "can log in but nothing else works" symptom. Test the shim without a browser with `node tool/test_web_bridge.mjs`. The app detects it via `window.__bksxkBridgeReady` or the `data-bksxk-bridge-ready` DOM attribute. If you change the deployed URL, update the `@match`/`@downloadURL` lines in the userscript header. Build with `--no-web-resources-cdn` (CI does) so CanvasKit ships next to the app instead of from gstatic.com, which is slow or blocked on campus; `web/index.html` shows a boot screen until `flutter-first-frame` and loads onnxruntime-web deferred. The fonts are a GB2312 + course-catalogue subset (2.3 MB each, was 7.7 MB); regenerate with fontTools if the catalogue grows characters outside GB2312.
 
 ## Platform configuration that was hard-won
 

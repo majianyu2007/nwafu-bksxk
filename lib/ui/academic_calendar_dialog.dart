@@ -55,7 +55,32 @@ class _AcademicCalendarDialogState extends State<AcademicCalendarDialog> {
       selectableDayPredicate: (date) => date.weekday == DateTime.monday,
     );
     if (selected != null && mounted) {
-      setState(() => _firstMonday = calendarDate(selected));
+      setState(() {
+        _firstMonday = calendarDate(selected);
+        _syncWeekFromMonday();
+      });
+    }
+  }
+
+  void _syncWeekFromMonday() {
+    final count = int.tryParse(_count.text.trim()) ?? 20;
+    final week = AcademicCalendar(
+      firstMonday: _firstMonday,
+      weekCount: count.clamp(1, 53),
+      source: CalendarSource.manual,
+    ).weekOn(widget.today);
+    if (week != null) _week.text = '$week';
+  }
+
+  void _syncMondayFromWeek() {
+    final week = int.tryParse(_week.text.trim());
+    final count = int.tryParse(_count.text.trim()) ?? 20;
+    if (week != null && week >= 1 && week <= count.clamp(1, 53)) {
+      _firstMonday = AcademicCalendar.fromWeek(
+        date: widget.today,
+        week: week,
+        weekCount: count.clamp(1, 53),
+      ).firstMonday;
     }
   }
 
@@ -102,12 +127,18 @@ class _AcademicCalendarDialogState extends State<AcademicCalendarDialog> {
                     ChoiceChip(
                       label: const Text('设置当前周'),
                       selected: _byWeek,
-                      onSelected: (_) => setState(() => _byWeek = true),
+                      onSelected: (_) => setState(() {
+                        if (!_byWeek) _syncWeekFromMonday();
+                        _byWeek = true;
+                      }),
                     ),
                     ChoiceChip(
                       label: const Text('设置开学日期'),
                       selected: !_byWeek,
-                      onSelected: (_) => setState(() => _byWeek = false),
+                      onSelected: (_) => setState(() {
+                        if (_byWeek) _syncMondayFromWeek();
+                        _byWeek = false;
+                      }),
                     ),
                   ],
                 ),

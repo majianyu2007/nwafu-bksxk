@@ -14,10 +14,17 @@ import 'layout.dart';
 import 'widgets.dart';
 
 /// Runs a reachability probe against the configured origin.
-final reachabilityProvider =
-    FutureProvider.autoDispose<ReachabilityResult>((ref) async {
+final reachabilityProvider = FutureProvider.autoDispose<ReachabilityResult>((
+  ref,
+) async {
   final origin = ref.watch(storageProvider).origin();
-  return ApiClient(origin: origin).probe();
+  final client = ApiClient(origin: origin);
+  ref.onDispose(client.close);
+  try {
+    return await client.probe();
+  } finally {
+    client.close();
+  }
 });
 
 /// The current online user count, from the same public endpoint the official

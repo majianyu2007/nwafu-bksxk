@@ -59,28 +59,38 @@ class ExamSlot {
   }
 }
 
+final _examDateRe = RegExp(
+  r'(\d{4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})',
+);
+final _examTimeRe = RegExp(
+  r'(\d{1,2})[:：](\d{2})(?:[:：]\d{2})?(?:\s*[-–—~～至]\s*(\d{1,2})[:：](\d{2})(?:[:：]\d{2})?)?',
+);
+final _safeKeyRe = RegExp(r'[^A-Za-z0-9_.-]');
+
 /// Reads the date from `date` (or `time`) as `2026-12-20`, `2026/12/20` or
 /// `2026年12月20日`, and the time from `time` as `09:00-11:00` (or a lone
 /// start, assumed to last two hours). Anything else is null: an exam with
 /// no reliable instant is not exported.
 ExamSlot? examSlot(ExamEntry e) {
-  final dateRe = RegExp(r'(\d{4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})');
-  final d = dateRe.firstMatch(e.date) ?? dateRe.firstMatch(e.time);
+  final d = _examDateRe.firstMatch(e.date) ?? _examDateRe.firstMatch(e.time);
   if (d == null) return null;
   final y = int.parse(d[1]!), mo = int.parse(d[2]!), da = int.parse(d[3]!);
   final day = DateTime.utc(y, mo, da);
   if (day.month != mo || day.day != da) return null;
-  final rest = e.time.replaceAll(dateRe, ' ');
-  final t = RegExp(
-    r'(\d{1,2})[:：](\d{2})(?:[:：]\d{2})?(?:\s*[-–—~～至]\s*(\d{1,2})[:：](\d{2})(?:[:：]\d{2})?)?',
-  ).firstMatch(rest);
+  final rest = e.time.replaceAll(_examDateRe, ' ');
+  final t = _examTimeRe.firstMatch(rest);
   if (t == null) return null;
   int mins(String h, String m) => int.parse(h) * 60 + int.parse(m);
+  final hasExplicitEnd = t[3] != null;
   final startMin = int.parse(t[2]!);
-  final endMin = t[4] == null ? 0 : int.parse(t[4]!);
+  final endMin = hasExplicitEnd ? int.parse(t[4]!) : 0;
   final s = mins(t[1]!, t[2]!);
-  final en = t[3] == null ? s + 120 : mins(t[3]!, t[4]!);
-  if (startMin > 59 || endMin > 59 || s >= 24 * 60 || en <= s || en > 24 * 60) {
+  final en = hasExplicitEnd ? mins(t[3]!, t[4]!) : s + 120;
+  if (startMin > 59 ||
+      endMin > 59 ||
+      s >= 24 * 60 ||
+      en <= s ||
+      (hasExplicitEnd && en > 24 * 60)) {
     return null;
   }
   return ExamSlot(
@@ -188,14 +198,15 @@ String buildIcs(
     final key = calendarEventKey(
       accountId: accountId,
       termCode: t.term.code,
-      sessionId: 'exam:${e.courseName}:${e.kind}',
+      sessionId:
+          'exam:${e.courseName}:${e.kind}:${slot.start.toIso8601String()}',
       date: slot.date,
     );
     event(
       uid: '$key@$_domain',
       start: slot.start,
       end: slot.end,
-      summary: '${e.kind.isEmpty ? '考试' : e.kind}：${e.courseName}',
+      summary: '${e.kind.isEmpty ? '考试' : e.kind}：${e.displayName}',
       location: e.room,
       description: [
         if (e.seat.isNotEmpty) '座位号：${e.seat}',
@@ -220,24 +231,29 @@ String _esc(String s) => s
 /// Exposed for tests. RFC 5545 §3.1: lines longer than 75 octets are split
 /// with CRLF + one space, never inside a UTF-8 sequence.
 String foldIcsLine(String line) {
-  final bytes = utf8.encode(line);
-  if (bytes.length <= 75) return line;
+  var totalBytes = 0;
+  for (final rune in line.runes) {
+    totalBytes += _utf8Len(rune);
+  }
+  if (totalBytes <= 75) return line;
   final out = StringBuffer();
   var budget = 75;
   var used = 0;
   for (final rune in line.runes) {
-    final ch = String.fromCharCode(rune);
-    final n = utf8.encode(ch).length;
+    final n = _utf8Len(rune);
     if (used + n > budget) {
       out.write('\r\n ');
       budget = 74; // the leading space counts
       used = 0;
     }
-    out.write(ch);
+    out.writeCharCode(rune);
     used += n;
   }
   return out.toString();
 }
+
+int _utf8Len(int rune) =>
+    rune <= 0x7F ? 1 : rune <= 0x7FF ? 2 : rune <= 0xFFFF ? 3 : 4;
 
 String _two(int v) => v.toString().padLeft(2, '0');
 String _ymd(DateTime d) =>
@@ -251,7 +267,7 @@ String _local(DateTime utc) {
 String _utcStamp(DateTime utc) =>
     '${_ymd(utc)}T${_two(utc.hour)}${_two(utc.minute)}${_two(utc.second)}Z';
 
-String _safe(String s) => s.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_');
+String _safe(String s) => s.replaceAll(_safeKeyRe, '_');
 
 /// 32-bit FNV-1a, hex.
 String _fnv(String s) {

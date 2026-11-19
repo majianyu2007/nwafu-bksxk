@@ -4,18 +4,19 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>西农教务助手</title>
-<meta name="description" content="西北农林科技大学学生用的教务助手：课表、成绩、考试、空教室，以及选课和抢课。支持 Android、iOS、macOS、Windows、Linux 和网页版。" />
+<meta name="description" content="西北农林科技大学学生用的教务助手：课表、成绩与 GPA 模拟、学业进度、空教室、图书馆选座与研讨室预约、消息待办及选课抢课。支持 Android、iOS、macOS、Windows、Linux 和网页版。" />
+<link rel="icon" type="image/png" href="logo.png" />
 <style>
   :root {
     --bg: #f6f7fb; --surface: #ffffff; --surface-2: #eef1f8;
-    --text: #1a1c22; --muted: #5b6070; --primary: #1d7a6a; --primary-2: #07838a;
-    --border: #e3e7f0; --success: #2e9d5b;
+    --text: #1a1c22; --muted: #5b6070; --primary: #1d7a6a; --on-primary: #ffffff;
+    --border: #e3e7f0;
     --radius: 18px; --shadow: 0 6px 30px rgba(30,40,90,0.08);
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #0f1116; --surface: #171a21; --surface-2: #1e2230;
-      --text: #eef0f6; --muted: #a2a8bd; --primary: #5cc4ae; --primary-2: #4fb8c0;
+      --text: #eef0f6; --muted: #a2a8bd; --primary: #5cc4ae; --on-primary: #0b1f1b;
       --border: #262b3a; --shadow: 0 6px 30px rgba(0,0,0,0.35);
     }
   }
@@ -34,7 +35,6 @@
     width: 84px; height: 84px; border-radius: 22px; margin: 0 auto 24px;
     display: flex; align-items: center; justify-content: center;
   }
-  .logo svg { width: 46px; height: 46px; fill: #fff; }
   h1 { font-size: 2.6rem; font-weight: 800; letter-spacing: -0.02em; }
   .tagline { color: var(--muted); font-size: 1.2rem; margin-top: 10px; }
   .subtag { color: var(--muted); margin-top: 18px; max-width: 620px; margin-left: auto; margin-right: auto; }
@@ -46,7 +46,8 @@
     border: 1px solid transparent; transition: transform .12s ease, box-shadow .12s ease;
   }
   .btn:hover { transform: translateY(-2px); }
-  .btn-primary { background: var(--primary); color: #fff; box-shadow: var(--shadow); }
+  .btn-primary { background: var(--primary); color: var(--on-primary); box-shadow: var(--shadow); }
+  .btn-primary .ic { fill: var(--on-primary); }
   .btn-ghost { background: var(--surface); color: var(--text); border-color: var(--border); }
 
   .note {
@@ -68,7 +69,6 @@
   .card p { color: var(--muted); font-size: 0.96rem; }
   .card ul { color: var(--muted); font-size: 0.96rem; padding-left: 1.1em; }
   .card li + li { margin-top: 4px; }
-  .card.wide { grid-column: 1 / -1; }
   .ic { width: 22px; height: 22px; fill: var(--primary); flex: none; }
 
   .downloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
@@ -87,7 +87,7 @@
   .step::before {
     counter-increment: s; content: counter(s);
     width: 30px; height: 30px; flex: none; border-radius: 50%;
-    background: var(--primary); color: #fff; font-weight: 700;
+    background: var(--primary); color: var(--on-primary); font-weight: 700;
     display: flex; align-items: center; justify-content: center; font-size: 0.95rem;
   }
   .step div { color: var(--muted); }
@@ -113,11 +113,11 @@
       <img src="logo.png" alt="西农教务助手" width="84" height="84" style="display:block">
     </div>
     <h1>西农教务助手</h1>
-    <p class="tagline">课表、成绩、考试、空教室和选课，放在一个应用里</p>
-    <p class="subtag">给西北农林科技大学学生用的开源客户端。用学校统一身份认证登录一次，日常查课表、成绩、考试和空教室；选课季也能用它选课、抢课。</p>
+    <p class="tagline">课表、成绩、图书馆、学业进度与选课抢课，放在一个应用里</p>
+    <p class="subtag">给西北农林科技大学学生用的开源客户端。用学校统一身份认证登录一次，日常查课表、成绩、空教室、图书馆选座与消息待办；选课季也能直接选课、抢课。</p>
     <div class="cta-row">
       <a class="btn btn-primary" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
-        <svg class="ic" style="fill:#fff" viewBox="0 0 24 24"><path d="M12 3v10.5l3.5-3.5 1.5 1.5-6 6-6-6 1.5-1.5L9.5 13.5V3z"/><path d="M5 19h14v2H5z"/></svg>
+        <svg class="ic" viewBox="0 0 24 24"><path d="M12 3v10.5l3.5-3.5 1.5 1.5-6 6-6-6 1.5-1.5L9.5 13.5V3z"/><path d="M5 19h14v2H5z"/></svg>
         下载客户端
       </a>
       <a class="btn btn-ghost" href="app/">网页版</a>
@@ -138,24 +138,25 @@
       <div class="card">
         <h3><svg class="ic" viewBox="0 0 24 24"><path d="M7 2v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V6a2 2 0 00-2-2h-2V2h-2v2H9V2zm-2 8h14v10H5z"/></svg>课表</h3>
         <ul>
-          <li>按周显示，自动标出当前教学周，冬令、夏令作息时间分开算</li>
-          <li>定时同步，调课、换教室时发通知</li>
-          <li>上课前提醒，可以同步到系统日历或导出 .ics</li>
-          <li>Android 桌面小组件显示下一节课</li>
+          <li>按周/按日显示，自动标出当前教学周，冬令、夏令作息时间自动切换</li>
+          <li>定时同步，调课、换教室时发通知，支持可视化周次矩阵自建课程</li>
+          <li>上课前与换楼提醒，可同步到系统日历或导出 .ics</li>
+          <li>Android 与 iOS 桌面小组件显示下一节课与今日日程</li>
         </ul>
       </div>
       <div class="card">
-        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M12 3 1 9l11 6 9-4.9V17h2V9zM5 13.2V17l7 4 7-4v-3.8L12 17z"/></svg>成绩和考试</h3>
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M12 3 1 9l11 6 9-4.9V17h2V9zM5 13.2V17l7 4 7-4v-3.8L12 17z"/></svg>成绩、考试与学业进度</h3>
         <ul>
-          <li>按学期查看成绩、学分和绩点变化</li>
-          <li>考试安排：时间、地点、座位号</li>
+          <li>按学期查看成绩、学分与绩点走势，内置 GPA 模拟器与目标均绩反推</li>
+          <li>考试安排（时间、地点、座位号）与培养方案学业完成进度</li>
         </ul>
       </div>
       <div class="card">
-        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 012-2h8a2 2 0 012 2v16h4v-9h-2v-2h4v11zM8 7v2h2V7zm0 4v2h2v-2zm0 4v2h2v-2z"/></svg>空教室</h3>
+        <h3><svg class="ic" viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 012-2h8a2 2 0 012 2v16h4v-9h-2v-2h4v11zM8 7v2h2V7zm0 4v2h2v-2zm0 4v2h2v-2z"/></svg>图书馆、空教室与消息</h3>
         <ul>
-          <li>按日期、节次和教学楼查询空闲教室</li>
-          <li>根据当天课表，推荐两节课之间可以去自习的教室</li>
+          <li>图书馆楼层平面图选座、研讨室全原生预约、签到/续座与一键入馆码</li>
+          <li>空教室按日期与连空防赶人筛选，结合课表推荐课间自习教室</li>
+          <li>接入一网通办消息、待办事项与学校通知公告</li>
         </ul>
       </div>
       <div class="card">
@@ -206,7 +207,7 @@
         <div><div class="label">macOS</div><div class="hint">macOS 14+ · Intel / Apple Silicon</div></div>
       </a>
       <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
-        <svg viewBox="0 0 24 24"><path d="M3 5h18v12H3z"/><path d="M8 21h8" stroke="#fff" stroke-width="1.5"/></svg>
+        <svg viewBox="0 0 24 24"><path d="M3 5h18v12H3z"/><path d="M8 20h8v2H8z"/></svg>
         <div><div class="label">Windows</div><div class="hint">x64 / ARM64 · ZIP</div></div>
       </a>
       <a class="dl" href="https://github.com/majianyu2007/nwafu-bksxk/releases/latest">
@@ -222,13 +223,13 @@
     <h2>网页版</h2>
     <p class="section-sub">不想安装客户端也可以用网页版，但要先装一个浏览器脚本。</p>
     <div class="callout" style="margin-bottom:24px">
-      学校的服务器不允许其他网站直接调用接口，浏览器会拦下这些请求。配套脚本通过脚本管理器转发请求，只对 <code>bksxk.nwafu.edu.cn</code>（选课）、<code>ehall.nwafu.edu.cn</code> 和 <code>authserver.nwafu.edu.cn</code>（教务和统一身份认证）这三个学校域名生效。
+      学校的服务器不允许其他网站直接调用接口，浏览器会拦下这些请求。配套脚本通过脚本管理器转发请求，仅对 <code>bksxk.nwafu.edu.cn</code>（选课）、<code>ehall.nwafu.edu.cn</code>（教务）、<code>newehall.nwafu.edu.cn</code>（消息待办）、<code>booking-lib.nwafu.edu.cn</code>（图书馆）和 <code>authserver.nwafu.edu.cn</code>（统一身份认证）这五个学校域名生效。
     </div>
     <div class="steps">
       <div class="step"><div>安装 <strong>篡改猴 (Tampermonkey)</strong> 或 <strong>脚本猫 (ScriptCat)</strong> 浏览器扩展。</div></div>
-      <div class="step"><div>安装 <strong><a href="bksxk-web-bridge.user.js">西农教务助手 · 网页版桥接</a></strong> 脚本，点开链接后在扩展里确认安装。</div></div>
+      <div class="step"><div>安装 <strong><a href="bksxk-web-bridge.user.js">西农教务助手 · 网页版桥接</a></strong> 脚本（推荐 v1.5.1+），点开链接后在扩展里确认安装。</div></div>
       <div class="step"><div>打开 <strong><a href="app/">网页版</a></strong> 并刷新，不再提示安装脚本就说明可以用了。</div></div>
-      <div class="step"><div>查课表、成绩等教务功能时，先在同一个浏览器里打开学校教务页面完成登录，再回到网页版点「连接当前浏览器会话」。网页版不会读取你的密码。</div></div>
+      <div class="step"><div>直接在网页版内使用学号、统一身份认证密码和二次验证登录即可自动串联教务、图书馆、消息与选课，过期自动静默重登；也支持直接复用同一浏览器已登录的官方会话。</div></div>
     </div>
     <p style="margin-top:20px; color:var(--muted)">网页版只能在校园网内用，没有校外访问功能。浏览器通知需要授权；抢课监控在关闭标签页后会停止，放在后台的标签页也可能变慢。</p>
   </div>

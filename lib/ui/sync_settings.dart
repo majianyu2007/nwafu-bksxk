@@ -10,9 +10,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app/edu_providers.dart';
 import '../app/providers.dart';
 import '../app/sync_providers.dart';
+import '../core/errors.dart';
 import '../data/background_sync_task.dart' show backgroundRefreshSupported;
 import '../data/ics_export.dart';
 import '../data/timetable_diff.dart';
+import 'widgets.dart';
 
 const _intervals = [0, 6, 12, 24];
 const _alarms = [-1, 5, 10, 15, 30];
@@ -22,11 +24,6 @@ bool get _isAndroid =>
 
 class SyncSettings extends ConsumerWidget {
   const SyncSettings({super.key});
-
-  void _toast(BuildContext context, String text) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -91,7 +88,9 @@ class SyncSettings extends ConsumerWidget {
                   !await ref
                       .read(eduNotificationsProvider)
                       .requestPermission()) {
-                if (context.mounted) _toast(context, '未获得通知权限，请在系统设置开启');
+                if (context.mounted) {
+                  showToast(context, '未获得通知权限，请在系统设置开启', success: false);
+                }
                 return;
               }
               await ctrl.setExamReminders(v);
@@ -101,9 +100,6 @@ class SyncSettings extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.alarm_on_outlined),
               title: Text(status.text),
-              subtitle: _isAndroid
-                  ? Text(status.exact ? '使用精确闹钟' : '提醒可能晚几分钟')
-                  : null,
               dense: true,
             ),
           if (_isAndroid) const _ExactAlarmTile(),
@@ -232,7 +228,7 @@ class SyncSettings extends ConsumerWidget {
     final t = ref.read(timetableProvider).data;
     final id = ref.read(eduSessionProvider).account?.username;
     if (t == null || id == null) {
-      _toast(context, '请先同步课表');
+      showToast(context, '请先同步课表', success: false);
       return;
     }
     final options = await showDialog<({int? alarm, bool exams})>(
@@ -251,14 +247,17 @@ class SyncSettings extends ConsumerWidget {
       if (!context.mounted) return;
       switch (outcome) {
         case IcsExportOutcome.saved:
-          _toast(context, '已保存 .ics 文件');
+          showToast(context, '已保存 .ics 文件', success: true);
         case IcsExportOutcome.downloaded:
-          _toast(context, '已开始下载 .ics 文件');
+          showToast(context, '已开始下载 .ics 文件', success: true);
         case IcsExportOutcome.shared || IcsExportOutcome.cancelled:
           break;
       }
     } catch (e) {
-      if (context.mounted) _toast(context, '导出失败：$e');
+      if (context.mounted) {
+        final msg = e is AppError ? e.message : '导出失败，请稍后重试';
+        showToast(context, msg, success: false);
+      }
     }
   }
 }

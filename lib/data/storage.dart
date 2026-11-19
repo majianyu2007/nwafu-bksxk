@@ -180,6 +180,7 @@ class Storage {
     await _saveAccounts(list);
     await _secureDelete(_pwKey(id));
     await _prefs.remove(_watchesKey(id));
+    await _prefs.remove('$_kAckedUnsuccessful::$id');
     if (activeAccountId() == id) {
       await setActiveAccount(list.isEmpty ? null : list.first.id);
     }
@@ -405,7 +406,8 @@ class Storage {
   /// Drops cached rows for one identity. Old unscoped caches are never read.
   Future<void> clearEduData(String accountId) async {
     final prefix = _eduKey(accountId, '');
-    for (final k in _prefs.getKeys().where((k) => k.startsWith(prefix))) {
+    final keys = _prefs.getKeys().where((k) => k.startsWith(prefix)).toList();
+    for (final k in keys) {
       await _prefs.remove(k);
     }
   }

@@ -31,13 +31,18 @@ class AcademicTerm {
     );
   }
 
+  static final _termCodeRe = RegExp(r'^(\d{4})[-/](\d{4})[-/]([1-9])$');
+  static final _termNameRe =
+      RegExp(r'(\d{4})\s*[-—–/]\s*(\d{4})\s*学年\s*(秋|春|夏|暑期?|小学期)');
+
   static String? _normaliseTerm(String value) {
-    final code = RegExp(r'^(\d{4})[-/](\d{4})[-/]([12])$').firstMatch(value);
+    final code = _termCodeRe.firstMatch(value);
     if (code != null) return '${code[1]}-${code[2]}-${code[3]}';
-    final name =
-        RegExp(r'(\d{4})\s*[-—–/]\s*(\d{4})\s*学年\s*([秋春])').firstMatch(value);
+    final name = _termNameRe.firstMatch(value);
     if (name == null) return null;
-    return '${name[1]}-${name[2]}-${name[3] == '秋' ? 1 : 2}';
+    final season = name[3]!;
+    final half = season == '秋' ? 1 : (season == '春' ? 2 : 3);
+    return '${name[1]}-${name[2]}-$half';
   }
 }
 
@@ -52,8 +57,8 @@ class AcademicCalendar {
     if (this.firstMonday.weekday != DateTime.monday) {
       throw ArgumentError.value(firstMonday, 'firstMonday', '必须是周一');
     }
-    if (weekCount < 1 || weekCount > 53) {
-      throw ArgumentError.value(weekCount, 'weekCount', '须在 1–53 周之间');
+    if (weekCount < 1 || weekCount > 60) {
+      throw ArgumentError.value(weekCount, 'weekCount', '须在 1–60 周之间');
     }
   }
 

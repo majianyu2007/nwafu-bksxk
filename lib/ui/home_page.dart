@@ -21,15 +21,26 @@ final publicInfoProvider = FutureProvider.autoDispose<PublicInfo>(
 /// The shown account's credit summary for its active round.
 final creditInfoProvider = FutureProvider.autoDispose<CreditInfo>((ref) async {
   ref.watch(currentSelectionRevisionProvider);
-  final s = ref.watch(sessionProvider);
-  final b = s.activeBatch;
-  final st = s.student;
-  if (st == null || b == null) return CreditInfo.empty;
+  final (studentCode, batchCode, batchType) = ref.watch(
+    sessionProvider.select(
+      (s) => (
+        s.student?.studentCode,
+        s.activeBatch?.code,
+        s.activeBatch?.batchType,
+      ),
+    ),
+  );
+  if (studentCode == null ||
+      studentCode.isEmpty ||
+      batchCode == null ||
+      batchCode.isEmpty) {
+    return CreditInfo.empty;
+  }
   return ref.read(infoServiceProvider).fetchCreditInfo(
-        studentCode: st.studentCode,
-        electiveBatchCode: b.code,
-        batchType: b.batchType,
-      );
+    studentCode: studentCode,
+    electiveBatchCode: batchCode,
+    batchType: batchType ?? '',
+  );
 });
 
 class HomePage extends ConsumerWidget {
@@ -235,11 +246,8 @@ class _BatchSelector extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     if (session.batches.isEmpty) {
       return const GlassCard(
-        padding: EdgeInsets.zero,
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('现在没有可见的选课轮次，开放后点右上角刷新。'),
-        ),
+        padding: EdgeInsets.all(16),
+        child: Text('现在没有可见的选课轮次，开放后点右上角刷新。'),
       );
     }
     return GlassCard(
@@ -297,11 +305,9 @@ class _MonitorSummary extends ConsumerWidget {
         watches.where((w) => w.status == WatchStatus.grabbed).length;
 
     return GlassCard(
-      padding: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
             Container(
               height: 44,
               width: 44,
@@ -340,7 +346,6 @@ class _MonitorSummary extends ConsumerWidget {
                     },
             ),
           ],
-        ),
       ),
     );
   }
@@ -354,10 +359,8 @@ class _NoticesCard extends ConsumerWidget {
     final infoAsync = ref.watch(publicInfoProvider);
     final scheme = Theme.of(context).colorScheme;
     return GlassCard(
-      padding: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: infoAsync.when(
+      padding: const EdgeInsets.all(16),
+      child: infoAsync.when(
           loading: () => const LinearProgressIndicator(),
           error: (error, _) => Row(
             children: [
@@ -418,7 +421,6 @@ class _NoticesCard extends ConsumerWidget {
             ],
           ),
         ),
-      ),
     );
   }
 
@@ -431,12 +433,15 @@ class _NoticesCard extends ConsumerWidget {
         future: detailFuture,
         builder: (context, snapshot) {
           final n = snapshot.data ?? notice;
+          final body = snapshot.connectionState == ConnectionState.waiting
+              ? null
+              : snapshot.hasError && n.content.isEmpty
+              ? '公告详情加载失败，请稍后重试'
+              : (n.content.isEmpty ? '暂无内容' : n.content);
           return _TextSheet(
             title: n.title,
             caption: n.timeDescription,
-            body: snapshot.connectionState == ConnectionState.waiting
-                ? null
-                : (n.content.isEmpty ? '暂无内容' : n.content),
+            body: body,
           );
         },
       ),
@@ -494,70 +499,89 @@ class _CreditCard extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
 
     return GlassCard(
-      padding: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: creditAsync.when(
-          data: (info) => Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(child: _StatTile(label: '总学分', value: _fmt(info.totalCredit))),
-                  Expanded(child: _StatTile(label: '已获学分', value: _fmt(info.getCredit))),
-                  Expanded(child: _StatTile(label: '已选学分', value: _fmt(info.selectedCredit))),
-                ],
-              ),
-              if (info.requirements.isNotEmpty) ...[
-                const Divider(height: 20),
-                for (final r in info.requirements)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(r.category,
-                              style: TextStyle(
-                                  fontSize: 13, color: scheme.onSurfaceVariant)),
-                        ),
-                        Text('已修 ${r.earned}  要求 ${r.required}',
-                            style: const TextStyle(fontSize: 13)),
-                      ],
-                    ),
+      padding: const EdgeInsets.all(16),
+      child: creditAsync.when(
+        data: (info) => Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _StatTile(
+                    label: '总学分',
+                    value: formatCredit(info.totalCredit),
                   ),
+                ),
+                Expanded(
+                  child: _StatTile(
+                    label: '已获学分',
+                    value: formatCredit(info.getCredit),
+                  ),
+                ),
+                Expanded(
+                  child: _StatTile(
+                    label: '已选学分',
+                    value: formatCredit(info.selectedCredit),
+                  ),
+                ),
               ],
-              if (info.noSelectReason.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(info.noSelectReason,
-                    style: TextStyle(fontSize: 12, color: scheme.error)),
-              ],
+            ),
+            if (info.requirements.isNotEmpty) ...[
+              const Divider(height: 20),
+              for (final r in info.requirements)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          r.category,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '已修 ${r.earned}  要求 ${r.required}',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
             ],
-          ),
-          loading: () => const SizedBox(
-            height: 40,
-            child: Center(
-                child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))),
-          ),
-          error: (error, _) => Row(
-            children: [
-              Icon(Icons.cloud_off_outlined, color: scheme.error, size: 20),
-              const SizedBox(width: 8),
-              const Expanded(child: Text('学分加载失败')),
-              TextButton(
-                onPressed: () => ref.invalidate(creditInfoProvider),
-                child: const Text('重试'),
+            if (info.noSelectReason.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                info.noSelectReason,
+                style: TextStyle(fontSize: 12, color: scheme.error),
               ),
             ],
+          ],
+        ),
+        loading: () => const SizedBox(
+          height: 40,
+          child: Center(
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
           ),
+        ),
+        error: (error, _) => Row(
+          children: [
+            Icon(Icons.cloud_off_outlined, color: scheme.error, size: 20),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('学分加载失败')),
+            TextButton(
+              onPressed: () => ref.invalidate(creditInfoProvider),
+              child: const Text('重试'),
+            ),
+          ],
         ),
       ),
     );
   }
-
-  static String _fmt(double v) =>
-      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
 }
 
 class _StatTile extends StatelessWidget {

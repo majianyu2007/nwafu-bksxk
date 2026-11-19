@@ -16,6 +16,31 @@ import '../data/models.dart';
 import 'layout.dart';
 import 'widgets.dart';
 
+final _detailHtmlTagRe = RegExp(r'<[^>]*>');
+final _detailHtmlEntityRe = RegExp(r'&(nbsp|amp|lt|gt|quot|#39);');
+
+String _cleanIntroHtml(String raw) {
+  var text = raw.trim();
+  if (text.contains('<')) {
+    text = text.replaceAll(_detailHtmlTagRe, '');
+  }
+  if (text.contains('&')) {
+    text = text.replaceAllMapped(
+      _detailHtmlEntityRe,
+      (m) => switch (m[1]) {
+        'nbsp' => ' ',
+        'amp' => '&',
+        'lt' => '<',
+        'gt' => '>',
+        'quot' => '"',
+        '#39' => "'",
+        _ => m[0]!,
+      },
+    );
+  }
+  return text.trim();
+}
+
 Future<void> showTeachingClassDetail(BuildContext context, TeachingClass tc) {
   final dialog = adaptiveSheetIsDialog(context);
   return showAdaptiveSheet<void>(
@@ -198,11 +223,10 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
         const SizedBox(height: 16),
       ],
 
-      _row(context, Icons.person_outline, '教师', _tc.teacherName),
+      _row(Icons.person_outline, '教师', _tc.teacherName),
       _teacherExtra(),
 
       _row(
-          context,
           Icons.schedule,
           '时间地点',
           _tc.teachingPlace.isNotEmpty
@@ -213,7 +237,6 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
 
       if (_tc.credit.isNotEmpty || _tc.hours.isNotEmpty)
         _row(
-          context,
           Icons.star_outline,
           '学分 / 学时',
           [
@@ -223,38 +246,38 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
         ),
 
       if (_tc.courseTypeName.isNotEmpty)
-        _row(context, Icons.category_outlined, '课程类型', _tc.courseTypeName),
+        _row(Icons.category_outlined, '课程类型', _tc.courseTypeName),
 
       if (_courseNatureName.isNotEmpty &&
           _courseNatureName != _tc.courseTypeName)
-        _row(context, Icons.account_tree_outlined, '课程性质', _courseNatureName),
+        _row(Icons.account_tree_outlined, '课程性质', _courseNatureName),
 
       if (_departmentName.isNotEmpty)
-        _row(context, Icons.business_outlined, '开课院系', _departmentName),
+        _row(Icons.business_outlined, '开课院系', _departmentName),
 
       if (_tc.teachingMethod.isNotEmpty)
-        _row(context, Icons.cast_for_education, '授课方式', _tc.teachingMethod),
+        _row(Icons.cast_for_education, '授课方式', _tc.teachingMethod),
       if (_tc.examTime.isNotEmpty)
-        _row(context, Icons.event_note, '考试时间', _tc.examTime),
+        _row(Icons.event_note, '考试时间', _tc.examTime),
       if (_examTypeLabel.isNotEmpty)
-        _row(context, Icons.assignment_outlined, '考核方式', _examTypeLabel),
+        _row(Icons.assignment_outlined, '考核方式', _examTypeLabel),
       if (_kcxx('englishCourseName').isNotEmpty)
-        _row(context, Icons.translate, '英文名', _kcxx('englishCourseName')),
+        _row(Icons.translate, '英文名', _kcxx('englishCourseName')),
       if (_kcxx('courselanguage').isNotEmpty)
-        _row(context, Icons.language, '授课语言', _kcxx('courselanguage')),
+        _row(Icons.language, '授课语言', _kcxx('courselanguage')),
       if (_kcxx('courselevel').isNotEmpty)
-        _row(context, Icons.stairs_outlined, '课程层次', _kcxx('courselevel')),
+        _row(Icons.stairs_outlined, '课程层次', _kcxx('courselevel')),
       if (_tc.recommendSchoolClass.isNotEmpty)
-        _row(context, Icons.groups_outlined, '推荐班级', _tc.recommendSchoolClass),
+        _row(Icons.groups_outlined, '推荐班级', _tc.recommendSchoolClass),
 
       _introBlock(),
 
       if (_tc.hasTest)
-        _row(context, Icons.science_outlined, '实验课', '选课时需选择实验教学班'),
-      if (_tc.hasBook) _row(context, Icons.menu_book_outlined, '教材', '有教材可征订'),
+        _row(Icons.science_outlined, '实验课', '选课时需选择实验教学班'),
+      if (_tc.hasBook) _row(Icons.menu_book_outlined, '教材', '有教材可征订'),
       if (_tc.limits.isNotEmpty)
-        _row(context, Icons.lock_outline, '选课限制', _tc.limits.join('；')),
-      _row(context, Icons.tag, '教学班号', _tc.teachingClassId),
+        _row(Icons.lock_outline, '选课限制', _tc.limits.join('；')),
+      _row(Icons.tag, '教学班号', _tc.teachingClassId),
     ];
   }
 
@@ -320,13 +343,7 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
         _courseDetail?['content'] ??
         _courseDetail?['description'];
     if (rawIntro == null) return const SizedBox.shrink();
-    var text = rawIntro.toString().trim();
-    if (text.isEmpty) return const SizedBox.shrink();
-    // Strip HTML tags when the server returns rich text.
-    if (text.contains('<')) {
-      text = text.replaceAll(RegExp(r'<[^>]*>'), '');
-      text = text.trim();
-    }
+    final text = _cleanIntroHtml(rawIntro.toString());
     if (text.isEmpty) return const SizedBox.shrink();
 
     return Column(
@@ -342,17 +359,12 @@ class _DetailSheetState extends ConsumerState<_DetailSheet> {
           ),
         ),
         const SizedBox(height: 6),
-        Text(
-          text,
-          maxLines: 4,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 14),
-        ),
+        SelectableText(text, style: const TextStyle(fontSize: 14)),
       ],
     );
   }
 
-  Widget _row(BuildContext context, IconData icon, String label, String value) =>
+  Widget _row(IconData icon, String label, String value) =>
       DetailRow(label, value, icon: icon);
 }
 

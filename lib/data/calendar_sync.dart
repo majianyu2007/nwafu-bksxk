@@ -12,6 +12,7 @@ library;
 
 import 'dart:convert';
 
+import 'academic_calendar.dart' show schoolDate;
 import 'edu_models.dart';
 import 'ics.dart';
 import 'storage.dart';
@@ -168,10 +169,7 @@ class CalendarSyncOptions {
   return (from: termStart, to: termEnd);
 }
 
-DateTime schoolDayOf(DateTime now) {
-  final l = now.toUtc().add(const Duration(hours: 8));
-  return DateTime.utc(l.year, l.month, l.day);
-}
+DateTime schoolDayOf(DateTime now) => schoolDate(now);
 
 /// The events the calendar should hold for [t] within [from, to).
 List<CalendarEventData> buildCalendarEvents(
@@ -216,10 +214,11 @@ List<CalendarEventData> buildCalendarEvents(
         key: calendarEventKey(
           accountId: accountId,
           termCode: t.term.code,
-          sessionId: 'exam:${e.courseName}:${e.kind}',
+          sessionId:
+              'exam:${e.courseName}:${e.kind}:${slot.start.toIso8601String()}',
           date: slot.date,
         ),
-        title: '${e.kind.isEmpty ? '考试' : e.kind}：${e.courseName}',
+        title: '${e.kind.isEmpty ? '考试' : e.kind}：${e.displayName}',
         start: slot.start,
         end: slot.end,
         location: e.room,
@@ -276,6 +275,7 @@ Future<CalendarSyncResult> reconcileCalendar(
   required DateTime to,
   required Map<String, String> index,
   String? scopePrefix,
+  bool pruneScopedMissing = false,
 }) async {
   final existing = await adapter.listEvents(calendarId, from, to);
   final byKey = <String, DeviceEvent>{};
@@ -327,6 +327,7 @@ Future<CalendarSyncResult> reconcileCalendar(
     index[w.key] = await adapter.upsert(calendarId, w);
     created++;
   }
+  final failedDeleteIds = <String>{};
   for (final e in [
     ...extras,
     for (final entry in byKey.entries)
@@ -335,8 +336,18 @@ Future<CalendarSyncResult> reconcileCalendar(
     try {
       await adapter.delete(e.id);
       deleted++;
-    } catch (_) {}
-    index.removeWhere((k, v) => v == e.id && !wantedKeys.contains(k));
+      index.removeWhere((k, v) => v == e.id && !wantedKeys.contains(k));
+    } catch (_) {
+      failedDeleteIds.add(e.id);
+    }
+  }
+  if (pruneScopedMissing) {
+    index.removeWhere(
+      (k, v) =>
+          inScope(k) &&
+          !wantedKeys.contains(k) &&
+          !failedDeleteIds.contains(v),
+    );
   }
   return CalendarSyncResult(
     created: created,
@@ -409,6 +420,7 @@ Future<CalendarSyncResult> syncTimetableToCalendar({
       accountId: accountId,
       termCode: timetable.term.code,
     ),
+    pruneScopedMissing: !o.enabled || o.range == 'term',
   );
   await storage.setCalendarIndex(accountId, jsonEncode(index));
   return result;
@@ -429,13 +441,16 @@ Future<CalendarSyncResult> clearSyncedCalendarEvents({
     throw const CalendarUnavailable('未获得日历权限');
   }
   var deleted = 0;
+  final deletedIds = <String>{};
   for (final id in index.values.toSet()) {
     try {
       await adapter.delete(id);
       deleted++;
+      deletedIds.add(id);
     } catch (_) {}
   }
-  await storage.setCalendarIndex(accountId, '{}');
+  index.removeWhere((_, v) => deletedIds.contains(v));
+  await storage.setCalendarIndex(accountId, jsonEncode(index));
   return CalendarSyncResult(deleted: deleted);
 }
 

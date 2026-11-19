@@ -98,19 +98,23 @@ class ApiClient {
   /// clients all avoid stale/zombie backend nodes without redundant probes).
   static final Map<String, _CachedFreshNode> _freshNodes = {};
   static final Map<String, int> _highestInitTimestamps = {};
+  static final Map<String, Future<ClusterNodeProbe?>> _pinInFlight = {};
   static const _freshNodeTtl = Duration(minutes: 5);
+  static final _routeCookieRe = RegExp(r'^\s*route=([^;\s]+)', caseSensitive: false);
 
   @visibleForTesting
   static void resetClusterNodeCache() {
     _freshNodes.clear();
     _highestInitTimestamps.clear();
+    _pinInFlight.clear();
   }
 
   late final Dio _dio;
   Dio? _probeDio;
   final CookieJar _cookieJar;
   final bool _usesDefaultTransport;
-  String _origin;
+  final String _origin;
+  bool _closed = false;
   bool _pendingBridgeRouteRefresh = false;
 
   /// Current auth token (`data.token` from login). Null when logged out.
@@ -124,7 +128,6 @@ class ApiClient {
   Completer<String?>? _reloginInFlight;
 
   String get origin => _origin;
-  set origin(String value) => _origin = _normaliseOrigin(value);
 
   CookieJar get cookieJar => _cookieJar;
 
@@ -177,8 +180,7 @@ class ApiClient {
   static String? extractRouteCookie(List<String>? setCookies) {
     if (setCookies == null) return null;
     for (final header in setCookies) {
-      final match = RegExp(r'^\s*route=([^;\s]+)', caseSensitive: false)
-          .firstMatch(header);
+      final match = _routeCookieRe.firstMatch(header);
       if (match != null) {
         final v = match.group(1)?.trim();
         if (v != null && v.isNotEmpty) return v;
@@ -189,7 +191,9 @@ class ApiClient {
 
   static String _normaliseOrigin(String origin) {
     var o = origin.trim();
-    if (o.endsWith('/')) o = o.substring(0, o.length - 1);
+    while (o.endsWith('/')) {
+      o = o.substring(0, o.length - 1);
+    }
     return o;
   }
 
@@ -314,19 +318,21 @@ class ApiClient {
 
     final result = _parse(resp);
 
-    if (auth && allowRelogin && _looksExpired(result, resp)) {
-      // Another concurrent request already refreshed the token; just retry
-      // with the fresh token instead of kicking it off with a duplicate login.
-      if (usedToken != null && token != null && token != usedToken) {
-        return retry();
-      }
-      final fresh = await _attemptRelogin();
-      if (fresh != null) {
-        return retry();
+    if (auth && _looksExpired(result, resp)) {
+      if (allowRelogin) {
+        // Another concurrent request already refreshed the token; just retry
+        // with the fresh token instead of kicking it off with a duplicate login.
+        if (usedToken != null && token != null && token != usedToken) {
+          return retry();
+        }
+        final fresh = await _attemptRelogin();
+        if (fresh != null) {
+          return retry();
+        }
       }
       throw AppError(
         AppErrorKind.sessionExpired,
-        message: '会话已过期，且自动重新登录失败',
+        message: allowRelogin ? '会话已过期，且自动重新登录失败' : '登录状态已失效',
         hint: '请重新登录。',
         retryable: false,
       );
@@ -343,7 +349,7 @@ class ApiClient {
       final trimmed = body.trimLeft();
       if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
         try {
-          final decoded = _decode(trimmed);
+          final decoded = jsonDecode(trimmed);
           if (decoded is Map) {
             return ApiResult.fromJson(decoded.cast<String, dynamic>());
           }
@@ -372,8 +378,6 @@ class ApiClient {
         code: '0', msg: 'empty', data: null, dataList: const [], totalCount: 0);
   }
 
-  dynamic _decode(String s) => jsonDecode(s);
-
   /// Whether a response means the session is gone.
   ///
   /// Verified 2026-09-18 against the live server: after a login elsewhere or
@@ -400,7 +404,12 @@ class ApiClient {
 
   bool _htmlLooksLikeLogin(String html) {
     final h = html.toLowerCase();
-    return h.contains('login') || h.contains('统一身份') || h.contains('cas');
+    // Avoid bare 'cas' which false-matches English words like 'case'/'cascade'.
+    return h.contains('login') ||
+        h.contains('统一身份') ||
+        h.contains('authserver') ||
+        h.contains('/cas/') ||
+        h.contains('pwdencryptsalt');
   }
 
   Future<String?> _attemptRelogin() async {
@@ -449,7 +458,7 @@ class ApiClient {
   /// Sends one cookieless `sysparam.do` probe to observe a backend node's
   /// `route` cookie and `initTimestamp` without touching this client's jar.
   Future<ClusterNodeProbe?> probeCookielessNode() async {
-    if (kIsWeb) return null;
+    if (kIsWeb || _closed) return null;
     final dio = _probeDio ??= () {
       final d = Dio(BaseOptions(
         connectTimeout: const Duration(seconds: 4),
@@ -517,7 +526,7 @@ class ApiClient {
       }
       return null;
     }
-    if (!supportsClusterProbe) return null;
+    if (!supportsClusterProbe || _closed) return null;
 
     final knownMax = _highestInitTimestamps[_origin] ?? 0;
     if (!forceRefresh) {
@@ -531,75 +540,100 @@ class ApiClient {
           initTimestamp: cached.initTimestamp,
         );
       }
+      // Coalesce concurrent cold-start probes for the same origin.
+      final inflight = _pinInFlight[_origin];
+      if (inflight != null) {
+        final shared = await inflight;
+        if (shared != null && shared.route != null && shared.route!.isNotEmpty) {
+          await setRouteCookie(shared.route!);
+        }
+        return shared;
+      }
     }
 
-    final excludedRoute = forceRefresh ? await currentRouteCookie() : null;
-    final count = probes < 1 ? 1 : probes;
-    final results = <ClusterNodeProbe>[
-      for (final p in await Future.wait(
-        List.generate(count, (_) => probeCookielessNode()),
-      ))
-        if (p != null) p,
-    ];
-    for (final p in results) {
-      recordClusterInitTimestamp(p.initTimestamp);
-    }
+    Future<ClusterNodeProbe?> runProbe() async {
+      final excludedRoute = forceRefresh ? await currentRouteCookie() : null;
+      final count = probes < 1 ? 1 : probes;
+      final results = <ClusterNodeProbe>[
+        for (final p in await Future.wait(
+          List.generate(count, (_) => probeCookielessNode()),
+        ))
+          if (p != null) p,
+      ];
+      for (final p in results) {
+        recordClusterInitTimestamp(p.initTimestamp);
+      }
 
-    // If every parallel probe landed on a lagging node compared to the
-    // highest generation already known for this cluster, try a few more
-    // cookieless probes to escape the zombie node.
-    var targetMax = _highestInitTimestamps[_origin] ?? 0;
-    bool hasFreshCandidate() => results.any(
-          (p) =>
-              p.route != null &&
-              p.route!.isNotEmpty &&
-              (p.initTimestamp ?? 0) >= targetMax &&
-              (excludedRoute == null || p.route != excludedRoute),
+      // If every parallel probe landed on a lagging node compared to the
+      // highest generation already known for this cluster, try a few more
+      // cookieless probes to escape the zombie node.
+      var targetMax = _highestInitTimestamps[_origin] ?? 0;
+      bool hasFreshCandidate() => results.any(
+            (p) =>
+                p.route != null &&
+                p.route!.isNotEmpty &&
+                (p.initTimestamp ?? 0) >= targetMax &&
+                (excludedRoute == null || p.route != excludedRoute),
+          );
+      for (var extra = 0; extra < 3 && targetMax > 0 && !hasFreshCandidate(); extra++) {
+        final p = await probeCookielessNode();
+        if (p == null) continue;
+        results.add(p);
+        recordClusterInitTimestamp(p.initTimestamp);
+        targetMax = _highestInitTimestamps[_origin] ?? targetMax;
+      }
+
+      ClusterNodeProbe? best;
+      for (final p in results) {
+        final route = p.route;
+        if (route == null || route.isEmpty) continue;
+        if (best == null) {
+          best = p;
+          continue;
+        }
+        final bestTs = best.initTimestamp ?? 0;
+        final curTs = p.initTimestamp ?? 0;
+        if (curTs > bestTs) {
+          best = p;
+        } else if (curTs == bestTs &&
+            excludedRoute != null &&
+            best.route == excludedRoute &&
+            route != excludedRoute) {
+          best = p;
+        }
+      }
+
+      if (best != null && best.route != null && best.route!.isNotEmpty) {
+        await setRouteCookie(best.route!);
+        _freshNodes[_origin] = _CachedFreshNode(
+          route: best.route!,
+          initTimestamp: best.initTimestamp ?? 0,
+          verifiedAt: DateTime.now(),
         );
-    for (var extra = 0; extra < 3 && targetMax > 0 && !hasFreshCandidate(); extra++) {
-      final p = await probeCookielessNode();
-      if (p == null) continue;
-      results.add(p);
-      recordClusterInitTimestamp(p.initTimestamp);
-      targetMax = _highestInitTimestamps[_origin] ?? targetMax;
+        return best;
+      }
+      return null;
     }
 
-    ClusterNodeProbe? best;
-    for (final p in results) {
-      final route = p.route;
-      if (route == null || route.isEmpty) continue;
-      if (best == null) {
-        best = p;
-        continue;
-      }
-      final bestTs = best.initTimestamp ?? 0;
-      final curTs = p.initTimestamp ?? 0;
-      if (curTs > bestTs) {
-        best = p;
-      } else if (curTs == bestTs &&
-          excludedRoute != null &&
-          best.route == excludedRoute &&
-          route != excludedRoute) {
-        best = p;
+    if (forceRefresh) return runProbe();
+    final future = runProbe();
+    _pinInFlight[_origin] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_pinInFlight[_origin], future)) {
+        _pinInFlight.remove(_origin);
       }
     }
-
-    if (best != null && best.route != null && best.route!.isNotEmpty) {
-      await setRouteCookie(best.route!);
-      _freshNodes[_origin] = _CachedFreshNode(
-        route: best.route!,
-        initTimestamp: best.initTimestamp ?? 0,
-        verifiedAt: DateTime.now(),
-      );
-      return best;
-    }
-    return null;
   }
 
   /// Closes the underlying HTTP client sockets when this scope is disposed.
   void close() {
-    _dio.close();
+    if (_closed) return;
+    _closed = true;
+    if (_usesDefaultTransport) _dio.close();
     _probeDio?.close();
+    _probeDio = null;
   }
 
   /// Lightweight reachability probe for the diagnostics page. Hits a cheap
@@ -607,16 +641,28 @@ class ApiClient {
   Future<ReachabilityResult> probe() async {
     final start = DateTime.now();
     try {
-      await _dio.get(
+      final resp = await _dio.get<String>(
         _url(Api.batch),
         queryParameters: {'timestamp': nowStamp()},
         options: Options(
           headers: _headers(auth: false),
           // Short timeout so the diagnostics page feels responsive.
           receiveTimeout: const Duration(seconds: 6),
-          sendTimeout: const Duration(seconds: 6),
         ),
       );
+      final body = resp.data ?? '';
+      if (body.contains('Not allowed to visit') || body.contains('禁止访问')) {
+        final err = AppError(
+          AppErrorKind.campusNetwork,
+          message: '校园网关拒绝访问',
+          hint: '当前网络可能处于校外或被限流，请确认校园网连接或开启内置校外访问。',
+        );
+        return ReachabilityResult(
+          reachable: false,
+          detail: err.message,
+          error: err,
+        );
+      }
       final latency = DateTime.now().difference(start);
       return ReachabilityResult(
         reachable: true,
@@ -625,6 +671,18 @@ class ApiClient {
       );
     } on DioException catch (e) {
       final err = AppError.fromDio(e);
+      return ReachabilityResult(
+        reachable: false,
+        detail: err.message,
+        error: err,
+      );
+    } catch (e) {
+      final err = AppError(
+        AppErrorKind.unknown,
+        message: '服务器地址无效或连接异常',
+        hint: '请检查设置中的服务器地址是否正确。',
+        raw: e,
+      );
       return ReachabilityResult(
         reachable: false,
         detail: err.message,

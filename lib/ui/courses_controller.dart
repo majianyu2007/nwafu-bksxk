@@ -86,6 +86,28 @@ class CoursesState {
     this.cachedAt,
     this.catalogComplete = false,
     this.catalogDownloaded = 0,
+  }) : _cachedFiltered = null,
+       _cachedPublicTypes = null,
+       _cachedDepartments = null,
+       _cachedHasOnline = null;
+
+  CoursesState._cached({
+    required this.kind,
+    required this.query,
+    required this.rows,
+    required this.loading,
+    required this.error,
+    required this.loadedOnce,
+    required this.filters,
+    required this.page,
+    required this.totalCount,
+    required this.cachedAt,
+    required this.catalogComplete,
+    required this.catalogDownloaded,
+    required this._cachedFiltered,
+    required this._cachedPublicTypes,
+    required this._cachedDepartments,
+    required this._cachedHasOnline,
   });
 
   final CourseKind kind;
@@ -106,19 +128,27 @@ class CoursesState {
   /// running; null once the list is fresh from the server.
   final DateTime? cachedAt;
 
+  final List<CourseRow>? _cachedFiltered;
+  final List<String>? _cachedPublicTypes;
+  final List<String>? _cachedDepartments;
+  final bool? _cachedHasOnline;
+
   bool get paged => kind.isBrowseOnly;
   int get pageCount => !paged || filteredRows.isEmpty
       ? 0
       : (filteredRows.length / CoursesController.catalogPageSize).ceil();
 
-  /// Distinct 通识类别 values in [rows], in first-seen order.
-  List<String> get publicTypes => _facet((r) => r.publicCourseType);
+  /// Distinct 通识类别 values in [rows], in first-seen order (memoized).
+  late final List<String> publicTypes =
+      _cachedPublicTypes ?? _facet((r) => r.publicCourseType);
 
-  /// Distinct 开课单位 values in [rows], in first-seen order.
-  List<String> get departments => _facet((r) => r.departmentName);
+  /// Distinct 开课单位 values in [rows], in first-seen order (memoized).
+  late final List<String> departments =
+      _cachedDepartments ?? _facet((r) => r.departmentName);
 
-  /// Whether any class is a MOOC, so the 网课 chip is worth showing.
-  bool get hasOnline =>
+  /// Whether any class is a MOOC, so the 网课 chip is worth showing (memoized).
+  late final bool hasOnline =
+      _cachedHasOnline ??
       rows.any((r) => r.teachingClasses.any((tc) => tc.isOnline));
 
   List<String> _facet(String Function(CourseRow) pick) {
@@ -131,8 +161,8 @@ class CoursesState {
     return out;
   }
 
-  /// Filtering is computed once per immutable state, not once per list tile.
-  late final List<CourseRow> filteredRows = _filterRows();
+  /// Filtering is computed once per immutable state, and reused across pages.
+  late final List<CourseRow> filteredRows = _cachedFiltered ?? _filterRows();
   late final List<CourseRow> visibleRows = paged
       ? filteredRows
           .skip(page * CoursesController.catalogPageSize)
@@ -187,21 +217,36 @@ class CoursesState {
     bool? catalogComplete,
     int? catalogDownloaded,
     Object? cachedAt = _keep,
-  }) =>
-      CoursesState(
-        kind: kind ?? this.kind,
-        query: query ?? this.query,
-        rows: rows ?? this.rows,
-        loading: loading ?? this.loading,
-        error: clearError ? null : (error ?? this.error),
-        loadedOnce: loadedOnce ?? this.loadedOnce,
-        filters: filters ?? this.filters,
-        page: page ?? this.page,
-        totalCount: totalCount ?? this.totalCount,
-        catalogComplete: catalogComplete ?? this.catalogComplete,
-        catalogDownloaded: catalogDownloaded ?? this.catalogDownloaded,
-        cachedAt: cachedAt == _keep ? this.cachedAt : cachedAt as DateTime?,
-      );
+  }) {
+    final nextKind = kind ?? this.kind;
+    final nextQuery = query ?? this.query;
+    final nextRows = rows ?? this.rows;
+    final nextFilters = filters ?? this.filters;
+    final sameRows = identical(nextRows, this.rows);
+    final sameFilterInputs =
+        sameRows &&
+        nextKind == this.kind &&
+        nextQuery == this.query &&
+        identical(nextFilters, this.filters);
+    return CoursesState._cached(
+      kind: nextKind,
+      query: nextQuery,
+      rows: nextRows,
+      loading: loading ?? this.loading,
+      error: clearError ? null : (error ?? this.error),
+      loadedOnce: loadedOnce ?? this.loadedOnce,
+      filters: nextFilters,
+      page: page ?? this.page,
+      totalCount: totalCount ?? this.totalCount,
+      catalogComplete: catalogComplete ?? this.catalogComplete,
+      catalogDownloaded: catalogDownloaded ?? this.catalogDownloaded,
+      cachedAt: cachedAt == _keep ? this.cachedAt : cachedAt as DateTime?,
+      cachedFiltered: sameFilterInputs ? filteredRows : null,
+      cachedPublicTypes: sameRows ? publicTypes : null,
+      cachedDepartments: sameRows ? departments : null,
+      cachedHasOnline: sameRows ? hasOnline : null,
+    );
+  }
 
   static const _keep = Object();
 }
@@ -368,7 +413,7 @@ class CoursesController extends StateNotifier<CoursesState> {
       kind: kind,
       loading: true,
       clearError: true,
-      rows: cached == null ? null : _rowsFromJson(kind, cached.rows),
+      rows: cached == null ? null : CourseService.rowsFromJson(cached.rows),
       totalCount: cached?.totalCount,
       loadedOnce: cached != null ? true : null,
       cachedAt: cached?.savedAt,
@@ -399,38 +444,12 @@ class CoursesController extends StateNotifier<CoursesState> {
     }
   }
 
-  /// Rebuilds rows from cached raw JSON the way the service does for a fresh
-  /// response, so cached and fresh lists look identical.
-  static List<CourseRow> _rowsFromJson(
-      CourseKind kind, List<Map<String, dynamic>> raws) {
-    final rows = <CourseRow>[];
-    for (final raw in raws) {
-      final flat = !raw.containsKey('tcList') && raw['teachingClassID'] != null;
-      if (flat) {
-        final tc = TeachingClass.fromJson(raw);
-        rows.add(CourseRow(
-          courseNumber: tc.courseNumber,
-          courseName: tc.courseName,
-          credit: (raw['credit'] ?? '').toString(),
-          courseNatureName: (raw['courseNatureName'] ?? '').toString(),
-          departmentName: (raw['departmentName'] ?? '').toString(),
-          number: 1,
-          selected: tc.isHeld,
-          teachingClasses: [tc],
-          raw: raw,
-        ));
-      } else {
-        rows.add(CourseRow.fromJson(raw));
-      }
-    }
-    return CourseService.groupFlatRows(rows);
-  }
-
   /// Refreshes live capacity for a single teaching class in-place.
   Future<TeachingClass> refresh(TeachingClass tc) async {
     final student = _session.student;
     if (student == null) return tc;
     final fresh = await _course.refreshCapacity(tc, student.studentCode);
+    if (!mounted) return fresh;
     _replaceTc(fresh);
     return fresh;
   }

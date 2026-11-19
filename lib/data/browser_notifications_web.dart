@@ -15,7 +15,7 @@ class BrowserNotifications {
   }
 
   String get permission {
-    if (!supported) return 'denied';
+    if (!supported) return 'unsupported';
     try {
       return web.Notification.permission;
     } catch (_) {

@@ -8,6 +8,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
@@ -95,7 +96,8 @@ class HttpOcrCaptchaSolver implements CaptchaSolver {
   final Dio _dio;
   final int expectedLength;
 
-  void dispose() {
+  @override
+  Future<void> dispose() async {
     if (_ownsDio) _dio.close();
   }
 
@@ -118,21 +120,22 @@ class HttpOcrCaptchaSolver implements CaptchaSolver {
             options: Options(headers: config.headers, contentType: 'application/json'),
           );
         case OcrRequestFormat.rawBytes:
+          final body = imageBytes is Uint8List
+              ? imageBytes
+              : Uint8List.fromList(imageBytes);
           resp = await _dio.post(
             endpoint,
-            data: Stream.fromIterable([imageBytes]),
+            data: body,
             options: Options(
-              headers: {...config.headers, Headers.contentLengthHeader: imageBytes.length},
+              headers: config.headers,
               contentType: 'application/octet-stream',
             ),
           );
       }
-      final answer = _extract(resp.data);
-      if (answer == null) return null;
-      final cleaned = answer.replaceAll(RegExp(r'\s+'), '');
-      if (cleaned.isEmpty) return null;
-      if (expectedLength > 0 && cleaned.length != expectedLength) return null;
-      return cleaned;
+      return normalizeCaptchaAnswer(
+        _extract(resp.data),
+        expectedLength: expectedLength,
+      );
     } catch (_) {
       return null;
     }

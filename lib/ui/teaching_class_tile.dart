@@ -225,17 +225,23 @@ class TeachingClassTile extends StatelessWidget {
         style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
       );
     }
+    Widget actionLabel(String text) => Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      softWrap: false,
+    );
     final monitorButton = Expanded(
       child: watched
           ? FilledButton.tonalIcon(
               onPressed: busy ? null : onMonitor,
               icon: const Icon(Icons.radar, size: 18),
-              label: const Text('取消监控'),
+              label: actionLabel('取消监控'),
             )
           : OutlinedButton.icon(
               onPressed: busy ? null : onMonitor,
               icon: const Icon(Icons.radar, size: 18),
-              label: const Text('加入监控'),
+              label: actionLabel('加入监控'),
             ),
     );
     if (volunteerRound) {
@@ -249,14 +255,14 @@ class TeachingClassTile extends StatelessWidget {
                 ? FilledButton.tonalIcon(
                     onPressed: busy ? null : onGrab,
                     icon: busy ? spinner : const Icon(Icons.warning_amber, size: 18),
-                    label: const Text('有冲突，仍填报'),
+                    label: actionLabel('有冲突，仍填报'),
                   )
                 : FilledButton.icon(
                     onPressed: busy ? null : onGrab,
                     icon: busy
                         ? spinner
                         : const Icon(Icons.how_to_vote_outlined, size: 18),
-                    label: const Text('填报志愿'),
+                    label: actionLabel('填报志愿'),
                   ),
           ),
         ],
@@ -273,12 +279,12 @@ class TeachingClassTile extends StatelessWidget {
                 ? FilledButton.tonalIcon(
                     onPressed: busy ? null : onGrab,
                     icon: busy ? spinner : const Icon(Icons.warning_amber, size: 18),
-                    label: const Text('有冲突，仍要选'),
+                    label: actionLabel('有冲突，仍要选'),
                   )
                 : FilledButton.icon(
                     onPressed: busy ? null : onGrab,
                     icon: busy ? spinner : const Icon(Icons.bolt, size: 18),
-                    label: const Text('选课'),
+                    label: actionLabel('选课'),
                   ),
           ),
         ],
@@ -290,7 +296,7 @@ class TeachingClassTile extends StatelessWidget {
           child: TextButton.icon(
             onPressed: busy ? null : onGrab,
             icon: const Icon(Icons.send_outlined, size: 17),
-            label: const Text('仍要提交'),
+            label: actionLabel('仍要提交'),
           ),
         ),
         const SizedBox(width: 10),
@@ -300,12 +306,12 @@ class TeachingClassTile extends StatelessWidget {
               ? FilledButton.tonalIcon(
                   onPressed: busy ? null : onMonitor,
                   icon: const Icon(Icons.radar, size: 18),
-                  label: const Text('取消监控'),
+                  label: actionLabel('取消监控'),
                 )
               : FilledButton.icon(
                   onPressed: busy ? null : onMonitor,
                   icon: busy ? spinner : const Icon(Icons.radar, size: 18),
-                  label: const Text('已满，监控空位'),
+                  label: actionLabel('已满，监控空位'),
                 ),
         ),
       ],

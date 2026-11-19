@@ -195,7 +195,7 @@ class _RootShellState extends ConsumerState<RootShell>
 
   /// Ask for a login without tearing the shell down. One dialog per account.
   Future<void> _showRelogin(String id) async {
-    if (!_reloginShowing.add(id) || !mounted) return;
+    if (!mounted || !_reloginShowing.add(id)) return;
     try {
       await showDialog<void>(
         context: context,
@@ -267,9 +267,6 @@ class _RootShellState extends ConsumerState<RootShell>
 
   void _switchAccount(String id) {
     ref.read(activeAccountIdProvider.notifier).state = id;
-    // Keep the courses page keyed to the account it shows.
-    setState(() {});
-    WidgetsBinding.instance.addPostFrameCallback((_) => _afterSignIn());
   }
 
   @override
@@ -308,7 +305,6 @@ class _RootShellState extends ConsumerState<RootShell>
         },
       );
     }
-    final activeWatches = activeId == null ? 0 : ref.watch(watchCountProvider);
     // Pages are rebuilt from scratch when the shown account changes so no
     // per-page state (loaded lists, selection) leaks between accounts.
     final pages = [
@@ -489,8 +485,8 @@ class _RootShellState extends ConsumerState<RootShell>
             '课程',
           ),
           (
-            _MonitorIcon(count: activeWatches, selected: false),
-            _MonitorIcon(count: activeWatches, selected: true),
+            const _MonitorIcon(selected: false),
+            const _MonitorIcon(selected: true),
             '抢课',
           ),
           (const Icon(Icons.school_outlined), const Icon(Icons.school), '成绩'),
@@ -808,9 +804,6 @@ class _AccountTab extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final s = ref.watch(sessionControllerProvider(id));
     final expired = s.phase == AuthPhase.expired;
-    final running =
-        ref.watch(monitorChangesProvider(id)).hasValue &&
-        ref.read(sessionScopeProvider(id)).engine.isRunning;
     return Padding(
       padding: const EdgeInsets.only(right: 4),
       child: Material(
@@ -833,10 +826,6 @@ class _AccountTab extends ConsumerWidget {
                     color: expired ? scheme.error : scheme.onSurface,
                   ),
                 ),
-                if (running) ...[
-                  const SizedBox(width: 6),
-                  const Icon(Icons.circle, size: 8, color: Colors.green),
-                ],
                 const SizedBox(width: 4),
                 if (selected)
                   IconButton(
@@ -871,9 +860,7 @@ class _Avatar extends ConsumerWidget {
     final name = s.displayName;
     final initial = name.isEmpty ? '?' : name.characters.first;
     final expired = s.phase == AuthPhase.expired;
-    final running =
-        ref.watch(monitorChangesProvider(id)).hasValue &&
-        ref.read(sessionScopeProvider(id)).engine.isRunning;
+    final running = ref.watch(monitorRunningOfProvider(id));
     final avatar = CircleAvatar(
       radius: size / 2,
       backgroundColor: expired
@@ -897,13 +884,14 @@ class _Avatar extends ConsumerWidget {
   }
 }
 
-class _MonitorIcon extends StatelessWidget {
-  const _MonitorIcon({required this.count, required this.selected});
-  final int count;
+class _MonitorIcon extends ConsumerWidget {
+  const _MonitorIcon({required this.selected});
   final bool selected;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeId = ref.watch(activeAccountIdProvider);
+    final count = activeId == null ? 0 : ref.watch(watchCountProvider);
     final icon = Icon(selected ? Icons.radar : Icons.radar_outlined);
     if (count == 0) return icon;
     return Badge(label: Text('$count'), child: icon);

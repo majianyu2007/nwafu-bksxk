@@ -88,6 +88,8 @@ TargetGpaPlan? planTargetGpa({
       !currentCredits.isFinite ||
       !upcomingCredits.isFinite ||
       !targetGpa.isFinite ||
+      currentGpa < 0 ||
+      currentCredits < 0 ||
       upcomingCredits <= 0 ||
       targetGpa <= 0 ||
       targetGpa > 4.0) {

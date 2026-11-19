@@ -23,11 +23,12 @@ class CampusProxy {
   /// Optional custom selection host configured in Settings, if overridden.
   String? customCampusHost;
 
-  bool isCampusHost(String host) =>
-      campusOnlyHosts.contains(host) ||
-      (customCampusHost != null &&
-          customCampusHost!.isNotEmpty &&
-          customCampusHost == host);
+  bool isCampusHost(String host) {
+    final normalized = host.toLowerCase();
+    if (campusOnlyHosts.contains(normalized)) return true;
+    final custom = customCampusHost?.trim().toLowerCase();
+    return custom != null && custom.isNotEmpty && custom == normalized;
+  }
 
   /// The `findProxy` answer for [uri].
   String route(Uri uri) {

@@ -110,6 +110,7 @@ class DevicePlusCalendarAdapter implements CalendarAdapter {
       description: event.fullDescription,
       location: event.location.isEmpty ? null : event.location,
       url: event.url,
+      timeZone: 'Asia/Shanghai',
       reminders: reminders,
     );
   }

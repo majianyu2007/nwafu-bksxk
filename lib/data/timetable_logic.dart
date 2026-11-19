@@ -47,11 +47,11 @@ extension TermTimetableTime on TermTimetable {
     final today = schoolDate(now);
     final w = weekOf(today);
     if (w != null) return w;
-    return today.isBefore(firstMonday) ? 1 : weekCount;
+    return today.isBefore(calendarDate(firstMonday)) ? 1 : weekCount;
   }
 
   DateTime dayOf(int week, int weekday) =>
-      firstMonday.add(Duration(days: (week - 1) * 7 + weekday - 1));
+      calendarDate(firstMonday).add(Duration(days: (week - 1) * 7 + weekday - 1));
 
   /// Sessions running in [week] on [weekday], ordered by period.
   List<CourseSession> sessionsOn(int week, int weekday) => [
@@ -216,15 +216,18 @@ class ReminderRules {
   final int? quietBefore;
 }
 
+final _roomCodePrefixRe = RegExp(r'^([A-Za-z]+\d)');
+final _roomNumberTailRe = RegExp(r'[A-Za-z]?\d.*$');
+
 /// Short building key for "is this another building": `N8618` → `N8`,
 /// `理科楼A402` → `理科楼`. Pure-digit room codes stay intact instead of
 /// collapsing to an empty string.
 String roomBuilding(String room) {
   final t = room.trim();
   if (t.isEmpty) return '';
-  final code = RegExp(r'^([A-Za-z]+\d)').firstMatch(t);
+  final code = _roomCodePrefixRe.firstMatch(t);
   if (code != null) return code.group(1)!.toUpperCase();
-  final stripped = t.replaceFirst(RegExp(r'[A-Za-z]?\d.*$'), '').trim();
+  final stripped = t.replaceFirst(_roomNumberTailRe, '').trim();
   return stripped.isEmpty ? t : stripped;
 }
 
@@ -249,15 +252,25 @@ List<ReminderPlan> planReminders(
   final r = rules ?? ReminderRules(lead: lead ?? const Duration(minutes: 10));
   final out = <ReminderPlan>[];
   final upcoming = t.upcoming(now, days: days);
-  // Every class of the days involved, to see what comes right before.
+  // Every class of the days involved, ordered by start once per day.
   final byDay = <DateTime, List<ClassOccurrence>>{};
   for (final o in upcoming) {
-    byDay.putIfAbsent(o.date, () => t.classesOn(o.start));
+    byDay.putIfAbsent(
+      o.date,
+      () => t.classesOn(o.start)..sort((a, b) => a.start.compareTo(b.start)),
+    );
   }
   for (final o in upcoming) {
-    final day = byDay[o.date]!..sort((a, b) => a.start.compareTo(b.start));
-    final before = day.where((p) => !p.end.isAfter(o.start)).lastOrNull;
-    final hasEarlier = day.any((p) => p.start.isBefore(o.start));
+    final day = byDay[o.date]!;
+    // Pick the preceding class with the latest end time (handles overlapping/nested classes).
+    ClassOccurrence? before;
+    var hasEarlier = false;
+    for (final p in day) {
+      if (p.start.isBefore(o.start)) hasEarlier = true;
+      if (!p.end.isAfter(o.start)) {
+        if (before == null || p.end.isAfter(before.end)) before = p;
+      }
+    }
     final gap = before == null ? null : o.start.difference(before.end);
     final adjacent = gap != null && gap <= const Duration(minutes: 30);
     final room = o.session.room.trim();
@@ -300,18 +313,49 @@ List<ReminderPlan> planReminders(
   return out;
 }
 
-/// A notification id in a range of its own (2^30 + …) so it never collides
-/// with the immediate grab notifications, which count up from 0. Uses JS-safe
-/// 32-bit FNV-1a split multiplication so Web and Native agree identically.
-int reminderId(ClassOccurrence o) {
+/// Shared notification copy for class reminders (used by foreground & background).
+String classReminderTitle(ReminderPlan p) {
+  final o = p.occurrence;
+  final minutes = o.start.difference(p.at).inMinutes;
+  return switch (p.reason) {
+    ReminderReason.moveBuilding =>
+      '换教室：${o.session.displayName} 在 ${o.session.room}',
+    ReminderReason.firstOfDay => '今天第一节，$minutes 分钟后：${o.session.displayName}',
+    ReminderReason.normal => '$minutes 分钟后上课：${o.session.displayName}',
+  };
+}
+
+String classReminderBody(ClassOccurrence o) {
+  final s = o.session;
+  final local = o.start.add(const Duration(hours: 8));
+  final hh = local.hour.toString().padLeft(2, '0');
+  final mm = local.minute.toString().padLeft(2, '0');
+  final periods = s.startPeriod == s.endPeriod
+      ? '第${s.startPeriod}节'
+      : '第${s.startPeriod}-${s.endPeriod}节';
+  return [
+    '$hh:$mm $periods',
+    if (s.room.isNotEmpty) s.room,
+    if (s.teacher.isNotEmpty) s.teacher,
+  ].join(' · ');
+}
+
+/// JS-safe 32-bit FNV-1a hash (split 16-bit multiplication so Dart Web and
+/// Native produce identical 32-bit unsigned hashes).
+int fnv1a32(String input) {
   var hash = 0x811c9dc5;
-  for (final unit in '${o.session.id}:${o.date.toIso8601String()}'.codeUnits) {
+  for (final unit in input.codeUnits) {
     hash ^= unit;
     final low = (hash & 0xffff) * 0x01000193;
     final high = ((hash >>> 16) * 0x01000193) & 0xffff;
-    hash = (low + (high << 16)) & 0x3fffffff;
+    hash = (low + (high << 16)) & 0xffffffff;
   }
-  return (1 << 30) | hash;
+  return hash;
 }
+
+/// A notification id in a range of its own (2^30 + …) so it never collides
+/// with the immediate grab notifications, which count up from 0.
+int reminderId(ClassOccurrence o) =>
+    (1 << 30) | (fnv1a32('${o.session.id}:${o.date.toIso8601String()}') & 0x3fffffff);
 
 const kWeekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];

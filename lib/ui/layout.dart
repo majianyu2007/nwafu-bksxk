@@ -142,37 +142,6 @@ AdaptiveScale computeAdaptiveScale(
   }
 }
 
-/// Centers [child] within [maxWidth] using adaptive horizontal gutters.
-class ReadableContent extends StatelessWidget {
-  const ReadableContent({
-    super.key,
-    required this.child,
-    this.maxWidth = kReadableMaxWidth,
-    this.top = 0,
-    this.bottom = 0,
-  });
-
-  final Widget child;
-  final double maxWidth;
-  final double top;
-  final double bottom;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        final gutter = pageGutter(w);
-        final side = ((w - maxWidth) / 2).clamp(gutter, double.infinity);
-        return Padding(
-          padding: EdgeInsets.fromLTRB(side, top, side, bottom),
-          child: child,
-        );
-      },
-    );
-  }
-}
-
 /// Use the actual text scaler when deciding how much room a layout needs.
 /// This changes layout density, never the user's requested font size.
 double layoutTextScale(BuildContext context) =>
@@ -222,7 +191,11 @@ class AdaptiveGrid extends StatelessWidget {
           runSpacing: runSpacing,
           children: [
             for (final child in children)
-              SizedBox(width: itemWidth > 0 ? itemWidth : width, child: child),
+              SizedBox(
+                key: child.key is GlobalKey ? null : child.key,
+                width: itemWidth > 0 ? itemWidth : width,
+                child: child,
+              ),
           ],
         );
       },

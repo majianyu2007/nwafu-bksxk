@@ -12,6 +12,11 @@ import '../data/cas_client.dart';
 import '../data/ehall_service.dart';
 import 'device_passkey.dart';
 
+/// Pushes [EduLoginPage] and returns `true` when sign-in completed.
+Future<bool?> pushEduLogin(BuildContext context) => Navigator.of(
+  context,
+).push<bool>(MaterialPageRoute(builder: (_) => const EduLoginPage()));
+
 /// The unified identity login (password, or this device's bound passkey).
 class EduLoginPage extends ConsumerStatefulWidget {
   const EduLoginPage({super.key});
@@ -45,18 +50,24 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
   Timer? _cooldown;
   int _seconds = 0;
   int _operation = 0;
+  String? _lastCheckedUsername;
 
   @override
   void initState() {
     super.initState();
     _session = ref.read(eduSessionProvider.notifier);
     _username.text = ref.read(eduSessionProvider).account?.username ?? '';
-    _username.addListener(_checkDeviceKey);
-    _checkDeviceKey();
+    if (!kIsWeb) {
+      _username.addListener(_checkDeviceKey);
+      _checkDeviceKey();
+    }
   }
 
   Future<void> _checkDeviceKey() async {
+    if (kIsWeb) return;
     final name = _username.text.trim();
+    if (name == _lastCheckedUsername) return;
+    _lastCheckedUsername = name;
     final has =
         name.isNotEmpty &&
         await _session.hasDeviceKey(name) &&
@@ -125,8 +136,6 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
           method,
           _code.text.trim(),
           trustDevice: _trustDevice,
-          password: _usedDeviceKey ? null : _password.text,
-          remember: _remember,
         );
       } else if (deviceKey) {
         _usedDeviceKey = true;
@@ -150,12 +159,13 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
       _password.clear();
       _code.clear();
       // Offer face/fingerprint sign-in only on native when not bound yet.
-      if (!kIsWeb &&
-          !_usedDeviceKey &&
-          !_deviceKey &&
-          !await _session.hasDeviceKey(_username.text.trim())) {
-        await _offerDeviceKey(password);
+      if (!kIsWeb && !_usedDeviceKey && !_deviceKey) {
+        final alreadyBound = await _session.hasDeviceKey(_username.text.trim());
         if (!mounted) return;
+        if (!alreadyBound) {
+          await _offerDeviceKey(password);
+          if (!mounted) return;
+        }
       }
       await _askNotifications();
       if (!mounted) return;
@@ -293,6 +303,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
       final opened = await launchUrl(
         Uri.parse('$kAuthServer/authserver/login'),
         mode: LaunchMode.externalApplication,
+        webOnlyWindowName: '_blank',
       );
       if (!opened && mounted) {
         setState(() => _error = '无法打开浏览器，请手动访问 authserver.nwafu.edu.cn。');
@@ -383,15 +394,17 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    currentVersion == null ? '安装桥接脚本即可站内登录' : '更新桥接脚本至 1.5.0',
+                    currentVersion == null
+                        ? '安装桥接脚本即可站内登录'
+                        : '更新桥接脚本至 $kRecommendedWebBridgeVersion',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
                   const SizedBox(height: 12),
                   Text(
                     currentVersion == null
-                        ? '安装「西农教务助手 · 网页版桥接 (1.5.0)」并刷新本页后，即可直接在应用内输入学号密码登录、完成二次验证，并在会话过期时自动重登，无需再打开学校官网。'
-                        : '当前桥接脚本版本为 $currentVersion。更新到 1.5.0 并刷新本页后，即可直接在应用内登录并支持自动重登，无需跳转学校网页。',
+                        ? '安装「西农教务助手 · 网页版桥接 ($kRecommendedWebBridgeVersion)」并刷新本页后，即可直接在应用内输入学号密码登录、完成二次验证，并在会话过期时自动重登，无需再打开学校官网。'
+                        : '当前桥接脚本版本为 $currentVersion。更新到 $kRecommendedWebBridgeVersion 并刷新本页后，即可直接在应用内登录并支持自动重登，无需跳转学校网页。',
                   ),
                   const SizedBox(height: 20),
                   FilledButton.icon(
@@ -400,7 +413,9 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                     label: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: Text(
-                        currentVersion == null ? '安装桥接脚本 (1.5.0)' : '更新桥接脚本至 1.5.0',
+                        currentVersion == null
+                            ? '安装桥接脚本 ($kRecommendedWebBridgeVersion)'
+                            : '更新桥接脚本至 $kRecommendedWebBridgeVersion',
                       ),
                     ),
                   ),
@@ -548,48 +563,46 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                             ),
                             const SizedBox(height: 16),
                           ],
-                          ...[
-                            TextFormField(
-                              controller: _password,
-                              enabled: !_busy,
-                              obscureText: _obscurePassword,
-                              autocorrect: false,
-                              enableSuggestions: false,
-                              autofillHints: const [AutofillHints.password],
-                              decoration: InputDecoration(
-                                labelText: '统一身份认证密码',
-                                prefixIcon: const Icon(Icons.lock_outline),
-                                suffixIcon: IconButton(
-                                  tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
-                                  icon: Icon(
-                                    _obscurePassword
-                                        ? Icons.visibility_off_outlined
-                                        : Icons.visibility_outlined,
-                                  ),
-                                  onPressed: () => setState(
-                                    () => _obscurePassword = !_obscurePassword,
-                                  ),
+                          TextFormField(
+                            controller: _password,
+                            enabled: !_busy,
+                            obscureText: _obscurePassword,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            autofillHints: const [AutofillHints.password],
+                            decoration: InputDecoration(
+                              labelText: '统一身份认证密码',
+                              prefixIcon: const Icon(Icons.lock_outline),
+                              suffixIcon: IconButton(
+                                tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_off_outlined
+                                      : Icons.visibility_outlined,
+                                ),
+                                onPressed: () => setState(
+                                  () => _obscurePassword = !_obscurePassword,
                                 ),
                               ),
-                              validator: (v) =>
-                                  v == null || v.isEmpty ? '请输入密码' : null,
-                              onFieldSubmitted: (_) => _submit(),
                             ),
-                            CheckboxListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: const Text('记住密码'),
-                              subtitle: const Text(
-                                kIsWeb
-                                    ? '登录过期时自动重新登录，并自动联动选课登录（仅建议个人设备勾选）'
-                                    : '登录过期时自动重新登录；校外访问也需要它',
-                              ),
-                              value: _remember,
-                              onChanged: _busy
-                                  ? null
-                                  : (v) => setState(() => _remember = v!),
-                              controlAffinity: ListTileControlAffinity.leading,
+                            validator: (v) =>
+                                v == null || v.isEmpty ? '请输入密码' : null,
+                            onFieldSubmitted: (_) => _submit(),
+                          ),
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('记住密码'),
+                            subtitle: const Text(
+                              kIsWeb
+                                  ? '登录过期时自动重新登录，并自动联动选课登录（仅建议个人设备勾选）'
+                                  : '登录过期时自动重新登录；校外访问也需要它',
                             ),
-                          ],
+                            value: _remember,
+                            onChanged: _busy
+                                ? null
+                                : (v) => setState(() => _remember = v!),
+                            controlAffinity: ListTileControlAffinity.leading,
+                          ),
                         ] else ...[
                           if (challenge.displayName.isNotEmpty) ...[
                             Text(
@@ -600,6 +613,7 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
                           ],
                           if (challenge.methods.isNotEmpty)
                             DropdownButtonFormField<MfaMethod>(
+                              key: ValueKey(challenge),
                               initialValue: method,
                               isExpanded: true,
                               decoration: const InputDecoration(

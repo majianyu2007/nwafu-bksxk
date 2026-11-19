@@ -30,7 +30,7 @@ class UpdatesState {
       app.status == UpdateStatus.checking ||
       bridge.status == UpdateStatus.checking;
   bool get showNotice =>
-      !noticeDismissed && (app.hasUpdate || (isWebRuntime && bridge.hasUpdate));
+      !noticeDismissed && (app.hasUpdate || bridge.hasUpdate);
 
   UpdatesState copyWith({
     UpdateCheck? app,
@@ -70,16 +70,26 @@ class UpdatesController extends StateNotifier<UpdatesState> {
   final Future<PackageInfo> Function() _packageInfo;
   final DateTime Function() _now;
   bool _busy = false;
+  bool _initializing = false;
+  bool _pendingManualCheck = false;
 
   /// Called once by the global provider, not on account/tab changes.
   Future<void> initialize() async {
+    _initializing = true;
     _busy = true;
-    await _loadVersion();
-    _busy = false;
+    try {
+      await _loadVersion();
+    } finally {
+      _initializing = false;
+      _busy = false;
+    }
     if (!mounted) return;
+    final runManual = _pendingManualCheck;
+    _pendingManualCheck = false;
     final last = _storage.updateLastCheckMillis();
     final now = _now().millisecondsSinceEpoch;
-    if (last == null ||
+    if (runManual ||
+        last == null ||
         now < last ||
         now - last >= const Duration(hours: 24).inMilliseconds) {
       await checkNow();
@@ -111,7 +121,12 @@ class UpdatesController extends StateNotifier<UpdatesState> {
   /// Manual checks bypass the persisted throttle. Both sources complete
   /// independently, so a GitHub outage cannot suppress a script update.
   Future<void> checkNow() async {
-    if (_busy || !mounted) return;
+    if (!mounted) return;
+    if (_initializing) {
+      _pendingManualCheck = true;
+      return;
+    }
+    if (_busy) return;
     _busy = true;
     state = state.copyWith(
       app: state.app.checking(),
@@ -161,6 +176,10 @@ final updateServiceProvider = Provider<UpdateService>((ref) {
   return service;
 });
 
+final packageInfoProvider = FutureProvider<PackageInfo>(
+  (ref) => PackageInfo.fromPlatform(),
+);
+
 final updatesProvider = StateNotifierProvider<UpdatesController, UpdatesState>((
   ref,
 ) {
@@ -170,6 +189,7 @@ final updatesProvider = StateNotifierProvider<UpdatesController, UpdatesState>((
     isWeb: isWebRuntime,
     bridgeInstalled: () => isWebBridgeReady,
     bridgeVersion: () => installedWebBridgeVersion,
+    packageInfo: () => ref.read(packageInfoProvider.future),
   );
   unawaited(Future<void>.microtask(controller.initialize));
   return controller;
@@ -178,7 +198,7 @@ final updatesProvider = StateNotifierProvider<UpdatesController, UpdatesState>((
 /// The running app's version, from the build itself (pubspec version).
 /// The single source for every place that shows it.
 final appVersionProvider = FutureProvider<String>((ref) async {
-  final info = await PackageInfo.fromPlatform();
+  final info = await ref.watch(packageInfoProvider.future);
   return info.buildNumber.isEmpty
       ? info.version
       : '${info.version} (${info.buildNumber})';

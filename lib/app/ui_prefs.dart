@@ -89,13 +89,40 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
       unawaited(
         SharedPreferences.getInstance().then((p) {
           _prefs = p;
-          if (mounted) state = _read(p);
+          if (!mounted) return;
+          final loaded = _read(p);
+          state = UiPrefs(
+            glass: _dirty.contains(_kGlass) ? state.glass : loaded.glass,
+            timetableView: _dirty.contains(_kView)
+                ? state.timetableView
+                : loaded.timetableView,
+            compactTimetable: _dirty.contains(_kCompact)
+                ? state.compactTimetable
+                : loaded.compactTimetable,
+            showTeacher: _dirty.contains(_kTeacher)
+                ? state.showTeacher
+                : loaded.showTeacher,
+            hideGrades: _dirty.contains(_kHideGrades)
+                ? state.hideGrades
+                : loaded.hideGrades,
+            courseColors: _dirty.contains(_kColors)
+                ? state.courseColors
+                : loaded.courseColors,
+            scaleMode: _dirty.contains(_kScaleMode)
+                ? state.scaleMode
+                : loaded.scaleMode,
+            favoriteLibraryAreas: _dirty.contains(_kFavLib)
+                ? state.favoriteLibraryAreas
+                : loaded.favoriteLibraryAreas,
+          );
         }, onError: (_) {}),
       );
     }
   }
 
   SharedPreferences? _prefs;
+  final _dirty = <String>{};
+  Future<void> _writeQueue = Future<void>.value();
 
   static const _kGlass = 'ui.glass.v1';
   static const _kView = 'ui.timetable_view.v1';
@@ -139,15 +166,23 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
     );
   }
 
-  Future<void> _save(Future<bool> Function(SharedPreferences p) write) async {
-    final p = _prefs ?? await SharedPreferences.getInstance();
-    _prefs = p;
-    await write(p);
+  Future<void> _save(
+    String key,
+    Future<bool> Function(SharedPreferences p) write,
+  ) {
+    _dirty.add(key);
+    final next = _writeQueue.then((_) async {
+      final p = _prefs ?? await SharedPreferences.getInstance();
+      _prefs = p;
+      await write(p);
+    });
+    _writeQueue = next.catchError((Object _) {});
+    return next;
   }
 
   Future<void> setGlass(bool v) {
     state = state.copyWith(glass: v);
-    return _save((p) => p.setBool(_kGlass, v));
+    return _save(_kGlass, (p) => p.setBool(_kGlass, v));
   }
 
   Future<void> setTimetableView(TimetableViewMode? v) {
@@ -155,35 +190,36 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
         ? state.copyWith(clearView: true)
         : state.copyWith(timetableView: v);
     return _save(
+      _kView,
       (p) => v == null ? p.remove(_kView) : p.setString(_kView, v.name),
     );
   }
 
   Future<void> setCompactTimetable(bool v) {
     state = state.copyWith(compactTimetable: v);
-    return _save((p) => p.setBool(_kCompact, v));
+    return _save(_kCompact, (p) => p.setBool(_kCompact, v));
   }
 
   Future<void> setShowTeacher(bool v) {
     state = state.copyWith(showTeacher: v);
-    return _save((p) => p.setBool(_kTeacher, v));
+    return _save(_kTeacher, (p) => p.setBool(_kTeacher, v));
   }
 
   Future<void> setHideGrades(bool v) {
     state = state.copyWith(hideGrades: v);
-    return _save((p) => p.setBool(_kHideGrades, v));
+    return _save(_kHideGrades, (p) => p.setBool(_kHideGrades, v));
   }
 
   Future<void> setScaleMode(UiScaleMode v) {
     state = state.copyWith(scaleMode: v);
-    return _save((p) => p.setString(_kScaleMode, v.name));
+    return _save(_kScaleMode, (p) => p.setString(_kScaleMode, v.name));
   }
 
   Future<void> toggleFavoriteLibraryArea(String areaId) {
     final next = {...state.favoriteLibraryAreas};
     if (!next.remove(areaId)) next.add(areaId);
     state = state.copyWith(favoriteLibraryAreas: next);
-    return _save((p) => p.setStringList(_kFavLib, next.toList()));
+    return _save(_kFavLib, (p) => p.setStringList(_kFavLib, next.toList()));
   }
 
   /// Sets (or with null clears) the colour of a course for one account.
@@ -192,7 +228,7 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
     final next = {...state.courseColors};
     argb == null ? next.remove(key) : next[key] = argb;
     state = state.copyWith(courseColors: next);
-    return _save((p) => p.setString(_kColors, jsonEncode(next)));
+    return _save(_kColors, (p) => p.setString(_kColors, jsonEncode(next)));
   }
 }
 

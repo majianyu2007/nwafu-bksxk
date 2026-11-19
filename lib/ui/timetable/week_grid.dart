@@ -12,7 +12,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/edu_providers.dart';
 import '../../app/theme.dart';
 import '../../app/ui_prefs.dart';
-import '../../data/academic_calendar.dart' show schoolDate;
 import '../../data/edu_models.dart';
 import '../../data/timetable_logic.dart';
 import '../layout.dart';
@@ -26,13 +25,13 @@ class WeekPager extends ConsumerStatefulWidget {
     super.key,
     required this.data,
     required this.week,
-    required this.now,
+    required this.today,
     required this.prefs,
     required this.onWeekChanged,
   });
   final TermTimetable data;
   final int week;
-  final DateTime now;
+  final DateTime today;
   final TimetablePrefs prefs;
   final ValueChanged<int> onWeekChanged;
 
@@ -42,6 +41,9 @@ class WeekPager extends ConsumerStatefulWidget {
 
 class _WeekPagerState extends ConsumerState<WeekPager> {
   late final PageController _controller;
+
+  (TermTimetable, int, TextScaler, bool, bool)? _cachedRowHeightKey;
+  double? _cachedRowHeight;
 
   @override
   void initState() {
@@ -68,9 +70,33 @@ class _WeekPagerState extends ConsumerState<WeekPager> {
     super.dispose();
   }
 
+  double _memoizedRowHeight({
+    required double columnWidth,
+    required TextScaler scaler,
+    required bool compact,
+    required bool teacher,
+  }) {
+    final key = (widget.data, columnWidth.round(), scaler, compact, teacher);
+    if (_cachedRowHeightKey == key && _cachedRowHeight != null) {
+      return _cachedRowHeight!;
+    }
+    final h = termRowHeight(
+      widget.data,
+      columnWidth: columnWidth,
+      scaler: scaler,
+      compact: compact,
+      teacher: teacher,
+    );
+    _cachedRowHeightKey = key;
+    _cachedRowHeight = h;
+    return h;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final ui = ref.watch(uiPrefsProvider);
+    final (compactTimetable, showTeacher) = ref.watch(
+      uiPrefsProvider.select((p) => (p.compactTimetable, p.showTeacher)),
+    );
     final periods = periodIndices(widget.data);
     final scale = layoutTextScale(context);
     final headerHeight = 52.0 * scale;
@@ -85,12 +111,11 @@ class _WeekPagerState extends ConsumerState<WeekPager> {
           timeWidth = 34 * scale.clamp(1.0, 1.4);
           columnWidth = (constraints.maxWidth - timeWidth - 4) / days;
         }
-        final rowHeight = termRowHeight(
-          widget.data,
+        final rowHeight = _memoizedRowHeight(
           columnWidth: columnWidth,
           scaler: MediaQuery.textScalerOf(context),
-          compact: ui.compactTimetable,
-          teacher: ui.showTeacher,
+          compact: compactTimetable,
+          teacher: showTeacher,
         );
         final layout = GridLayout(periods, rowHeight);
         return SizedBox(
@@ -102,12 +127,12 @@ class _WeekPagerState extends ConsumerState<WeekPager> {
             itemBuilder: (context, index) => WeekGrid(
               data: widget.data,
               week: index + 1,
-              now: widget.now,
+              today: widget.today,
               prefs: widget.prefs,
               layout: layout,
               headerHeight: headerHeight,
               timeWidth: timeWidth,
-              showTeacher: ui.showTeacher,
+              showTeacher: showTeacher,
               metrics: metrics,
             ),
           ),
@@ -122,7 +147,7 @@ class WeekGrid extends ConsumerWidget {
     super.key,
     required this.data,
     required this.week,
-    required this.now,
+    required this.today,
     required this.prefs,
     required this.layout,
     required this.headerHeight,
@@ -132,7 +157,7 @@ class WeekGrid extends ConsumerWidget {
   });
   final TermTimetable data;
   final int week;
-  final DateTime now;
+  final DateTime today;
   final TimetablePrefs prefs;
   final GridLayout layout;
   final double headerHeight;
@@ -145,9 +170,13 @@ class WeekGrid extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final tokens = GlassTokens.of(context);
     final colors = ref.watch(courseColorsProvider);
-    final today = schoolDate(now);
+    final isCurrentWeek = data.weekOf(today) == week;
+    // Only the current week subscribes to the 30-second live clock.
+    final now = isCurrentWeek
+        ? (ref.watch(clockProvider).asData?.value ?? DateTime.now())
+        : null;
     final days = prefs.showWeekend ? 7 : 5;
-    final minutes = cstMinutes(now);
+    final minutes = now == null ? null : cstMinutes(now);
     final lineColor = scheme.outlineVariant.withValues(alpha: 0.35);
     final monday = data.dayOf(week, 1);
     // A week never straddles May 1 / Oct 1 by more than a few days; label it
@@ -157,7 +186,7 @@ class WeekGrid extends ConsumerWidget {
     // Today's ongoing class, else the next one today, glows.
     CourseSession? highlight;
     var highlightOngoing = false;
-    if (data.weekOf(today) == week) {
+    if (isCurrentWeek && now != null) {
       for (final s in data.sessionsOn(week, today.weekday)) {
         final st = statusOf(data, s, today, now);
         if (st == ClassStatus.ongoing) {
@@ -275,7 +304,7 @@ class WeekGrid extends ConsumerWidget {
                   showTeacher: showTeacher,
                   metrics: metrics,
                   colors: colors,
-                  nowLine: data.dayOf(week, day) == today
+                  nowLine: minutes != null && data.dayOf(week, day) == today
                       ? nowOffset(data, layout, today, minutes)
                       : null,
                   highlight: data.dayOf(week, day) == today ? highlight : null,
@@ -575,6 +604,7 @@ class _ProgressBarPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (size.height < 8) return;
     const w = 3.0;
     final y = size.height * progress;
     canvas
@@ -762,11 +792,15 @@ class CourseCell extends StatelessWidget {
   }
 }
 
-double _textWidth(String text, TextStyle style) {
+double _textWidth(String text, TextStyle style, TextScaler scaler) {
   final p = TextPainter(
     textDirection: TextDirection.ltr,
+    textScaler: scaler,
     maxLines: 1,
-    text: TextSpan(text: text, style: style),
+    text: TextSpan(
+      text: text,
+      style: style.copyWith(fontFamily: AppTheme.fontFamily),
+    ),
   )..layout();
   final w = p.width;
   p.dispose();
@@ -796,10 +830,11 @@ class _CellText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final inkStyle = TextStyle(color: ink.withValues(alpha: other ? 0.8 : 1));
+    final scaler = MediaQuery.textScalerOf(context);
     return LayoutBuilder(
       builder: (context, box) {
         final nameSize = metrics.dense
-            ? fittedNameSize(name, box.maxWidth, metrics.name)
+            ? fittedNameSize(name, box.maxWidth, metrics.name, scaler: scaler)
             : metrics.name;
         final lines = meta.isEmpty ? const <String>[] : meta.split('\n');
         final head = Text.rich(
@@ -881,7 +916,8 @@ class _CellText extends StatelessWidget {
                   // little onto one line rather than split it. Long names
                   // ("计算机机房202-B") wrap normally instead of going tiny.
                   metrics.dense &&
-                          _textWidth(line, metaStyle) <= box.maxWidth / 0.8
+                          _textWidth(line, metaStyle, scaler) <=
+                              box.maxWidth / 0.8
                       ? FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: Alignment.centerLeft,

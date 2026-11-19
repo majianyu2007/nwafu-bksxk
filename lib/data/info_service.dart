@@ -75,7 +75,7 @@ class InfoService {
   /// Fetches the volunteer-grade dictionary (publicinfo/volunteer.do). Used to
   /// label the `chooseVolunteer` field on teaching classes.
   Future<List<VolunteerGrade>> fetchVolunteerGrades() async {
-    final res = await _client.getJson(Api.volunteerGrade);
+    final res = await _client.getJson(Api.volunteerGrade, auth: false);
     if (!res.ok) return [];
     return res.dataList
         .whereType<Map>()

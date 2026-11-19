@@ -18,7 +18,6 @@ import '../core/crypto/passkey.dart';
 import '../core/crypto/webauthn_register.dart' show AttestationFormat;
 import '../core/errors.dart';
 import '../core/web_env.dart';
-import '../data/academic_calendar.dart' show schoolDate;
 import '../data/background_sync.dart';
 import '../data/cas_client.dart';
 import '../data/device_unlock.dart';
@@ -107,10 +106,6 @@ class EduClient {
     portal = PortalService(cas);
   }
 
-  EduClient.withServices(this.storage, this.cas, this.ehall)
-    : jar = cas.cookieJar,
-      portal = PortalService(cas);
-
   final Storage storage;
   late final CookieJar jar;
   late final CasClient cas;
@@ -119,7 +114,7 @@ class EduClient {
   SecureCookieStorage? _cookies;
 
   Future<void> close({bool clearCookies = false}) async {
-    cas.dio.close(force: true);
+    cas.close(force: true);
     if (_cookies != null) {
       await _cookies!.close(clear: clearCookies);
     } else if (clearCookies) {
@@ -243,7 +238,13 @@ class EduSessionController extends StateNotifier<EduState> {
         await _storage.setEduPassword(oldAccount, null);
         await _storage.setEduPasskey(oldAccount, null);
       }
-      if (!_current(epoch)) return;
+      if (!_current(epoch)) {
+        if (mounted) {
+          _ref.read(_eduClientAccountProvider.notifier).state = null;
+          _ref.invalidate(eduClientProvider);
+        }
+        return;
+      }
       _ref.read(_eduClientAccountProvider.notifier).state = username;
       _ref.invalidate(eduClientProvider);
       await _client.cas.clearSession();
@@ -301,7 +302,13 @@ class EduSessionController extends StateNotifier<EduState> {
         await _storage.setEduPassword(oldAccount, null);
         await _storage.setEduPasskey(oldAccount, null);
       }
-      if (!_current(epoch)) return;
+      if (!_current(epoch)) {
+        if (mounted) {
+          _ref.read(_eduClientAccountProvider.notifier).state = null;
+          _ref.invalidate(eduClientProvider);
+        }
+        return;
+      }
       _ref.read(_eduClientAccountProvider.notifier).state = null;
       _ref.invalidate(eduClientProvider);
       _bindClient();
@@ -352,9 +359,6 @@ class EduSessionController extends StateNotifier<EduState> {
     MfaMethod method,
     String code, {
     required bool trustDevice,
-    String? password,
-    PasskeyCredential? passkey,
-    bool remember = true,
   }) async {
     final p = _pending;
     if (p == null ||
@@ -384,7 +388,6 @@ class EduSessionController extends StateNotifier<EduState> {
 
   Future<void> _finish(_PendingEduLogin p) async {
     if (!_current(p.epoch)) throw _cancelled;
-    _resumeOnCancel = null;
     p.client.ehall.reset();
     p.client.portal.reset();
     var account = EduAccount(
@@ -422,6 +425,7 @@ class EduSessionController extends StateNotifier<EduState> {
       if (!_current(p.epoch)) return;
       await _storage.setEduAccount(account.encode());
       if (!_current(p.epoch)) return;
+      _resumeOnCancel = null;
       _pending = null;
       state = EduState(phase: EduPhase.signedIn, account: account);
       _bindClient();
@@ -450,12 +454,15 @@ class EduSessionController extends StateNotifier<EduState> {
     if (account == null) {
       throw AppError(AppErrorKind.sessionExpired, message: '请先登录统一身份认证');
     }
+    final epoch = _epoch;
     final cas = _client.cas;
     await cas.openPersonalCenter();
+    if (!_current(epoch)) throw _cancelled;
     if (await cas.personalCenterNeedsRecheck()) {
       for (var attempt = 0; ; attempt++) {
+        if (!_current(epoch)) throw _cancelled;
         final code = await solveCaptcha(await cas.recheckCaptcha());
-        if (code == null) throw _cancelled;
+        if (!_current(epoch) || code == null) throw _cancelled;
         try {
           await cas.recheckPassword(password, code);
           break;
@@ -464,36 +471,42 @@ class EduSessionController extends StateNotifier<EduState> {
         }
       }
     }
+    if (!_current(epoch)) throw _cancelled;
     PasskeyCredential credential;
     try {
       credential = await cas.registerDevicePasskey(deviceName);
     } on AppError {
+      if (!_current(epoch)) throw _cancelled;
       // Some deployments insist on an attestation statement.
       credential = await cas.registerDevicePasskey(
         deviceName,
         format: AttestationFormat.packedSelf,
       );
     }
+    if (!_current(epoch)) throw _cancelled;
     await _storage.setEduDeviceKey(
       account.username,
       jsonEncode({...credential.toJson(), 'deviceName': deviceName}),
     );
-    _ref.invalidate(deviceKeyBoundProvider);
+    if (_current(epoch)) _ref.invalidate(deviceKeyBoundProvider);
   }
 
   /// Removes this app's binding (server side when reachable) and the key.
   Future<void> unbindThisDevice() async {
     final account = state.account;
     if (account == null) return;
+    final epoch = _epoch;
     final raw = await _storage.eduDeviceKey(account.username);
-    if (raw == null) return;
-    final saved = PasskeyCredential.fromJson(
-      jsonDecode(raw) as Map<String, dynamic>,
-    );
+    if (raw == null || !_current(epoch)) return;
     try {
+      final saved = PasskeyCredential.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
       final cas = _client.cas;
       await cas.openPersonalCenter();
+      if (!_current(epoch)) return;
       for (final d in await cas.boundDevices()) {
+        if (!_current(epoch)) return;
         if (d['id']?.toString() == saved.deviceBindingId) {
           await cas.deleteBoundDevice(
             saved.deviceBindingId,
@@ -503,7 +516,7 @@ class EduSessionController extends StateNotifier<EduState> {
       }
     } finally {
       await _storage.setEduDeviceKey(account.username, null);
-      _ref.invalidate(deviceKeyBoundProvider);
+      if (mounted) _ref.invalidate(deviceKeyBoundProvider);
     }
   }
 
@@ -632,6 +645,10 @@ class EduSessionController extends StateNotifier<EduState> {
         await _client.cas.logout();
       }
       await _client.close(clearCookies: true);
+      if (mounted) {
+        _ref.read(_eduClientAccountProvider.notifier).state = null;
+        _ref.invalidate(eduClientProvider);
+      }
       await _storage.setEduAccount(null);
       if (account != null) {
         await _storage.setEduPassword(account, null);
@@ -695,9 +712,11 @@ IconData unlockIcon(String label) => switch (label) {
 /// Whether this install holds a bound passkey for the signed-in account.
 /// The one place every screen reads it from; bind/unbind invalidate it.
 final deviceKeyBoundProvider = FutureProvider<bool>((ref) async {
-  final account = ref.watch(eduSessionProvider.select((s) => s.account));
-  if (account == null) return false;
-  return await ref.read(storageProvider).eduDeviceKey(account.username) != null;
+  final username = ref.watch(
+    eduSessionProvider.select((s) => s.account?.username),
+  );
+  if (username == null) return false;
+  return await ref.read(storageProvider).eduDeviceKey(username) != null;
 });
 
 final eduSessionProvider =
@@ -848,7 +867,6 @@ class TimetableController extends StateNotifier<TimetableState> {
       }
       state = TimetableState(data: _withCustom(fresh), terms: terms);
       _ref.read(timetableChangesProvider.notifier).reload();
-      unawaited(_ref.read(classReminderProvider.notifier).reschedule());
       _ref.read(calendarSyncProvider.notifier).schedule();
     } catch (e) {
       if (!_current(request, sessionEpoch)) {
@@ -880,7 +898,6 @@ class TimetableController extends StateNotifier<TimetableState> {
       data: cached == null ? null : _withCustom(cached),
       terms: state.terms,
     );
-    unawaited(_ref.read(classReminderProvider.notifier).reschedule());
     await sync(term: term);
   }
 
@@ -899,21 +916,28 @@ class TimetableController extends StateNotifier<TimetableState> {
     final id = _accountId;
     final t = state.data;
     if (id == null || t == null) return;
-    await _storage.setWeekOneOverride(
+    final request = _request;
+    final sessionEpoch = _session._epoch;
+    await _session._cacheFor(
       id,
-      t.term.code,
-      monday == null
-          ? null
-          : DateTime.utc(
-              monday.year,
-              monday.month,
-              monday.day,
-            ).toIso8601String().substring(0, 10),
+      () => _current(request, sessionEpoch),
+      () => _storage.setWeekOneOverride(
+        id,
+        t.term.code,
+        monday == null
+            ? null
+            : DateTime.utc(
+                monday.year,
+                monday.month,
+                monday.day,
+              ).toIso8601String().substring(0, 10),
+      ),
     );
+    if (!_current(request, sessionEpoch)) return;
     final cached = TermTimetable.decode(_storage.eduTimetable(id, t.term.code));
-    if (cached != null && mounted) {
+    if (cached != null) {
       state = state.copyWith(data: _withCustom(cached));
-      unawaited(_ref.read(classReminderProvider.notifier).reschedule());
+      _ref.read(calendarSyncProvider.notifier).schedule();
     }
   }
 
@@ -940,22 +964,20 @@ class TimetableController extends StateNotifier<TimetableState> {
     if (id == null) return;
     final request = _request;
     final sessionEpoch = _session._epoch;
-    await _ref
-        .read(eduSessionProvider.notifier)
-        ._cacheFor(
-          id,
-          () => _current(request, sessionEpoch),
-          () => _storage.setCustomSessions(
-            id,
-            t.term.code,
-            jsonEncode([
-              for (final c in sessions.where((s) => s.custom)) c.toJson(),
-            ]),
-          ),
-        );
+    await _session._cacheFor(
+      id,
+      () => _current(request, sessionEpoch),
+      () => _storage.setCustomSessions(
+        id,
+        t.term.code,
+        jsonEncode([
+          for (final c in sessions.where((s) => s.custom)) c.toJson(),
+        ]),
+      ),
+    );
     if (!_current(request, sessionEpoch)) return;
     state = state.copyWith(data: t.copyWith(sessions: sessions));
-    unawaited(_ref.read(classReminderProvider.notifier).reschedule());
+    _ref.read(calendarSyncProvider.notifier).schedule();
   }
 
   /// Picks up a cache another isolate (the background refresh) wrote.
@@ -980,11 +1002,6 @@ class TimetableController extends StateNotifier<TimetableState> {
     } catch (_) {
       return null;
     }
-  }
-
-  void clear() {
-    ++_request;
-    state = const TimetableState();
   }
 }
 
@@ -1151,8 +1168,8 @@ class ClassReminderController extends StateNotifier<int> {
         (
           id: p.id,
           at: p.at,
-          title: reminderTitle(p, lead),
-          body: reminderBody(p.occurrence),
+          title: classReminderTitle(p),
+          body: classReminderBody(p.occurrence),
         ),
       for (final p in examPlans)
         (id: p.id, at: p.at, title: p.title, body: p.body),
@@ -1191,7 +1208,10 @@ class ClassReminderController extends StateNotifier<int> {
               now.isBefore(o.start) &&
               _fired.add(p.id)) {
             unawaited(
-              service.classReminderNow(reminderTitle(p, lead), reminderBody(o)),
+              service.classReminderNow(
+                classReminderTitle(p),
+                classReminderBody(o),
+              ),
             );
           }
         }
@@ -1222,20 +1242,20 @@ final eduNowProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
 /// The shell watches this independently of which tab is visible.
 final eduLifecycleProvider = Provider<void>((ref) {
-  ref.watch(classReminderProvider);
-  // Auto refresh (resume / periodic) and the OS background task follow the
-  // shell's lifetime.
+  // Keep reminder & auto-refresh controllers alive without rebuilding this
+  // provider when the user adjusts reminder lead time.
+  ref.read(classReminderProvider.notifier);
   ref.watch(autoRefreshProvider);
   void schedule() =>
       unawaited(ref.read(classReminderProvider.notifier).reschedule());
-  ref.listen(timetableProvider, (_, next) {
-    schedule();
-  });
   // Also on launch, so the widgets' week of dated classes rolls forward
   // whenever the app opens, not only after a sync.
   ref.listen(
     timetableProvider.select((s) => s.data),
-    (_, data) => unawaited(updateHomeWidget(data)),
+    (prev, data) {
+      unawaited(updateHomeWidget(data));
+      if (!identical(prev, data)) schedule();
+    },
     fireImmediately: true,
   );
   ref.listen<EduState>(eduSessionProvider, (previous, next) {
@@ -1247,29 +1267,6 @@ final eduLifecycleProvider = Provider<void>((ref) {
   });
   schedule();
 });
-
-String reminderTitle(ReminderPlan p, int lead) {
-  final o = p.occurrence;
-  final minutes = o.start.difference(p.at).inMinutes;
-  return switch (p.reason) {
-    ReminderReason.moveBuilding =>
-      '换教室：${o.session.displayName} 在 ${o.session.room}',
-    ReminderReason.firstOfDay => '今天第一节，$minutes 分钟后：${o.session.displayName}',
-    ReminderReason.normal => '$minutes 分钟后上课：${o.session.displayName}',
-  };
-}
-
-String reminderBody(ClassOccurrence o, {String? fromRoom}) {
-  final s = o.session;
-  final local = o.start.add(const Duration(hours: 8));
-  final hh = local.hour.toString().padLeft(2, '0');
-  final mm = local.minute.toString().padLeft(2, '0');
-  return [
-    '$hh:$mm 第${s.startPeriod}-${s.endPeriod}节',
-    if (s.room.isNotEmpty) s.room,
-    if (s.teacher.isNotEmpty) s.teacher,
-  ].join(' · ');
-}
 
 final classReminderProvider =
     StateNotifierProvider<ClassReminderController, int>(
@@ -1374,11 +1371,6 @@ class GradesController extends StateNotifier<GradesState> {
     }
     state = GradesState(book: cached);
   }
-
-  void clear() {
-    ++_request;
-    state = const GradesState();
-  }
 }
 
 final gradesProvider = StateNotifierProvider<GradesController, GradesState>(
@@ -1390,30 +1382,34 @@ final gradesProvider = StateNotifierProvider<GradesController, GradesState>(
 
 /// Exams for the shown term; a failed refresh falls back only to this identity.
 final examsProvider = FutureProvider.autoDispose<List<ExamEntry>>((ref) async {
-  final accountId = ref.watch(eduSessionProvider).account?.username;
+  final accountId = ref.watch(
+    eduSessionProvider.select((s) => s.account?.username),
+  );
   final term = ref.watch(timetableProvider.select((s) => s.data?.term));
   if (term == null || accountId == null) return const [];
   final storage = ref.read(storageProvider);
   final session = ref.read(eduSessionProvider.notifier);
+  final epoch = session.epoch;
   var active = true;
   ref.onDispose(() => active = false);
+  bool stillValid() => active && session.isCurrent(epoch);
   try {
     final list = await ref.read(eduClientProvider).ehall.exams(term);
     await session._cacheFor(
       accountId,
-      () => active,
+      stillValid,
       () => storage.setEduExams(
         accountId,
         term.code,
         jsonEncode([for (final e in list) e.toJson()]),
       ),
     );
-    if (active) {
+    if (stillValid()) {
       unawaited(ref.read(classReminderProvider.notifier).reschedule());
     }
-    return active ? list : const [];
-  } on AppError {
-    if (!active) return const [];
+    return stillValid() ? list : const [];
+  } catch (e) {
+    if (!stillValid()) return const [];
     final raw = storage.eduExams(accountId, term.code);
     if (raw == null) rethrow;
     try {
@@ -1426,6 +1422,3 @@ final examsProvider = FutureProvider.autoDispose<List<ExamEntry>>((ref) async {
     }
   }
 });
-
-/// Today's date on the school calendar, for widgets that only need the day.
-DateTime schoolToday() => schoolDate(DateTime.now());

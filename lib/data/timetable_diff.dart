@@ -172,6 +172,16 @@ List<FieldChange> _fieldChanges(CourseSession a, CourseSession b) => [
 ];
 
 bool _sameWeeks(List<int> a, List<int> b) {
+  if (a.length == b.length) {
+    var equal = true;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) {
+        equal = false;
+        break;
+      }
+    }
+    if (equal) return true;
+  }
   final x = a.toSet(), y = b.toSet();
   return x.length == y.length && x.containsAll(y);
 }
@@ -247,24 +257,29 @@ TimetableDiff diffTimetables(
   }
   final leftBefore = [for (final l in pool.values) ...l]..sort(bySlot);
 
-  // Pass 2: same course, different slot = moved.
+  // Pass 2: same course, different slot = moved (O(N) via map by courseKey).
+  final byCourse = <String, List<CourseSession>>{};
+  for (final o in leftBefore) {
+    (byCourse[_courseKey(o)] ??= []).add(o);
+  }
   final added = <CourseSession>[];
   for (final s in leftAfter) {
-    final i = leftBefore.indexWhere((o) => _courseKey(o) == _courseKey(s));
-    if (i < 0) {
+    final list = byCourse[_courseKey(s)];
+    if (list == null || list.isEmpty) {
       added.add(s);
       continue;
     }
-    final o = leftBefore.removeAt(i);
+    final o = list.removeAt(0);
     changed.add(
       SessionChange(before: o, after: s, changes: _fieldChanges(o, s)),
     );
   }
+  final removed = [for (final l in byCourse.values) ...l]..sort(bySlot);
 
   changed.sort((a, b) => bySlot(a.before, b.before));
   return TimetableDiff(
     added: added,
-    removed: leftBefore,
+    removed: removed,
     changed: changed,
     at: at,
     termCode: fresh.term.code,
@@ -290,11 +305,7 @@ class GradeDiff {
     if (rows.isEmpty) return '';
     final shown = rows
         .take(max)
-        .map(
-          (r) =>
-              '${r.courseName.replaceFirst(RegExp(r'^【[^】]*】'), '')} ${r.scoreText}'
-                  .trim(),
-        )
+        .map((r) => '${r.displayName} ${r.scoreText}'.trim())
         .join('、');
     return '新成绩：$shown${rows.length > max ? ' 等 ${rows.length} 门' : ''}';
   }

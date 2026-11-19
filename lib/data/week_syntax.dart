@@ -12,21 +12,29 @@ library;
 /// written as `单`/`双`, `单周`/`双周`, `(单)`/`（双）` either per range or once
 /// at the end (`1-16周(单)` filters the whole list). A leading `第` is
 /// allowed.
+final _wsRe = RegExp(r'\s+');
+final _commaRe = RegExp('[，、;；]');
+final _dashRe = RegExp('[–—~～至]');
+final _tailParityRe = RegExp(
+  r'(?:周(?:\(([单双])周?\)|([单双])周?)|\(([单双])周?\)|([单双])周?)$',
+);
+final _weekPartRe = RegExp(
+  r'^第?(\d+)(?:-(\d+))?(?:(?:\(([单双])周?\)|([单双]))?周?(?:\(([单双])周?\)|([单双]))?)$',
+);
+
 List<int> parseWeeks(String text, {int maxWeek = 60}) {
-  var s = text.replaceAll(RegExp(r'\s+'), '');
+  var s = text.replaceAll(_wsRe, '');
   if (s.isEmpty) throw const FormatException('周次为空');
   s = s
-      .replaceAll(RegExp('[，、;；]'), ',')
-      .replaceAll(RegExp('[–—~～至]'), '-')
+      .replaceAll(_commaRe, ',')
+      .replaceAll(_dashRe, '-')
       .replaceAll('（', '(')
       .replaceAll('）', ')');
 
   // A trailing parity filter applies to every comma-separated part when no
   // earlier part already carries its own 周 or parity tag.
   String? globalParity;
-  final tail = RegExp(
-    r'(?:周(?:\(([单双])周?\)|([单双])周?)|\(([单双])周?\)|([单双])周)$',
-  ).firstMatch(s);
+  final tail = _tailParityRe.firstMatch(s);
   if (tail != null) {
     final before = s.substring(0, tail.start);
     if (!before.contains('周') &&
@@ -37,13 +45,10 @@ List<int> parseWeeks(String text, {int maxWeek = 60}) {
     }
   }
 
-  final part = RegExp(
-    r'^第?(\d+)(?:-(\d+))?(?:(?:\(([单双])周?\)|([单双]))?周?(?:\(([单双])周?\)|([单双]))?)$',
-  );
   final out = <int>{};
   for (final raw in s.split(',')) {
     if (raw.isEmpty) continue;
-    final m = part.firstMatch(raw);
+    final m = _weekPartRe.firstMatch(raw);
     if (m == null) throw FormatException('无法识别的周次：$raw');
     final p1 = m[3] ?? m[4];
     final p2 = m[5] ?? m[6];

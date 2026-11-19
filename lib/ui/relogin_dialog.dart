@@ -61,24 +61,28 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
   }
 
   Future<void> _refreshCaptcha({bool autoRecognize = true}) async {
-    if (!mounted || _submitting) return;
+    if (!mounted || _submitting || _loggingOut) return;
     final request = ++_captchaRequest;
     setState(() {
       _loadingCaptcha = true;
       _challenge = null;
+      _error = null;
       _captchaCtrl.clear();
       _ocr = OcrStatus.idle;
     });
     try {
       final challenge = await _controller.fetchCaptcha();
-      if (!mounted || request != _captchaRequest) return;
-      setState(() => _challenge = challenge);
+      if (!mounted || _loggingOut || request != _captchaRequest) return;
+      setState(() {
+        _challenge = challenge;
+        _loadingCaptcha = false;
+      });
       if (autoRecognize && ref.read(storageProvider).autoOcr()) {
         setState(() => _ocr = OcrStatus.recognizing);
         final guess = await ref
             .read(captchaSolverProvider)
             .solve(challenge.imageBytes);
-        if (!mounted || request != _captchaRequest) return;
+        if (!mounted || _loggingOut || request != _captchaRequest) return;
         if (_captchaCtrl.text.isNotEmpty) return;
         if (guess != null && guess.isNotEmpty) {
           _captchaCtrl.text = guess;
@@ -108,7 +112,7 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
   }
 
   Future<void> _submit({bool fromOcr = false}) async {
-    if (_submitting) return;
+    if (_submitting || _loggingOut) return;
     final challenge = _challenge;
     if (challenge == null) {
       await _refreshCaptcha();
@@ -176,6 +180,18 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<AuthPhase>(
+      sessionControllerProvider(widget.accountId).select((s) => s.phase),
+      (prev, next) {
+        if (prev == AuthPhase.expired &&
+            next != AuthPhase.expired &&
+            !_submitting &&
+            !_loggingOut &&
+            mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+    );
     final scheme = Theme.of(context).colorScheme;
     final session = ref.watch(sessionControllerProvider(widget.accountId));
     final who = session.displayName;
@@ -228,11 +244,16 @@ class _ReloginDialogState extends ConsumerState<ReloginDialog> {
             CaptchaRow(
               challenge: _challenge,
               loading: _loadingCaptcha || busy,
+              enabled: !busy,
               controller: _captchaCtrl,
               focusNode: _captchaFocus,
               ocrStatus: _ocr,
               onRefresh: _refreshCaptcha,
-              onChanged: (_) {},
+              onChanged: (_) {
+                if (_ocr != OcrStatus.idle) {
+                  setState(() => _ocr = OcrStatus.idle);
+                }
+              },
               onSubmit: (_) => _submit(),
             ),
             if (_error != null) ...[

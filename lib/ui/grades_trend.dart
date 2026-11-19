@@ -28,6 +28,8 @@ class HiddenValue extends StatelessWidget {
   }
 }
 
+final _termCodeRe = RegExp(r'^(\d{4})-(\d{4})-(\d)');
+
 class GpaPoint {
   const GpaPoint(this.termCode, this.termName, this.gpa, this.credits);
   final String termCode;
@@ -37,7 +39,7 @@ class GpaPoint {
 
   /// `2025-2026-1` → `25秋`, `2025-2026-2` → `26春`, `2025-2026-3` → `26夏`.
   String get shortLabel {
-    final m = RegExp(r'^(\d{4})-(\d{4})-(\d)').firstMatch(termCode);
+    final m = _termCodeRe.firstMatch(termCode);
     if (m == null) return termName.isEmpty ? termCode : termName;
     final term = m[3];
     final year = (term == '1' ? m[1]! : m[2]!).substring(2);
@@ -54,10 +56,15 @@ class GpaTrend extends StatefulWidget {
   const GpaTrend({
     super.key,
     required this.records,
+    this.precomputedPoints,
     this.hidden = false,
     this.onTermSelected,
   });
   final List<GradeRecord> records;
+
+  /// Optional precomputed points from [GpaTrend.points] to avoid duplicating
+  /// aggregation when the parent already checked `points.length >= 2`.
+  final List<GpaPoint>? precomputedPoints;
   final bool hidden;
   final ValueChanged<String>? onTermSelected;
 
@@ -92,13 +99,16 @@ class _GpaTrendState extends State<GpaTrend> {
   @override
   void initState() {
     super.initState();
-    _points = GpaTrend.points(widget.records);
+    _points = widget.precomputedPoints ?? GpaTrend.points(widget.records);
   }
 
   @override
   void didUpdateWidget(covariant GpaTrend oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.records != widget.records) {
+    if (widget.precomputedPoints != null) {
+      _points = widget.precomputedPoints!;
+    } else if (oldWidget.records != widget.records ||
+        oldWidget.precomputedPoints != null) {
       _points = GpaTrend.points(widget.records);
     }
   }
@@ -138,7 +148,8 @@ class _GpaTrendState extends State<GpaTrend> {
           onExit: (_) => _selectIndex(null),
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTapDown: (d) {
+            onTapDown: (d) => _selectIndex(nearest(d.localPosition)),
+            onTapUp: (d) {
               final idx = nearest(d.localPosition);
               _selectIndex(idx);
               widget.onTermSelected?.call(points[idx].termCode);
@@ -154,7 +165,6 @@ class _GpaTrendState extends State<GpaTrend> {
                 surface: theme.colorScheme.surface,
                 grid: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
                 ink: theme.colorScheme.onSurfaceVariant,
-                showValues: !widget.hidden,
               ),
             ),
           ),
@@ -208,7 +218,6 @@ class _GpaPainter extends CustomPainter {
     required this.surface,
     required this.grid,
     required this.ink,
-    required this.showValues,
   });
   final List<GpaPoint> points;
   final int selected;
@@ -216,7 +225,6 @@ class _GpaPainter extends CustomPainter {
   final Color surface;
   final Color grid;
   final Color ink;
-  final bool showValues;
 
   static const padX = 20.0;
   static const padTop = 10.0;
@@ -224,8 +232,13 @@ class _GpaPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    var lo = points.map((p) => p.gpa).reduce((a, b) => a < b ? a : b);
-    var hi = points.map((p) => p.gpa).reduce((a, b) => a > b ? a : b);
+    var lo = points.first.gpa;
+    var hi = lo;
+    for (var i = 1; i < points.length; i++) {
+      final g = points[i].gpa;
+      if (g < lo) lo = g;
+      if (g > hi) hi = g;
+    }
     // Keep a sensible span so small changes are not exaggerated.
     final mid = (lo + hi) / 2;
     final span = (hi - lo).clamp(1.0, 5.0);
@@ -281,18 +294,20 @@ class _GpaPainter extends CustomPainter {
         ..color = ink.withValues(alpha: 0.3)
         ..strokeWidth = 1,
     );
+    final surfacePaint = Paint()..color = surface;
+    final dotPaint = Paint()..color = line;
     for (var i = 0; i < points.length; i++) {
       final c = at(i);
       final r = i == selected ? 5.0 : 4.0;
-      canvas.drawCircle(c, r + 2, Paint()..color = surface);
-      canvas.drawCircle(c, r, Paint()..color = line);
+      canvas.drawCircle(c, r + 2, surfacePaint);
+      canvas.drawCircle(c, r, dotPaint);
     }
 
     if (size.width <= 2 * padX || points.length < 2) return;
     var lastPaintedRight = -100.0;
+    final every = (points.length / 6).ceil();
     for (var i = 0; i < points.length; i++) {
       // Thin the axis labels when there are many terms.
-      final every = (points.length / 6).ceil();
       if (i % every != 0 && i != points.length - 1 && i != selected) continue;
       final tp = TextPainter(
         textDirection: TextDirection.ltr,
@@ -324,6 +339,5 @@ class _GpaPainter extends CustomPainter {
       old.line != line ||
       old.grid != grid ||
       old.ink != ink ||
-      old.showValues != showValues ||
       old.surface != surface;
 }

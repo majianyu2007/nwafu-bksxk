@@ -56,9 +56,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
   }
 
   Future<void> _login() async {
-    final ok = await Navigator.of(
-      context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => const EduLoginPage()));
+    final ok = await pushEduLogin(context);
     if (ok == true && mounted) await _sync();
   }
 
@@ -80,7 +78,8 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
     });
   }
 
-  void _goToday(TermTimetable data, DateTime now) {
+  void _goToday(TermTimetable data) {
+    final now = ref.read(clockProvider).asData?.value ?? DateTime.now();
     setState(() {
       _shownTerm = data.term.code;
       _selectedWeek = data.displayWeek(now);
@@ -232,25 +231,31 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
       },
     );
     final state = ref.watch(timetableProvider);
-    final signedIn = ref.watch(eduSessionProvider).signedIn;
+    final signedIn = ref.watch(eduSessionProvider.select((s) => s.signedIn));
     final prefs = ref.watch(timetablePrefsProvider);
-    final ui = ref.watch(uiPrefsProvider);
-    final now = ref.watch(clockProvider).asData?.value ?? DateTime.now();
-    final exams = state.data == null
-        ? const <ExamEntry>[]
-        : ref.watch(examsProvider).asData?.value ?? const <ExamEntry>[];
+    final timetableViewPref = ref.watch(
+      uiPrefsProvider.select((p) => p.timetableView),
+    );
+    // Rebuilds only when the school calendar day changes, not every 30 s.
+    final today = ref.watch(
+      clockProvider.select((a) => schoolDate(a.asData?.value ?? DateTime.now())),
+    );
     final data = state.data;
     final scheme = Theme.of(context).colorScheme;
     final sameTerm = data != null && _shownTerm == data.term.code;
+    final currentWeek = data?.weekOf(today);
+    final defaultWeek = data == null
+        ? 1
+        : (currentWeek ??
+              (today.isBefore(data.firstMonday) ? 1 : data.weekCount));
     final week = data == null
         ? 1
-        : ((sameTerm ? _selectedWeek : null) ?? data.displayWeek(now))
+        : ((sameTerm ? _selectedWeek : null) ?? defaultWeek)
               .clamp(1, math.max(1, data.weekCount))
               .toInt();
-    final currentWeek = data?.weekOf(schoolDate(now));
     final day =
         (sameTerm ? _selectedDay : null) ??
-        (data != null && currentWeek == week ? schoolDate(now).weekday : 1);
+        (data != null && currentWeek == week ? today.weekday : 1);
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
     return SafeArea(
@@ -260,11 +265,14 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
         builder: (context, constraints) {
           final gutter = pageGutter(constraints.maxWidth);
           final dayView =
-              (ui.timetableView ??
+              (timetableViewPref ??
                   (constraints.maxWidth < kDayViewBreakpoint
                       ? TimetableViewMode.day
                       : TimetableViewMode.week)) ==
               TimetableViewMode.day;
+          final exams = data != null && dayView
+              ? ref.watch(examsProvider).asData?.value ?? const <ExamEntry>[]
+              : const <ExamEntry>[];
           return RefreshIndicator(
             onRefresh: _sync,
             child: ListView(
@@ -281,6 +289,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
                   loading: state.loading,
                   signedIn: signedIn,
                   dayView: dayView,
+                  compact: constraints.maxWidth < 380,
                   onTerm: () => _chooseTerm(state),
                   onPrefs: _preferences,
                   onSync: _sync,
@@ -336,7 +345,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
                   // mark the current/next class.
                   if (dayView ||
                       constraints.maxWidth >= kDayViewBreakpoint) ...[
-                    _TodayCard(data: data, now: now),
+                    _TodayCard(data: data),
                     const SizedBox(height: 14),
                   ],
                   _WeekBar(
@@ -346,7 +355,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
                     onPrev: () => _selectWeek(data, week - 1),
                     onNext: () => _selectWeek(data, week + 1),
                     onChoose: () => _chooseWeek(data, week, currentWeek),
-                    onToday: () => _goToday(data, now),
+                    onToday: () => _goToday(data),
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
@@ -392,7 +401,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
                         data: data,
                         week: week,
                         selected: day,
-                        now: now,
+                        today: today,
                         exams: exams,
                         onSelect: (d) => setState(() {
                           _shownTerm = data.term.code;
@@ -413,7 +422,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
                         data: data,
                         week: week,
                         weekday: day,
-                        now: now,
+                        today: today,
                         exams: exams,
                         showOtherWeeks: prefs.showOtherWeeks,
                         onAdd: () =>
@@ -431,7 +440,7 @@ class _TimetablePageState extends ConsumerState<TimetablePage> {
                         key: ValueKey('${data.term.code}:${data.weekCount}'),
                         data: data,
                         week: week,
-                        now: now,
+                        today: today,
                         prefs: prefs,
                         onWeekChanged: (value) => _selectWeek(data, value),
                       ),
@@ -508,6 +517,7 @@ class _Header extends StatelessWidget {
     required this.loading,
     required this.signedIn,
     required this.dayView,
+    required this.compact,
     required this.onTerm,
     required this.onPrefs,
     required this.onSync,
@@ -518,6 +528,7 @@ class _Header extends StatelessWidget {
   final bool loading;
   final bool signedIn;
   final bool dayView;
+  final bool compact;
   final VoidCallback onTerm;
   final VoidCallback onPrefs;
   final VoidCallback onSync;
@@ -527,6 +538,11 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final btnDensity = compact ? VisualDensity.compact : VisualDensity.standard;
+    final btnConstraints = compact
+        ? const BoxConstraints(minWidth: 36, minHeight: 36)
+        : null;
+    final iconSize = compact ? 20.0 : 22.0;
     return Row(
       children: [
         Expanded(
@@ -577,6 +593,9 @@ class _Header extends StatelessWidget {
             children: [
               if (data != null) ...[
                 IconButton(
+                  visualDensity: btnDensity,
+                  constraints: btnConstraints,
+                  iconSize: iconSize,
                   tooltip: dayView ? '切换为周视图' : '切换为日视图',
                   onPressed: onToggleView,
                   icon: Icon(
@@ -586,6 +605,9 @@ class _Header extends StatelessWidget {
                   ),
                 ),
                 IconButton(
+                  visualDensity: btnDensity,
+                  constraints: btnConstraints,
+                  iconSize: iconSize,
                   tooltip: '添加课程',
                   onPressed: onAdd,
                   icon: const Icon(Icons.add),
@@ -593,6 +615,9 @@ class _Header extends StatelessWidget {
               ],
               if (signedIn)
                 IconButton(
+                  visualDensity: btnDensity,
+                  constraints: btnConstraints,
+                  iconSize: iconSize,
                   tooltip: '空教室',
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
@@ -602,11 +627,17 @@ class _Header extends StatelessWidget {
                   icon: const Icon(Icons.meeting_room_outlined),
                 ),
               IconButton(
+                visualDensity: btnDensity,
+                constraints: btnConstraints,
+                iconSize: iconSize,
                 tooltip: '课表显示设置',
                 onPressed: onPrefs,
                 icon: const Icon(Icons.tune),
               ),
               IconButton(
+                visualDensity: btnDensity,
+                constraints: btnConstraints,
+                iconSize: iconSize,
                 tooltip: signedIn ? '同步课表' : '登录教务系统',
                 onPressed: loading ? null : onSync,
                 icon: Icon(signedIn ? Icons.sync : Icons.login),
@@ -735,12 +766,12 @@ class _Welcome extends StatelessWidget {
 }
 
 class _TodayCard extends ConsumerWidget {
-  const _TodayCard({required this.data, required this.now});
+  const _TodayCard({required this.data});
   final TermTimetable data;
-  final DateTime now;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final now = ref.watch(clockProvider).asData?.value ?? DateTime.now();
     final colors = ref.watch(courseColorsProvider);
     final status = DayStatus.of(data, now);
     final current = status.today
@@ -1033,7 +1064,7 @@ class _TermExtras extends ConsumerWidget {
                       if (course.weeksLabel.isNotEmpty)
                         '周次：${course.weeksLabel}',
                       if (course.credit > 0)
-                        '${course.credit == course.credit.roundToDouble() ? course.credit.toInt() : course.credit} 学分',
+                        '${formatCredit(course.credit)} 学分',
                     ].join(' · '),
                   ),
                 ),
@@ -1125,7 +1156,9 @@ class _WeekOneTile extends ConsumerWidget {
     final server = ctl.serverWeekOne();
     final custom = server != null && server != data.firstMonday;
     final m = data.firstMonday;
-    final today = schoolDate(DateTime.now());
+    final today = schoolDate(
+      ref.watch(clockProvider).asData?.value ?? DateTime.now(),
+    );
     final week = data.weekOf(today);
     return ListTile(
       contentPadding: EdgeInsets.zero,

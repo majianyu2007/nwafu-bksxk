@@ -149,6 +149,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     setState(() {
       _loadingCaptcha = true;
       _challenge = null;
+      _error = null;
       _captchaCtrl.clear();
       _ocrStatus = autoRecognize && _autoRecognize
           ? OcrStatus.warming
@@ -159,6 +160,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       if (!mounted || request != _captchaRequest) return;
       setState(() {
         _challenge = challenge;
+        _loadingCaptcha = false;
         _showCampusHint = false;
       });
       if (_ocrStatus == OcrStatus.warming) {
@@ -254,6 +256,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       }
       // Replace the previous account only after the new login succeeded.
       for (final id in previousIds) {
+        if (!mounted) {
+          await controller.logout();
+          return;
+        }
         if (id != loginName) await leaveAccount(ref, id);
       }
       if (!mounted) {
@@ -355,7 +361,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 children: [
                   if (!widget.addingAccount) ...[
                     const SizedBox(height: 12),
-                    _Brand(scheme: scheme),
+                    const _Brand(),
                     const SizedBox(height: 28),
                   ],
                   const UpdateNoticeBanner(),
@@ -407,6 +413,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   CaptchaRow(
                     challenge: _challenge,
                     loading: _loadingCaptcha || busy,
+                    enabled: !busy,
                     controller: _captchaCtrl,
                     focusNode: _captchaFocus,
                     ocrStatus: _ocrStatus,
@@ -603,8 +610,7 @@ class _Note extends StatelessWidget {
 }
 
 class _Brand extends StatelessWidget {
-  const _Brand({required this.scheme});
-  final ColorScheme scheme;
+  const _Brand();
 
   @override
   Widget build(BuildContext context) {
@@ -654,12 +660,15 @@ class _SavedAccounts extends StatelessWidget {
   }
 }
 
+final _captchaInputFilterRe = RegExp(r'[A-Za-z0-9]');
+
 /// Captcha field + image, shared by the login screen and the re-login dialog.
 class CaptchaRow extends StatelessWidget {
   const CaptchaRow({
     super.key,
     required this.challenge,
     required this.loading,
+    this.enabled = true,
     required this.controller,
     required this.focusNode,
     required this.ocrStatus,
@@ -670,6 +679,7 @@ class CaptchaRow extends StatelessWidget {
 
   final CaptchaChallenge? challenge;
   final bool loading;
+  final bool enabled;
   final TextEditingController controller;
   final FocusNode focusNode;
   final OcrStatus ocrStatus;
@@ -683,13 +693,14 @@ class CaptchaRow extends StatelessWidget {
     final field = TextField(
       controller: controller,
       focusNode: focusNode,
+      enabled: enabled,
       keyboardType: TextInputType.text,
       textInputAction: TextInputAction.done,
       autocorrect: false,
       enableSuggestions: false,
       inputFormatters: [
         LengthLimitingTextInputFormatter(6),
-        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
+        FilteringTextInputFormatter.allow(_captchaInputFilterRe),
       ],
       decoration: InputDecoration(
         labelText: '验证码',
@@ -723,7 +734,7 @@ class CaptchaRow extends StatelessWidget {
                 )
               : challenge != null && challenge!.imageBytes.isNotEmpty
               ? Image.memory(
-                  Uint8List.fromList(challenge!.imageBytes),
+                  challenge!.imageBytes,
                   fit: BoxFit.cover,
                   gaplessPlayback: true,
                 )

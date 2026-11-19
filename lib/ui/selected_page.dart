@@ -21,31 +21,46 @@ import 'widgets/glass.dart';
 final selectedCoursesProvider =
     FutureProvider.autoDispose<List<TeachingClass>>((ref) async {
   ref.watch(currentSelectionRevisionProvider);
-  final session = ref.watch(sessionProvider);
-  final student = session.student;
-  final batch = session.activeBatch;
-  if (student == null || batch == null) return [];
+  final (studentCode, batchCode, volunteerRound) = ref.watch(
+    sessionProvider.select(
+      (s) => (
+        s.student?.studentCode,
+        s.activeBatch?.code,
+        s.activeBatch?.isVolunteerRound ?? false,
+      ),
+    ),
+  );
+  if (studentCode == null ||
+      studentCode.isEmpty ||
+      batchCode == null ||
+      batchCode.isEmpty) {
+    return const [];
+  }
   return ref.read(courseServiceProvider).fetchSelected(
-        studentCode: student.studentCode,
-        batchCode: batch.code,
-        volunteerRound: batch.isVolunteerRound,
-      );
+    studentCode: studentCode,
+    batchCode: batchCode,
+    volunteerRound: volunteerRound,
+  );
 });
 
 /// Loads the full schedule (arranged + unarranged).
-final scheduleProvider =
-    FutureProvider.autoDispose<List<ScheduleEntry>>((ref) async {
+final scheduleProvider = FutureProvider.autoDispose<List<ScheduleEntry>>((
+  ref,
+) async {
   ref.watch(currentSelectionRevisionProvider);
-  final session = ref.watch(sessionProvider);
-  final student = session.student;
-  final batch = session.activeBatch;
-  if (student == null || batch == null) return [];
+  final (studentCode, batchCode) = ref.watch(
+    sessionProvider.select((s) => (s.student?.studentCode, s.activeBatch?.code)),
+  );
+  if (studentCode == null ||
+      studentCode.isEmpty ||
+      batchCode == null ||
+      batchCode.isEmpty) {
+    return const [];
+  }
   final course = ref.read(courseServiceProvider);
   final results = await Future.wait([
-    course.fetchSchedule(
-        studentCode: student.studentCode, batchCode: batch.code),
-    course.fetchUnarranged(
-        studentCode: student.studentCode, batchCode: batch.code),
+    course.fetchSchedule(studentCode: studentCode, batchCode: batchCode),
+    course.fetchUnarranged(studentCode: studentCode, batchCode: batchCode),
   ]);
   return [...results[0], ...results[1]];
 });
@@ -54,23 +69,39 @@ final scheduleProvider =
 final unsuccessfulProvider =
     FutureProvider.autoDispose<List<UnsuccessfulEntry>>((ref) async {
   ref.watch(currentSelectionRevisionProvider);
-  final session = ref.watch(sessionProvider);
-  final student = session.student;
-  final batch = session.activeBatch;
-  if (student == null || batch == null) return [];
+  final (studentCode, batchCode) = ref.watch(
+    sessionProvider.select((s) => (s.student?.studentCode, s.activeBatch?.code)),
+  );
+  if (studentCode == null ||
+      studentCode.isEmpty ||
+      batchCode == null ||
+      batchCode.isEmpty) {
+    return const [];
+  }
   return ref.read(courseServiceProvider).fetchUnsuccessful(
-      studentCode: student.studentCode, batchCode: batch.code, isRead: true);
+    studentCode: studentCode,
+    batchCode: batchCode,
+    isRead: true,
+  );
 });
 
-final returnResultsProvider =
-    FutureProvider.autoDispose<List<DropLogEntry>>((ref) async {
+final returnResultsProvider = FutureProvider.autoDispose<List<DropLogEntry>>((
+  ref,
+) async {
   ref.watch(currentSelectionRevisionProvider);
-  final session = ref.watch(sessionProvider);
-  final student = session.student;
-  final batch = session.activeBatch;
-  if (student == null || batch == null) return [];
+  final (studentCode, batchCode) = ref.watch(
+    sessionProvider.select((s) => (s.student?.studentCode, s.activeBatch?.code)),
+  );
+  if (studentCode == null ||
+      studentCode.isEmpty ||
+      batchCode == null ||
+      batchCode.isEmpty) {
+    return const [];
+  }
   return ref.read(courseServiceProvider).fetchReturnResults(
-      studentCode: student.studentCode, batchCode: batch.code);
+    studentCode: studentCode,
+    batchCode: batchCode,
+  );
 });
 
 class SelectedPage extends ConsumerWidget {
@@ -134,7 +165,7 @@ class SelectedPage extends ConsumerWidget {
           items.add(Padding(
             padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
             child: Text(
-              '${list.length} 门，共 ${credits == credits.roundToDouble() ? credits.toStringAsFixed(0) : credits.toStringAsFixed(1)} 学分',
+              '${list.length} 门，共 ${formatCredit(credits)} 学分',
               style: TextStyle(
                   fontSize: 12,
                   color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -351,92 +382,107 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
       if (tc.publicCourseType.isNotEmpty) tc.publicCourseType,
       if (tc.hasBook) '教材${tc.textbookStateLabel}',
     ].join('  ');
+    final placeText = tc.teachingPlace.isNotEmpty
+        ? tc.teachingPlace
+        : tc.onlinePlatform.isNotEmpty
+        ? '${tc.onlinePlatform} 网课'
+        : '';
     return GlassCard(
-      padding: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(tc.courseName,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 16)),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  tc.courseName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
                 ),
-                StatusPill(
-                    label: volunteer && tc.heldVolunteerGrade.isNotEmpty
-                        ? '第${tc.heldVolunteerGrade}志愿'
-                        : '已选',
-                    color: Colors.green,
-                    icon: Icons.check),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(tc.displayTitle,
-                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
-            Text(
-              tc.teachingPlace.isNotEmpty
-                  ? tc.teachingPlace
-                  : tc.onlinePlatform.isNotEmpty
-                      ? '${tc.onlinePlatform} 网课'
-                      : '',
-              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
-            ),
-            if (meta.isNotEmpty)
-              Text(meta,
-                  style:
-                      TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
-            if (tc.isConflict && tc.conflictDesc.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(tc.conflictDesc,
-                    style: TextStyle(color: scheme.error, fontSize: 12)),
               ),
-            if (volunteer && tc.hasCapacityInfo) ...[
-              const SizedBox(height: 10),
-              CapacityBar(
-                selected: tc.firstVolunteers,
-                capacity: tc.classCapacity,
-                label: '第一志愿',
+              StatusPill(
+                label: volunteer && tc.heldVolunteerGrade.isNotEmpty
+                    ? '第${tc.heldVolunteerGrade}志愿'
+                    : '已选',
+                color: Colors.green,
+                icon: Icons.check,
               ),
             ],
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              alignment: WrapAlignment.end,
-              children: [
-                if (canOrderBook)
-                  OutlinedButton(
-                    onPressed: _busy ? null : _orderBooks,
-                    child: Text(_busyAction == 'order' ? '订购中…' : '订购教材'),
-                  ),
-                if (canCancelBook)
-                  OutlinedButton(
-                    onPressed: _busy ? null : _cancelBooks,
-                    child: Text(_busyAction == 'cancel' ? '处理中…' : '退订教材'),
-                  ),
-                Tooltip(
-                  message: dropHint ?? '',
-                  child: OutlinedButton.icon(
-                    onPressed: _busy || !canDrop ? null : _confirmDrop,
-                    icon: _busyAction == 'drop'
-                        ? const SizedBox(
-                            height: 16,
-                            width: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : Icon(Icons.remove_circle_outline,
-                            size: 18, color: canDrop ? scheme.error : null),
-                    label: Text(canDrop ? '退选' : (dropHint ?? '不可退'),
-                        style: TextStyle(color: canDrop ? scheme.error : null)),
-                  ),
-                ),
-              ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            tc.displayTitle,
+            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+          ),
+          if (placeText.isNotEmpty)
+            Text(
+              placeText,
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+            ),
+          if (meta.isNotEmpty)
+            Text(
+              meta,
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+            ),
+          if (tc.isConflict && tc.conflictDesc.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                tc.conflictDesc,
+                style: TextStyle(color: scheme.error, fontSize: 12),
+              ),
+            ),
+          if (volunteer && tc.hasCapacityInfo) ...[
+            const SizedBox(height: 10),
+            CapacityBar(
+              selected: tc.firstVolunteers,
+              capacity: tc.classCapacity,
+              label: '第一志愿',
             ),
           ],
-        ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            alignment: WrapAlignment.end,
+            children: [
+              if (canOrderBook)
+                OutlinedButton(
+                  onPressed: _busy ? null : _orderBooks,
+                  child: Text(_busyAction == 'order' ? '订购中…' : '订购教材'),
+                ),
+              if (canCancelBook)
+                OutlinedButton(
+                  onPressed: _busy ? null : _cancelBooks,
+                  child: Text(_busyAction == 'cancel' ? '处理中…' : '退订教材'),
+                ),
+              Tooltip(
+                message: dropHint ?? '',
+                child: OutlinedButton.icon(
+                  onPressed: _busy || !canDrop ? null : _confirmDrop,
+                  icon: _busyAction == 'drop'
+                      ? const SizedBox(
+                          height: 16,
+                          width: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          Icons.remove_circle_outline,
+                          size: 18,
+                          color: canDrop ? scheme.error : null,
+                        ),
+                  label: Text(
+                    canDrop ? '退选' : (dropHint ?? '不可退'),
+                    style: TextStyle(color: canDrop ? scheme.error : null),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -544,19 +590,14 @@ class _SelectedCardState extends ConsumerState<_SelectedCard> {
     setState(() => _busyAction = 'cancel');
     try {
       final course = ref.read(courseServiceProvider);
-      final results = await Future.wait([
-        course.fetchTextbookOptions(
-          studentCode: student.studentCode,
-          batchCode: batch.code,
-          teachingClassId: widget.tc.teachingClassId,
-        ),
-        ref.read(infoServiceProvider).fetchTextbookReasons(),
-      ]);
-      final reasons = results[1] as List<TextbookReason>;
-      final options = [
-        for (final o in results[0] as List<TextbookOption>)
-          if (o.ordered) o.copyWith(reasonCodes: reasons),
-      ];
+      final allOptions = await fetchAnnotatedTextbookOptions(
+        course: course,
+        info: ref.read(infoServiceProvider),
+        studentCode: student.studentCode,
+        batchCode: batch.code,
+        teachingClassId: widget.tc.teachingClassId,
+      );
+      final options = [for (final o in allOptions) if (o.ordered) o];
       if (!mounted) return;
       if (options.isEmpty) {
         showToast(context, '没有已订购的教材');
@@ -607,37 +648,42 @@ class _UnsuccessfulCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final e = entry;
     return GlassCard(
-      padding: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(e.displayTitle,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 15)),
-                  const SizedBox(height: 4),
-                  Text(
-                    [
-                      if (e.teacherName.isNotEmpty) e.teacherName,
-                      if (e.time.length >= 10) e.time.substring(0, 10),
-                      if (e.credit.isNotEmpty) '${e.credit} 学分',
-                    ].join('  '),
-                    style:
-                        TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  e.displayTitle,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  [
+                    if (e.teacherName.isNotEmpty) e.teacherName,
+                    if (e.time.length >= 10) e.time.substring(0, 10),
+                    if (e.credit.isNotEmpty) '${e.credit} 学分',
+                  ].join('  '),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            StatusPill(
-                label: e.reason.isEmpty ? '落选' : e.reason, color: scheme.error),
-          ],
-        ),
+          ),
+          const SizedBox(width: 8),
+          StatusPill(
+            label: e.reason.isEmpty ? '落选' : e.reason,
+            color: scheme.error,
+          ),
+        ],
       ),
     );
   }
@@ -652,27 +698,24 @@ class _LogCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final e = entry;
     return GlassCard(
-      padding: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-                '${e.courseName}${e.courseIndex.isNotEmpty ? '[${e.courseIndex}]' : ''}',
-                style:
-                    const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-            const SizedBox(height: 2),
-            Text(
-              [
-                if (e.teacherName.isNotEmpty) e.teacherName,
-                if (e.deleteOperateTypeName.isNotEmpty) e.deleteOperateTypeName,
-                e.deleteOperateTime,
-              ].where((s) => s.isNotEmpty).join('  '),
-              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-            ),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${e.courseName}${e.courseIndex.isNotEmpty ? '[${e.courseIndex}]' : ''}',
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            [
+              if (e.teacherName.isNotEmpty) e.teacherName,
+              if (e.deleteOperateTypeName.isNotEmpty) e.deleteOperateTypeName,
+              e.deleteOperateTime,
+            ].where((s) => s.isNotEmpty).join('  '),
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
+        ],
       ),
     );
   }

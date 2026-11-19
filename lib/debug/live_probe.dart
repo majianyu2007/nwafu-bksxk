@@ -6,16 +6,18 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:dio/dio.dart';
-
 import '../app/campus_access.dart';
+import '../app/edu_providers.dart';
+import '../app/providers.dart' show storageProvider, themeControllerProvider;
+import '../data/academic_calendar.dart' show schoolDate;
 import '../data/ehall_service.dart';
 import '../data/library_service.dart';
+import '../data/timetable_logic.dart';
 import '../data/vpn/campus_route.dart';
-import '../app/edu_providers.dart';
-import '../app/providers.dart' show storageProvider;
 
 String probeResult = '';
 
@@ -54,10 +56,17 @@ void probeBind(
     password: password,
     solveCaptcha: (image) async {
       await File(captchaPath).writeAsBytes(image);
+      _captchaAnswer?.call(null);
       final answer = Completer<String?>();
       _captchaAnswer = answer.complete;
       probeResult = 'captcha $captchaPath';
-      return answer.future;
+      try {
+        return await answer.future;
+      } finally {
+        if (identical(_captchaAnswer, answer.complete)) {
+          _captchaAnswer = null;
+        }
+      }
     },
   );
   final account = c.read(eduSessionProvider).account!.username;
@@ -110,23 +119,34 @@ void probeCampus(ProviderContainer c) => probe(() async {
 
 void probeDirect() => probe(() async {
   final out = <String, Object?>{};
-  for (final u in kCampusProbeUrls) {
-    final dio = Dio(BaseOptions(
-      connectTimeout: const Duration(seconds: 3),
-      receiveTimeout: const Duration(seconds: 4),
-      followRedirects: false,
-      validateStatus: (_) => true,
-      responseType: ResponseType.plain,
-    ));
-    try {
-      final r = await dio.get<String>(u);
-      out[u] = r.statusCode;
-    } catch (e) {
-      out[u] = '$e'.split('\n').first;
+  final dio = Dio(BaseOptions(
+    connectTimeout: const Duration(seconds: 3),
+    receiveTimeout: const Duration(seconds: 4),
+    followRedirects: false,
+    validateStatus: (_) => true,
+    responseType: ResponseType.plain,
+  ));
+  try {
+    for (final u in kCampusProbeUrls) {
+      try {
+        final r = await dio.get<String>(u);
+        out[u] = r.statusCode;
+      } catch (e) {
+        out[u] = '$e'.split('\n').first;
+      }
     }
+  } finally {
+    dio.close(force: true);
   }
   return out;
 });
+
+String _todayYmd() {
+  final d = schoolDate(DateTime.now());
+  return '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+}
 
 /// Read-only: the 空闲教室 app's query model (field names, code lists).
 void probeRoomsMeta(ProviderContainer c) => probe(() async {
@@ -164,7 +184,7 @@ void probeRoomsSample(ProviderContainer c) => probe(() async {
   final campus = (await dio.get<String>('$kEhallOrigin/jwapp/code/83a986fc-e677-400e-99a4-c7bb39c2ca35.do')).data!;
   final building = (await dio.get<String>('$kEhallOrigin/jwapp/code/551fbcc3-cf07-4566-af1e-fc7ce272ddc1.do')).data!;
   final rows = await post('/jwapp/sys/kxjas/modules/kxjscx/cxkxjs.do', {
-    'KXRQ': '2026-10-13',
+    'KXRQ': _todayYmd(),
     'KSJC': '1',
     'JSJC': '2',
     'pageSize': '3',
@@ -186,7 +206,7 @@ void probeRoomsTiming(ProviderContainer c, int size) => probe(() async {
   final sw = Stopwatch()..start();
   final r = await dio.post<String>(
     '$kEhallOrigin/jwapp/sys/kxjas/modules/kxjscx/cxkxjs.do',
-    data: {'KXRQ': '2026-10-13', 'KSJC': '1', 'JSJC': '2', 'pageSize': '$size', 'pageNumber': '1'},
+    data: {'KXRQ': _todayYmd(), 'KSJC': '1', 'JSJC': '2', 'pageSize': '$size', 'pageNumber': '1'},
     options: Options(contentType: Headers.formUrlEncodedContentType),
   );
   final j = jsonDecode(r.data!) as Map;
@@ -241,3 +261,20 @@ void probeAcademic(ProviderContainer c) => probe(() async {
   }
   return out.toString();
 });
+
+void probeTheme(ProviderContainer c, bool dark) => c
+    .read(themeControllerProvider.notifier)
+    .setMode(dark ? ThemeMode.dark : ThemeMode.light);
+
+void probeShiftClock(ProviderContainer c, int minutes) =>
+    c.read(debugClockOffsetProvider.notifier).state = Duration(minutes: minutes);
+
+String probeDay(ProviderContainer c, int y, int m, int d) => c
+    .read(timetableProvider)
+    .data!
+    .classesOn(DateTime.utc(y, m, d))
+    .map(
+      (o) =>
+          '${o.session.courseName} ${o.session.startPeriod}-${o.session.endPeriod} ${o.session.room}',
+    )
+    .join('; ');

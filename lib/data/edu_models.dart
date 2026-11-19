@@ -5,6 +5,22 @@ library;
 
 import 'dart:convert';
 
+import 'academic_calendar.dart' show schoolDate;
+
+final _courseTagPrefixRe = RegExp(r'^【[^】]*】');
+final _termShortNameRe = RegExp(r'(\d{4})-(\d{4})学年\s*(\S+)');
+final _termCodeRe = RegExp(r'^\d{4}-\d{4}-[1-9]$');
+final _bellTimeRe = RegExp(r'^\d{1,2}:\d{2}$');
+final _weekBitsRe = RegExp(r'^[01]+$');
+final _csvQuoteRe = RegExp(r'[",\r\n]');
+
+/// Strips the school's leading `【本】` / `【研】` prefix from a course title,
+/// falling back to the original string if stripping would leave it blank.
+String stripCourseTag(String name) {
+  final stripped = name.replaceFirst(_courseTagPrefixRe, '').trim();
+  return stripped.isEmpty ? name.trim() : stripped;
+}
+
 /// A term, e.g. `2026-2027-1` / 2026-2027学年 秋.
 class EduTerm {
   const EduTerm({required this.code, required this.name});
@@ -16,13 +32,13 @@ class EduTerm {
 
   /// "2026-2027 秋" → short label for chips.
   String get shortName {
-    final m = RegExp(r'(\d{4})-(\d{4})学年\s*(\S+)').firstMatch(name);
+    final m = _termShortNameRe.firstMatch(name);
     return m == null ? name : '${m[1]}-${m[2].toString().substring(2)} ${m[3]}';
   }
 
   factory EduTerm.fromRow(Map<String, dynamic> r) {
     final code = (r['DM'] ?? r['XNXQDM'] ?? '').toString();
-    if (!RegExp(r'^\d{4}-\d{4}-[1-9]$').hasMatch(code)) {
+    if (!_termCodeRe.hasMatch(code)) {
       throw const FormatException('Invalid academic term');
     }
     return EduTerm(
@@ -55,14 +71,16 @@ class ClassPeriod {
   final int end;
 
   static int _parse(String hhmm) {
-    if (!RegExp(r'^\d{1,2}:\d{2}$').hasMatch(hhmm)) {
+    if (!_bellTimeRe.hasMatch(hhmm)) {
       throw const FormatException('Invalid bell time');
     }
-    final p = hhmm.split(':').map(int.parse).toList();
-    if (p[0] > 23 || p[1] > 59) {
+    final colon = hhmm.indexOf(':');
+    final h = int.parse(hhmm.substring(0, colon));
+    final m = int.parse(hhmm.substring(colon + 1));
+    if (h > 23 || m > 59) {
       throw const FormatException('Invalid bell time');
     }
-    return p[0] * 60 + p[1];
+    return h * 60 + m;
   }
 
   static String fmt(int minutes) =>
@@ -188,7 +206,7 @@ class CourseSession {
   final bool custom;
 
   /// `KCM` carries a 【本】 prefix for undergraduate courses; drop it.
-  String get displayName => courseName.replaceFirst(RegExp(r'^【[^】]*】'), '');
+  String get displayName => stripCourseTag(courseName);
 
   bool runsInWeek(int week) => weeks.contains(week);
 
@@ -211,7 +229,7 @@ class CourseSession {
         weekday > 7 ||
         start < 1 ||
         end < start ||
-        !RegExp(r'^[01]+$').hasMatch(bits) ||
+        !_weekBitsRe.hasMatch(bits) ||
         '${r['KCM'] ?? ''}'.trim().isEmpty) {
       throw const FormatException('Invalid course session');
     }
@@ -434,10 +452,7 @@ class TermTimetable {
     for (final p in periods) p.index,
   }.toList()..sort();
 
-  static DateTime _today() {
-    final cst = DateTime.now().toUtc().add(const Duration(hours: 8));
-    return DateTime.utc(cst.year, cst.month, cst.day);
-  }
+  static DateTime _today() => schoolDate(DateTime.now());
 
   TermTimetable copyWith({
     List<CourseSession>? sessions,
@@ -480,8 +495,8 @@ class TermTimetable {
       }
       return TermTimetable(
         term: EduTerm.fromJson(j['term'] as Map<String, dynamic>),
-        firstMonday: DateTime.parse(j['firstMonday'] as String),
-        weekCount: j['weekCount'] as int,
+        firstMonday: monday,
+        weekCount: count,
         periods: [
           for (final p in j['periods'] as List)
             ClassPeriod.fromJson(p as Map<String, dynamic>),
@@ -552,6 +567,8 @@ class GradeRecord {
   /// Component scores (平时, 期中, 期末, 实验) when the school publishes them.
   final Map<String, String> components;
 
+  String get displayName => stripCourseTag(courseName);
+
   factory GradeRecord.fromRow(Map<String, dynamic> r) {
     if ('${r['KCM'] ?? r['XSKCM'] ?? ''}'.trim().isEmpty ||
         '${r['XNXQDM'] ?? ''}'.isEmpty) {
@@ -559,7 +576,9 @@ class GradeRecord {
     }
     double? numOf(Object? v) =>
         v is num ? v.toDouble() : double.tryParse('${v ?? ''}');
-    final level = (r['DJCJMC'] ?? '').toString();
+    final level = (r['DJCJMC'] ?? '').toString().trim();
+    final displayScore = (r['XSZCJMC'] ?? '').toString().trim();
+    final sfjg = (r['SFJG'] ?? '').toString().trim();
     final score = numOf(r['ZCJ']);
     final comps = <String, String>{};
     void comp(String label, String key) {
@@ -580,18 +599,20 @@ class GradeRecord {
       credit: numOf(r['XF']) ?? 0,
       scoreText: level.isNotEmpty
           ? level
-          : (r['XSZCJMC'] ?? (score == null ? '' : _trim(score))).toString(),
+          : displayScore.isNotEmpty
+          ? displayScore
+          : (score == null ? '' : _trim(score)),
       score: score,
       gradePoint: numOf(r['XFJD']),
       nature: (r['KCXZDM_DISPLAY'] ?? '').toString(),
       category: (r['KCLBDM_DISPLAY'] ?? '').toString(),
       examType: (r['KSLXDM_DISPLAY'] ?? '').toString(),
       attempt: (r['CXCKDM_DISPLAY'] ?? '').toString(),
-      passed: r['SFJG'] == null
-          ? score != null
+      passed: sfjg.isEmpty
+          ? (score != null
                 ? score >= 60
-                : !const {'不合格', '不及格'}.contains(level)
-          : r['SFJG'].toString() != '0',
+                : !const {'不合格', '不及格'}.contains(level))
+          : sfjg != '0',
       components: comps,
     );
   }
@@ -723,6 +744,8 @@ class ExamEntry {
   final String seat;
   final String kind;
 
+  String get displayName => stripCourseTag(courseName);
+
   factory ExamEntry.fromRow(Map<String, dynamic> r) {
     String s(List<String> keys) {
       for (final k in keys) {
@@ -780,13 +803,19 @@ class FreeRoom {
     required this.freeTimes,
   });
 
-  factory FreeRoom.fromRow(Map<String, dynamic> r) => FreeRoom(
-    name: '${r['JASMC'] ?? ''}'.trim(),
-    building: '${r['JXLDM_DISPLAY'] ?? ''}'.trim(),
-    campus: '${r['XXXQDM_DISPLAY'] ?? ''}'.trim(),
-    seats: r['SKZWS'] is num ? (r['SKZWS'] as num).toInt() : null,
-    freeTimes: '${r['KXSJ'] ?? ''}'.trim(),
-  );
+  factory FreeRoom.fromRow(Map<String, dynamic> r) {
+    final rawSeats = r['SKZWS'];
+    final seats = rawSeats is num
+        ? rawSeats.toInt()
+        : int.tryParse('${rawSeats ?? ''}'.trim());
+    return FreeRoom(
+      name: '${r['JASMC'] ?? ''}'.trim(),
+      building: '${r['JXLDM_DISPLAY'] ?? ''}'.trim(),
+      campus: '${r['XXXQDM_DISPLAY'] ?? ''}'.trim(),
+      seats: seats,
+      freeTimes: '${r['KXSJ'] ?? ''}'.trim(),
+    );
+  }
 
   final String name;
   final String building;
@@ -803,7 +832,7 @@ class FreeRoom {
 String gradesCsv(List<GradeRecord> records) {
   String cell(Object? v) {
     final s = '${v ?? ''}';
-    return s.contains(RegExp(r'[",\n]')) ? '"${s.replaceAll('"', '""')}"' : s;
+    return s.contains(_csvQuoteRe) ? '"${s.replaceAll('"', '""')}"' : s;
   }
 
   String num(double? v) => v == null

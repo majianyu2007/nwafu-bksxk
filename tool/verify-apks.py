@@ -5,7 +5,13 @@ import sys
 import zipfile
 
 EXPECTED = ('armeabi-v7a', 'arm64-v8a', 'x86_64')
-REQUIRED = ('libflutter.so', 'libapp.so', 'libonnxruntime.so', 'libonnxruntime4j_jni.so')
+REQUIRED = (
+    'libflutter.so',
+    'libapp.so',
+    'libonnxruntime.so',
+    'libonnxruntime4j_jni.so',
+    'libnwafuconnect.so',
+)
 
 
 def verify(root):

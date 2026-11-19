@@ -29,15 +29,24 @@ import 'timetable_logic.dart';
 bool get backgroundRefreshSupported => Platform.isAndroid || Platform.isIOS;
 
 bool _initialized = false;
+Future<void>? _initInFlight;
 
-Future<void> initBackgroundRefresh() async {
-  if (!backgroundRefreshSupported || _initialized) return;
-  try {
-    await Workmanager().initialize(eduBackgroundDispatcher);
-    _initialized = true;
-  } catch (_) {
-    // A platform without the native side keeps the in-app refresh only.
-  }
+Future<void> initBackgroundRefresh() {
+  if (!backgroundRefreshSupported || _initialized) return Future<void>.value();
+  final existing = _initInFlight;
+  if (existing != null) return existing;
+  final run = () async {
+    try {
+      await Workmanager().initialize(eduBackgroundDispatcher);
+      _initialized = true;
+    } catch (_) {
+      // A platform without the native side keeps the in-app refresh only.
+    }
+  }();
+  _initInFlight = run;
+  return run.whenComplete(() {
+    if (identical(_initInFlight, run)) _initInFlight = null;
+  });
 }
 
 Future<void> applyBackgroundRefresh(int hours) async {
@@ -136,7 +145,7 @@ Future<bool> runBackgroundRefresh() async {
     }
     return true;
   } finally {
-    cas.dio.close(force: true);
+    cas.close(force: true);
     await cookies.close();
   }
 }
@@ -183,7 +192,10 @@ Future<void> _rescheduleReminders(
   try {
     final lead = storage.classReminderMinutes();
     final wantExam = storage.examReminders();
-    if (lead <= 0 && !wantExam) return;
+    if (lead <= 0 && !wantExam) {
+      await notifications.cancelClassReminders();
+      return;
+    }
     final now = DateTime.now().toUtc();
     final first = storage.firstClassReminderMinutes();
     final classPlans = lead > 0
@@ -207,29 +219,14 @@ Future<void> _rescheduleReminders(
         (
           id: p.id,
           at: p.at,
-          title: _bgReminderTitle(p, lead),
-          body: _bgReminderBody(p.occurrence),
+          title: classReminderTitle(p),
+          body: classReminderBody(p.occurrence),
         ),
       for (final p in examPlans)
         (id: p.id, at: p.at, title: p.title, body: p.body),
     ]..sort((a, b) => a.at.compareTo(b.at));
     await notifications.scheduleClassReminders(all);
   } catch (_) {}
-}
-
-String _bgReminderTitle(ReminderPlan p, int lead) => switch (p.reason) {
-  ReminderReason.moveBuilding => '下课去换楼：${p.occurrence.session.displayName}',
-  ReminderReason.firstOfDay => '今日首节：${p.occurrence.session.displayName}',
-  ReminderReason.normal => '$lead 分钟后上课：${p.occurrence.session.displayName}',
-};
-
-String _bgReminderBody(ClassOccurrence o) {
-  final s = o.session;
-  final parts = <String>[
-    if (s.room.isNotEmpty) s.room,
-    '第 ${s.startPeriod}-${s.endPeriod} 节',
-  ];
-  return parts.join(' · ');
 }
 
 /// The cached timetable of the account's current term, if any.
@@ -254,15 +251,27 @@ Future<bool> _silentLogin(
 ) async {
   PasskeyCredential? passkey;
   String? password;
+  final allowDeviceKey = storage.backgroundUseDeviceKey();
+  final deviceKey = _passkey(await storage.eduDeviceKey(account.username));
   if (account.usePasskey) {
-    passkey = _passkey(await storage.eduPasskey(account.username));
+    final saved = _passkey(await storage.eduPasskey(account.username));
+    final isBoundDeviceKey =
+        saved != null &&
+        deviceKey != null &&
+        ((saved.deviceBindingId.isNotEmpty &&
+                saved.deviceBindingId == deviceKey.deviceBindingId) ||
+            (saved.credentialId.isNotEmpty &&
+                saved.credentialId == deviceKey.credentialId));
+    if (!isBoundDeviceKey || allowDeviceKey) {
+      passkey = saved;
+    }
   } else {
     password = await storage.eduPassword(account.username);
   }
   if (passkey == null &&
       (password == null || password.isEmpty) &&
-      storage.backgroundUseDeviceKey()) {
-    passkey = _passkey(await storage.eduDeviceKey(account.username));
+      allowDeviceKey) {
+    passkey = deviceKey;
   }
   if (passkey == null && (password == null || password.isEmpty)) return false;
   try {

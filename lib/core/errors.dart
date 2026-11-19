@@ -128,19 +128,7 @@ class AppError implements Exception {
           raw: e,
         );
       case DioExceptionType.connectionError:
-        final msg = e.message ?? '';
-        if (kIsWeb &&
-            (msg.contains('XMLHttpRequest') ||
-                msg.toLowerCase().contains('cors') ||
-                msg.contains('connection errored'))) {
-          return AppError(
-            AppErrorKind.campusNetwork,
-            message: '浏览器无法直接访问校园服务器',
-            hint: '网页版受跨域限制，或未连接校园网。请安装并更新配套桥接脚本，或使用桌面/移动端。',
-            retryable: false,
-            raw: e,
-          );
-        }
+        if (_isWebCorsError(e)) return _webCorsError(e);
         return AppError(
           AppErrorKind.campusNetwork,
           message: '无法连接到校园服务器',
@@ -187,18 +175,7 @@ class AppError implements Exception {
         return AppError(AppErrorKind.cancelled, message: '请求已取消', raw: e);
       default:
         // Includes DioExceptionType.unknown and any future types.
-        final msg = e.message ?? '';
-        if (kIsWeb &&
-            (msg.contains('XMLHttpRequest') ||
-                msg.toLowerCase().contains('cors'))) {
-          return AppError(
-            AppErrorKind.campusNetwork,
-            message: '浏览器无法直接访问校园服务器',
-            hint: '网页版受跨域限制。请安装配套的浏览器脚本，或使用桌面/移动端。',
-            retryable: false,
-            raw: e,
-          );
-        }
+        if (_isWebCorsError(e)) return _webCorsError(e);
         return AppError(
           AppErrorKind.campusNetwork,
           message: '网络请求失败',
@@ -209,11 +186,26 @@ class AppError implements Exception {
     }
   }
 
+  static bool _isWebCorsError(DioException e) {
+    if (!kIsWeb) return false;
+    final detail = '${e.message ?? ''} ${e.error ?? ''}';
+    return detail.contains('XMLHttpRequest') ||
+        detail.contains('connection errored') ||
+        detail.toLowerCase().contains('cors');
+  }
+
+  static AppError _webCorsError(DioException e) => AppError(
+        AppErrorKind.campusNetwork,
+        message: '浏览器无法直接访问校园服务器',
+        hint: '网页版受跨域限制，或未连接校园网。请安装并更新配套桥接脚本，或使用桌面/移动端。',
+        retryable: false,
+        raw: e,
+      );
+
   /// Classifies a business-level response (code != "1") by its message text.
   factory AppError.fromBusiness(String code, String msg, {Object? raw}) {
-    final m = msg;
     final lower = msg.toLowerCase();
-    bool has(List<String> keys) => keys.any(m.contains);
+    bool has(List<String> keys) => keys.any(msg.contains);
 
     if (has(['验证码'])) {
       return AppError(
@@ -224,7 +216,7 @@ class AppError implements Exception {
         raw: raw,
       );
     }
-    if (has(['时间冲突', '上课时间冲突', '冲突'])) {
+    if (has(['冲突'])) {
       return AppError(
         AppErrorKind.timeConflict,
         message: msg,
@@ -234,20 +226,22 @@ class AppError implements Exception {
         raw: raw,
       );
     }
-    if (has(['登录', '会话', '重新登录']) || lower.contains('token')) {
-      return AppError(
-        AppErrorKind.sessionExpired,
-        message: msg.isEmpty ? '登录状态已失效' : msg,
-        hint: '请重新登录。',
-        serverCode: code,
-        raw: raw,
-      );
-    }
+    // Check account/credential keywords before session-expiry so messages like
+    // "登录名或密码不正确" or "登录账号已锁定" classify as account errors.
     if (has(['密码', '账号', '学号', '锁定', '冻结'])) {
       return AppError(
         AppErrorKind.account,
         message: msg,
         hint: '检查账号密码或选课资格。',
+        serverCode: code,
+        raw: raw,
+      );
+    }
+    if (has(['登录', '会话']) || lower.contains('token')) {
+      return AppError(
+        AppErrorKind.sessionExpired,
+        message: msg.isEmpty ? '登录状态已失效' : msg,
+        hint: '请重新登录。',
         serverCode: code,
         raw: raw,
       );
@@ -307,13 +301,4 @@ class AppError implements Exception {
       raw: raw,
     );
   }
-
-  /// Classifies an HTML/non-JSON body where JSON was expected.
-  factory AppError.schema(String detail) => AppError(
-        AppErrorKind.schemaOrRedirect,
-        message: '返回了非预期的内容',
-        hint: '可能是登录已过期被重定向，或学校接口发生变化。请重新登录；若持续出现请在诊断页导出日志反馈。',
-        retryable: false,
-        raw: detail,
-      );
 }

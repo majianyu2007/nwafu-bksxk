@@ -35,7 +35,6 @@ class MeTool {
     required this.label,
     required this.open,
     this.badge,
-    this.nativeOnly = false,
   });
   final IconData icon;
   final String label;
@@ -43,7 +42,6 @@ class MeTool {
 
   /// A small count on the tile (unread messages, …).
   final ProviderListenable<int?>? badge;
-  final bool nativeOnly;
 }
 
 /// The tools on 我的, in order.
@@ -185,19 +183,21 @@ class _ProfileCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final session = ref.watch(eduSessionProvider);
-    final account = session.account;
-    final selection = ref.watch(signedInAccountsProvider);
-    final route = ref.watch(campusAccessProvider.select((s) => s.route));
-    final boundAsync = ref.watch(deviceKeyBoundProvider);
-    final bound = boundAsync.valueOrNull;
-    final unlock = ref.watch(unlockKindProvider).valueOrNull;
+    final (signedIn, account) = ref.watch(
+      eduSessionProvider.select((s) => (s.signedIn, s.account)),
+    );
+    final selectionSignedIn = ref.watch(
+      signedInAccountsProvider.select((s) => s.isNotEmpty),
+    );
+    final route = kIsWeb
+        ? CampusRoute.unknown
+        : ref.watch(campusAccessProvider.select((s) => s.route));
+    final bound = kIsWeb ? null : ref.watch(deviceKeyBoundProvider).valueOrNull;
+    final unlock = kIsWeb ? null : ref.watch(unlockKindProvider).valueOrNull;
 
-    if (!session.signedIn || account == null) {
+    if (!signedIn || account == null) {
       return GlassCard(
-        onTap: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute<void>(builder: (_) => const EduLoginPage())),
+        onTap: () => pushEduLogin(context),
         child: Row(
           children: [
             CircleAvatar(
@@ -280,15 +280,15 @@ class _ProfileCard extends ConsumerWidget {
               ),
               _StatusChip(
                 icon: Icons.checklist,
-                label: selection.isEmpty ? '选课未登录' : '选课已登录',
-                ok: selection.isNotEmpty,
-                onTap: selection.isEmpty
-                    ? () => Navigator.of(context).push(
+                label: selectionSignedIn ? '选课已登录' : '选课未登录',
+                ok: selectionSignedIn,
+                onTap: selectionSignedIn
+                    ? null
+                    : () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
                           builder: (_) => const LoginPage(),
                         ),
-                      )
-                    : null,
+                      ),
               ),
               if (kIsWeb)
                 _StatusChip(
@@ -296,7 +296,7 @@ class _ProfileCard extends ConsumerWidget {
                   label: isCasLoginBridgeReady
                       ? '桥接 ${installedWebBridgeVersion ?? ''} 已就绪'.trim()
                       : isWebBridgeReady
-                      ? '更新桥接脚本 (1.5.0)'
+                      ? '更新桥接脚本 ($kRecommendedWebBridgeVersion)'
                       : '安装桥接脚本',
                   ok: isCasLoginBridgeReady,
                   onTap: isCasLoginBridgeReady
@@ -408,42 +408,41 @@ class _StatusChip extends StatelessWidget {
   }
 }
 
-class _ToolGrid extends ConsumerWidget {
+class _ToolGrid extends StatelessWidget {
   const _ToolGrid();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final tools = [
-      for (final t in meTools)
-        if (!t.nativeOnly || !kIsWeb) t,
-    ];
-    final degreePct = ref.watch(
-      degreeProvider.select((s) {
-        final plans = s.audit?.plans;
-        if (plans == null || plans.isEmpty) return null;
-        return (plans.first.progress * 100).round();
-      }),
-    );
     return GlassCard(
       padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
       child: LayoutBuilder(
         builder: (context, c) {
           final columns = (c.maxWidth / 92).floor().clamp(3, 6);
+          final tileWidth = (c.maxWidth / columns).floorToDouble();
           return Wrap(
             children: [
-              for (final t in tools)
-                Builder(
-                  builder: (context) {
+              for (final t in meTools)
+                Consumer(
+                  builder: (context, ref, _) {
                     final badgeCount =
                         t.badge == null ? null : ref.watch(t.badge!);
+                    final degreePct = t.label == '学业进度'
+                        ? ref.watch(
+                            degreeProvider.select((s) {
+                              final plans = s.audit?.plans;
+                              if (plans == null || plans.isEmpty) return null;
+                              return (plans.first.progress * 100).round();
+                            }),
+                          )
+                        : null;
                     final microSub = switch (t.label) {
                       '学业进度' when degreePct != null => '已修 $degreePct%',
                       '消息' when (badgeCount ?? 0) > 0 => '$badgeCount 条待处理',
                       _ => null,
                     };
                     return SizedBox(
-                      width: (c.maxWidth / columns).floorToDouble(),
+                      width: tileWidth,
                       child: InkWell(
                         borderRadius: BorderRadius.circular(14),
                         onTap: () => Navigator.of(context).push(
@@ -496,9 +495,9 @@ class _TodaySummaryCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final session = ref.watch(eduSessionProvider);
-    final timetable = ref.watch(timetableProvider).data;
-    if (!session.signedIn || timetable == null) return const SizedBox.shrink();
+    final signedIn = ref.watch(eduSessionProvider.select((s) => s.signedIn));
+    final timetable = ref.watch(timetableProvider.select((s) => s.data));
+    if (!signedIn || timetable == null) return const SizedBox.shrink();
 
     final now = ref.watch(clockProvider).value ?? DateTime.now();
     final today = schoolDate(now);
@@ -510,7 +509,7 @@ class _TodaySummaryCard extends ConsumerWidget {
     final next = upcoming.firstOrNull;
 
     final hidden = ref.watch(uiPrefsProvider.select((p) => p.hideGrades));
-    final gpa = ref.watch(gradesProvider).book?.summary.gpa;
+    final gpa = ref.watch(gradesProvider.select((s) => s.book?.summary.gpa));
 
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;

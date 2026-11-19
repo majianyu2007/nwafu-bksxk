@@ -40,11 +40,14 @@ String _take(DynamicLibrary lib, Pointer<Utf8> p) {
   if (p == nullptr) {
     return jsonEncode({'ok': false, 'state': 'failed', 'error': '校外访问组件返回空指针'});
   }
-  final free = lib.lookupFunction<_FreeC, _FreeD>('NcFree');
+  _FreeD? free;
   try {
+    free = lib.lookupFunction<_FreeC, _FreeD>('NcFree');
     return p.toDartString();
+  } catch (_) {
+    return jsonEncode({'ok': false, 'state': 'failed', 'error': '校外访问组件返回异常'});
   } finally {
-    free(p);
+    free?.call(p);
   }
 }
 
@@ -53,14 +56,19 @@ String _call(String name, List<String> args) {
   if (lib == null) {
     return jsonEncode({'ok': false, 'state': 'stopped', 'error': '未找到校外访问组件'});
   }
-  final ptrs = [for (final a in args) a.toNativeUtf8()];
+  final ptrs = <Pointer<Utf8>>[];
   try {
+    for (final a in args) {
+      ptrs.add(a.toNativeUtf8());
+    }
     final Pointer<Utf8> out = switch (ptrs.length) {
       0 => lib.lookupFunction<_Str0, _Str0>(name)(),
       1 => lib.lookupFunction<_Str1, _Str1>(name)(ptrs[0]),
       _ => lib.lookupFunction<_Str2, _Str2>(name)(ptrs[0], ptrs[1]),
     };
     return _take(lib, out);
+  } catch (_) {
+    return jsonEncode({'ok': false, 'state': 'failed', 'error': '校外访问组件调用异常'});
   } finally {
     for (final p in ptrs) {
       malloc.free(p);
@@ -78,8 +86,8 @@ class _FfiVpn implements VpnBridge {
     if (!available) {
       return const VpnReply(ok: false, state: 'stopped', error: '未找到校外访问组件');
     }
-    final raw = await Isolate.run(() => _call(name, args));
     try {
+      final raw = await Isolate.run(() => _call(name, args));
       return VpnReply.fromJson(jsonDecode(raw) as Map<String, dynamic>);
     } catch (_) {
       return const VpnReply(ok: false, state: 'failed', error: '校外访问组件返回异常');

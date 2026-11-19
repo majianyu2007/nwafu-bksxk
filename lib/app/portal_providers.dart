@@ -1,6 +1,6 @@
 /// 消息: unread count, to-dos and notices from the school portals, for the
 /// signed-in unified identity. Kept in memory only (they go stale quickly
-/// and a message title can be private); native builds only.
+/// and a message title can be private).
 library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,9 +40,18 @@ class PortalController extends StateNotifier<PortalState> {
     state = PortalState(inbox: state.inbox, loading: true);
     try {
       final inbox = await _ref.read(eduClientProvider).portal.inbox();
-      if (_current(request, epoch)) state = PortalState(inbox: inbox);
+      if (_current(request, epoch)) {
+        state = PortalState(inbox: inbox);
+      } else if (mounted && request == _request && state.loading) {
+        state = PortalState(inbox: state.inbox);
+      }
     } catch (e) {
-      if (!_current(request, epoch)) return;
+      if (!_current(request, epoch)) {
+        if (mounted && request == _request && state.loading) {
+          state = PortalState(inbox: state.inbox);
+        }
+        return;
+      }
       state = PortalState(
         inbox: state.inbox,
         error: e is AppError

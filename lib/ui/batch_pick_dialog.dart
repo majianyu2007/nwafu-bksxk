@@ -16,20 +16,18 @@ import 'widgets.dart';
 Future<void> showBatchPickDialog(BuildContext context, WidgetRef ref, {List<ElectiveBatch>? batches}) async {
   final session = ref.read(sessionProvider);
   final list = batches ?? session.batches;
-  final hasOpen = list.any((b) => b.canSelect);
 
   await showDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (dialogContext) => _BatchPickDialog(
       batches: list,
-      title: hasOpen ? '选择轮次' : '没有开放的轮次',
-      subtitle: hasOpen ? '' : '开放后在首页刷新即可选择。',
-      canPick: hasOpen,
       onPick: (b) {
         ref.read(currentSessionControllerProvider).setActiveBatch(b);
         Navigator.of(dialogContext).pop();
-        showToast(context, '已选择 ${b.name.isEmpty ? b.code : b.name}', success: true);
+        if (context.mounted) {
+          showToast(context, '已选择 ${b.name.isEmpty ? b.code : b.name}', success: true);
+        }
       },
       onSkip: () => Navigator.of(dialogContext).pop(),
     ),
@@ -39,17 +37,11 @@ Future<void> showBatchPickDialog(BuildContext context, WidgetRef ref, {List<Elec
 class _BatchPickDialog extends ConsumerStatefulWidget {
   const _BatchPickDialog({
     required this.batches,
-    required this.title,
-    required this.subtitle,
-    required this.canPick,
     required this.onPick,
     required this.onSkip,
   });
 
   final List<ElectiveBatch> batches;
-  final String title;
-  final String subtitle;
-  final bool canPick;
   final ValueChanged<ElectiveBatch> onPick;
   final VoidCallback onSkip;
 
@@ -276,11 +268,17 @@ class _CreditSummary extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: _Stat('总学分', _creditText(c.totalCredit))),
+              Expanded(child: _Stat('总学分', formatCredit(c.totalCredit))),
               _CreditDivider(color: scheme.outlineVariant),
-              Expanded(child: _Stat('已获', _creditText(c.getCredit))),
+              Expanded(child: _Stat('已获', formatCredit(c.getCredit))),
               _CreditDivider(color: scheme.outlineVariant),
-              Expanded(child: _Stat('已选', _creditText(c.selectedCredit), highlight: true)),
+              Expanded(
+                child: _Stat(
+                  '已选',
+                  formatCredit(c.selectedCredit),
+                  highlight: true,
+                ),
+              ),
             ],
           ),
           if (c.noSelectReason.isNotEmpty) ...[
@@ -291,9 +289,6 @@ class _CreditSummary extends StatelessWidget {
       ),
     );
   }
-
-  static String _creditText(double value) =>
-      value.toStringAsFixed(value == value.roundToDouble() ? 0 : 1);
 }
 
 class _CreditDivider extends StatelessWidget {

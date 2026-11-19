@@ -16,6 +16,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../core/errors.dart';
+import 'academic_calendar.dart' show calendarDate, schoolDate;
 import 'cas_client.dart';
 import 'degree_audit.dart';
 import 'edu_models.dart';
@@ -216,12 +217,22 @@ class EhallService {
   }
 
   bool _expired(Response<String> res) {
-    final text = (res.data ?? '').toLowerCase();
-    return res.statusCode == 302 ||
+    if (res.statusCode == 302 ||
         res.statusCode == 401 ||
         res.statusCode == 403 ||
-        (res.headers.value('location') ?? '').contains('authserver') ||
-        text.contains('id="pwdlogin') ||
+        (res.headers.value('location') ?? '').contains('authserver')) {
+      return true;
+    }
+    final raw = res.data ?? '';
+    final trimmed = raw.trimLeft();
+    // Skip expensive full-body .toLowerCase() scans on 200 JSON responses
+    // (freeRooms payloads can exceed 400 KB).
+    if (res.statusCode == 200 &&
+        (trimmed.startsWith('{') || trimmed.startsWith('['))) {
+      return false;
+    }
+    final text = trimmed.toLowerCase();
+    return text.contains('id="pwdlogin') ||
         text.contains('/authserver/login') ||
         text.contains('name="execution"');
   }
@@ -271,7 +282,11 @@ class EhallService {
       'dqxnxq',
     );
     if (r.isEmpty) throw AppError(AppErrorKind.unknown, message: '未取得当前学期');
-    return EduTerm.fromRow(r.first);
+    try {
+      return EduTerm.fromRow(r.first);
+    } on FormatException {
+      throw AppError(AppErrorKind.schemaOrRedirect, message: '教务系统当前学期数据无效');
+    }
   }
 
   /// Every term the school knows about, newest first. Rows with a code the
@@ -294,47 +309,59 @@ class EhallService {
   }
 
   Future<TermTimetable> timetable(EduTerm term) async {
+    // First call activates EmapApp.timetable; the remaining 4 reads then run
+    // in parallel instead of serially.
     final weeks = await rows(
       EmapApp.timetable,
       'modules/xskcb/cxxljc.do',
       'cxxljc',
       form: {'XN': term.year, 'XQ': term.half},
     );
-    final periods = await rows(EmapApp.timetable, 'modules/jshkcb/jc.do', 'jc');
-    final sessions = await rows(
-      EmapApp.timetable,
-      'modules/xskcb/cxxszhxqkb.do',
-      'cxxszhxqkb',
-      form: {'XNXQDM': term.code},
-    );
-    final unscheduled = await rows(
-      EmapApp.timetable,
-      'modules/xskcb/xswpkc.do',
-      'xswpkc',
-      form: {'XNXQDM': term.code},
-    );
-    List<Map<String, dynamic>> adjustments = const [];
-    try {
-      adjustments = await rows(
-        EmapApp.timetable,
-        'modules/xskcb/xsdkkc.do',
-        'xsdkkc',
-        form: {
-          'XNXQDM': term.code,
-          '*order': '-SQSJ',
-          'querySetting': jsonEncode([
-            {
-              'name': 'BYBZ',
-              'builder': 'notEqual',
-              'linkOpt': 'AND',
-              'value': '1',
-            },
-          ]),
-        },
-      );
-    } on AppError {
-      // 调课 is supplementary; the timetable itself already reflects it.
+    Future<List<Map<String, dynamic>>> fetchAdjustments() async {
+      try {
+        return await rows(
+          EmapApp.timetable,
+          'modules/xskcb/xsdkkc.do',
+          'xsdkkc',
+          form: {
+            'XNXQDM': term.code,
+            '*order': '-SQSJ',
+            'querySetting': jsonEncode([
+              {
+                'name': 'BYBZ',
+                'builder': 'notEqual',
+                'linkOpt': 'AND',
+                'value': '1',
+              },
+            ]),
+          },
+        );
+      } on AppError {
+        // 调课 is supplementary; the timetable itself already reflects it.
+        return const [];
+      }
     }
+
+    final fetched = await Future.wait([
+      rows(EmapApp.timetable, 'modules/jshkcb/jc.do', 'jc'),
+      rows(
+        EmapApp.timetable,
+        'modules/xskcb/cxxszhxqkb.do',
+        'cxxszhxqkb',
+        form: {'XNXQDM': term.code},
+      ),
+      rows(
+        EmapApp.timetable,
+        'modules/xskcb/xswpkc.do',
+        'xswpkc',
+        form: {'XNXQDM': term.code},
+      ),
+      fetchAdjustments(),
+    ]);
+    final periods = fetched[0];
+    final sessions = fetched[1];
+    final unscheduled = fetched[2];
+    final adjustments = fetched[3];
 
     if (weeks.isEmpty || periods.isEmpty) {
       throw AppError(
@@ -397,12 +424,12 @@ class EhallService {
     DateTime fallbackMonday,
     int weekCount,
   ) async {
-    final cst = DateTime.now().toUtc().add(const Duration(hours: 8));
-    final today = DateTime.utc(cst.year, cst.month, cst.day);
+    final today = schoolDate(DateTime.now());
     final end = fallbackMonday.add(Duration(days: weekCount * 7));
-    // Outside the term the endpoint has nothing to say about this term.
+    // Buffer both ends by 28 days so orientation/military-training shifts at
+    // term start don't skip dqzc.do during the final teaching weeks.
     if (today.isBefore(fallbackMonday.subtract(const Duration(days: 28))) ||
-        !today.isBefore(end)) {
+        !today.isBefore(end.add(const Duration(days: 28)))) {
       return null;
     }
     try {
@@ -459,7 +486,15 @@ class EhallService {
           'pageNumber': '$page',
         },
       );
-      records.addAll(r.map(GradeRecord.fromRow));
+      try {
+        records.addAll(r.map(GradeRecord.fromRow));
+      } on FormatException {
+        throw AppError(
+          AppErrorKind.schemaOrRedirect,
+          message: '教务系统成绩数据格式异常',
+          hint: '未覆盖离线成绩，请到学校官方页面查看。',
+        );
+      }
       if (r.length < 100) break;
       if (page == 20) {
         throw AppError(
@@ -626,18 +661,22 @@ class EhallService {
         'BYNJDM': '-',
         'SCLBDM': '04',
       };
-      final audit = await rows(
-        EmapApp.degree,
-        'modules/xywccx/cxscfa.do',
-        'cxscfa',
-        form: base,
-      );
-      final groups = await rows(
-        EmapApp.degree,
-        'modules/xywccx/cxscfakz.do',
-        'cxscfakz',
-        form: {...base, 'XNXQDM': ?term},
-      );
+      final pair = await Future.wait([
+        rows(
+          EmapApp.degree,
+          'modules/xywccx/cxscfa.do',
+          'cxscfa',
+          form: base,
+        ),
+        rows(
+          EmapApp.degree,
+          'modules/xywccx/cxscfakz.do',
+          'cxscfakz',
+          form: {...base, 'XNXQDM': ?term},
+        ),
+      ]);
+      final audit = pair[0];
+      final groups = pair[1];
       double? selected;
       final perGroup = <String, double>{};
       if (withSelected && term != null) {
@@ -652,22 +691,30 @@ class EhallService {
                 form: {...extra, ...form},
               ),
             );
-          } on AppError {
+          } on AppError catch (e) {
+            if (e.kind == AppErrorKind.sessionExpired ||
+                e.kind == AppErrorKind.campusNetwork) {
+              rethrow;
+            }
             return null;
           }
         }
 
-        selected = await credits(const {});
-        final queue = [
+        final queue = <Map<String, dynamic>>[
           for (final g in groups)
-            if ('${g['KZH'] ?? ''}'.isNotEmpty) g,
+            if ('${g['KZH'] ?? ''}'.trim().isNotEmpty) g,
         ];
+        var fetchTotal = true;
         Future<void> worker() async {
+          if (fetchTotal) {
+            fetchTotal = false;
+            selected = await credits(const {});
+          }
           while (queue.isNotEmpty) {
             final g = queue.removeLast();
-            final kzh = '${g['KZH']}';
+            final kzh = '${g['KZH'] ?? ''}'.trim();
             final v = await credits({
-              'KZLXDM': '${g['KZLXDM'] ?? ''}',
+              'KZLXDM': '${g['KZLXDM'] ?? ''}'.trim(),
               'KZH': kzh,
             });
             if (v != null) perGroup[kzh] = v;
@@ -705,6 +752,7 @@ class EhallService {
 DateTime? weekOneMondayFrom(Map<String, dynamic>? row, DateTime today) {
   final week = int.tryParse('${row?['ZC'] ?? ''}');
   if (week == null || week < 1 || week > 60) return null;
-  final monday = today.subtract(Duration(days: today.weekday - 1));
+  final day = calendarDate(today);
+  final monday = day.subtract(Duration(days: day.weekday - 1));
   return monday.subtract(Duration(days: (week - 1) * 7));
 }

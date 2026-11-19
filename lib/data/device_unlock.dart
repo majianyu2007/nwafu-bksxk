@@ -11,10 +11,13 @@ class DeviceUnlock {
     : _auth = auth ?? LocalAuthentication();
   final LocalAuthentication _auth;
 
+  bool get _supportedPlatform =>
+      !kIsWeb && defaultTargetPlatform != TargetPlatform.linux;
+
   /// Whether this device can confirm the user (biometrics or a device
   /// passcode). Web and Linux never can.
   Future<bool> available() async {
-    if (kIsWeb || defaultTargetPlatform == TargetPlatform.linux) return false;
+    if (!_supportedPlatform) return false;
     try {
       return await _auth.isDeviceSupported();
     } catch (_) {
@@ -24,6 +27,7 @@ class DeviceUnlock {
 
   /// A short label for the method the device offers, for UI copy.
   Future<String> label() async {
+    if (!_supportedPlatform) return '设备密码';
     try {
       final types = await _auth.getAvailableBiometrics();
       if (types.contains(BiometricType.face)) return '面容';
@@ -35,6 +39,7 @@ class DeviceUnlock {
 
   /// Asks the user to confirm. False on cancel or failure.
   Future<bool> confirm(String reason) async {
+    if (!_supportedPlatform) return false;
     try {
       return await _auth.authenticate(
         localizedReason: reason,

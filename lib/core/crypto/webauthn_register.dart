@@ -16,7 +16,6 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as hash;
-import 'package:pointycastle/export.dart';
 
 import 'passkey.dart';
 
@@ -46,7 +45,8 @@ DeviceRegistration buildRegistrationCredential({
 }) {
   final r = random ?? Random.secure();
   final rp = options['rp'];
-  final rpId = (rp is Map ? rp['id'] : null)?.toString() ?? Uri.parse(origin).host;
+  final rawRpId = (rp is Map ? rp['id'] : null)?.toString().trim() ?? '';
+  final rpId = rawRpId.isNotEmpty ? rawRpId : Uri.parse(origin).host;
   final challenge = options['challenge']?.toString() ?? '';
   if (challenge.isEmpty) {
     throw PasskeyException('服务器未提供注册挑战');
@@ -61,7 +61,8 @@ DeviceRegistration buildRegistrationCredential({
   final userHandle = (user is Map ? user['id'] : null)?.toString() ?? '';
 
   final keyValue = generatePasskeyKey(random: r);
-  final q = publicPointOf(keyValue);
+  final scalar = privateScalarOf(keyValue);
+  final q = publicPointForScalar(scalar);
   final credId = Uint8List.fromList(List.generate(16, (_) => r.nextInt(256)));
 
   final clientData = utf8.encode(jsonEncode({
@@ -75,8 +76,8 @@ DeviceRegistration buildRegistrationCredential({
     1: 2, // kty: EC2
     3: -7, // alg: ES256
     -1: 1, // crv: P-256
-    -2: _coord(q.x!.toBigInteger()!),
-    -3: _coord(q.y!.toBigInteger()!),
+    -2: fixed32(q.x!.toBigInteger()!),
+    -3: fixed32(q.y!.toBigInteger()!),
   });
   final authData = Uint8List.fromList([
     ...hash.sha256.convert(utf8.encode(rpId)).bytes,
@@ -94,7 +95,7 @@ DeviceRegistration buildRegistrationCredential({
         [...authData, ...hash.sha256.convert(clientData).bytes]);
     attStmt = {
       'alg': -7,
-      'sig': signP256(privateScalarOf(keyValue), signed, random: r),
+      'sig': signP256(scalar, signed, random: r),
     };
   } else {
     attStmt = {};
@@ -124,16 +125,6 @@ DeviceRegistration buildRegistrationCredential({
       'clientExtensionResults': <String, dynamic>{},
     },
   );
-}
-
-Uint8List _coord(BigInt v) {
-  final out = Uint8List(32);
-  var x = v;
-  for (var i = 31; i >= 0; i--) {
-    out[i] = (x & BigInt.from(0xff)).toInt();
-    x >>= 8;
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +241,3 @@ class _CborReader {
     throw FormatException('CBOR major $major');
   }
 }
-
-/// Re-exported for tests that need to check signatures over registrations.
-ECPoint registrationPublicKey(PasskeyCredential c) => publicPointOf(c.keyValue);

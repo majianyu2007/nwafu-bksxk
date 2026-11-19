@@ -15,12 +15,15 @@
   <link rel="manifest" href="manifest.json">
   <style>
     html, body { margin: 0; height: 100%; background: #f6f7fb; }
-    @media (prefers-color-scheme: dark) { html, body { background: #111318; } }
     #boot {
       position: fixed; inset: 0; display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: 14px;
       font: 15px system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
       color: #5b6070; transition: opacity .25s;
+    }
+    @media (prefers-color-scheme: dark) {
+      html, body { background: #111318; }
+      #boot { color: #a2a8bd; }
     }
     #boot .logo { width: 56px; height: 56px; border-radius: 16px; background: url(icons/Icon-192.png) center / cover no-repeat; }
     #boot .bar { width: 160px; height: 4px; border-radius: 2px; background: rgba(59,111,224,.18); overflow: hidden; }
@@ -45,7 +48,7 @@
     window.addEventListener('flutter-first-frame', function () {
       var b = document.getElementById('boot');
       if (b) { b.classList.add('gone'); setTimeout(function () { b.remove(); }, 300); }
-    });
+    }, { once: true });
   </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>

@@ -144,7 +144,7 @@ class TimetableChangesController extends StateNotifier<List<TimetableDiff>> {
     final id = _accountId;
     if (id == null) return;
     await _storage.setTimetableChangeLog(id, '[]');
-    state = const [];
+    if (mounted) state = const [];
   }
 }
 
@@ -288,13 +288,18 @@ Future<void> refreshExams(Ref ref) async {
         ref.read(eduSessionProvider).account?.username != id) {
       return;
     }
-    await ref
-        .read(storageProvider)
-        .setEduExams(
-          id,
-          term.code,
-          jsonEncode([for (final e in list) e.toJson()]),
-        );
+    await session.cacheFor(
+      id,
+      () => session.isCurrent(epoch),
+      () => ref
+          .read(storageProvider)
+          .setEduExams(
+            id,
+            term.code,
+            jsonEncode([for (final e in list) e.toJson()]),
+          ),
+    );
+    if (!session.isCurrent(epoch)) return;
     ref.invalidate(examsProvider);
     unawaited(ref.read(classReminderProvider.notifier).reschedule());
     ref.read(calendarSyncProvider.notifier).schedule();
@@ -328,8 +333,17 @@ class CalendarSyncController extends StateNotifier<CalendarSyncState> {
   Timer? _debounce;
   Future<void>? _inflight;
   bool _again = false;
+  int _epoch = 0;
 
   bool get supported => _ref.read(calendarAdapterProvider).supported;
+
+  void resetForAccountChange() {
+    ++_epoch;
+    _debounce?.cancel();
+    _debounce = null;
+    _again = false;
+    if (mounted) state = const CalendarSyncState();
+  }
 
   /// Runs a sync soon (debounced) when calendar sync is on, or when it was
   /// just turned off and this app's events need removing.
@@ -368,6 +382,7 @@ class CalendarSyncController extends StateNotifier<CalendarSyncState> {
   }
 
   Future<void> _run() async {
+    final epoch = _epoch;
     final storage = _ref.read(storageProvider);
     final id = _ref.read(eduSessionProvider).account?.username;
     final t = _ref.read(timetableProvider).data;
@@ -384,10 +399,10 @@ class CalendarSyncController extends StateNotifier<CalendarSyncState> {
             storage: storage,
             accountId: id,
           );
-          if (!mounted) return;
+          if (!mounted || epoch != _epoch) return;
           state = CalendarSyncState(message: r.summary(), at: DateTime.now());
         } catch (e) {
-          if (!mounted) return;
+          if (!mounted || epoch != _epoch) return;
           state = CalendarSyncState(
             error: e is CalendarUnavailable ? e.message : '日历同步失败：$e',
           );
@@ -406,10 +421,10 @@ class CalendarSyncController extends StateNotifier<CalendarSyncState> {
         timetable: t,
         exams: cachedExams(storage, id, t.term.code),
       );
-      if (!mounted) return;
+      if (!mounted || epoch != _epoch) return;
       state = CalendarSyncState(message: r.summary(), at: DateTime.now());
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || epoch != _epoch) return;
       state = CalendarSyncState(
         error: e is CalendarUnavailable ? e.message : '日历同步失败：$e',
       );
@@ -418,15 +433,21 @@ class CalendarSyncController extends StateNotifier<CalendarSyncState> {
 
   @override
   void dispose() {
+    ++_epoch;
     _debounce?.cancel();
     super.dispose();
   }
 }
 
 final calendarSyncProvider =
-    StateNotifierProvider<CalendarSyncController, CalendarSyncState>(
-      (ref) => CalendarSyncController(ref),
-    );
+    StateNotifierProvider<CalendarSyncController, CalendarSyncState>((ref) {
+      final ctrl = CalendarSyncController(ref);
+      ref.listen<String?>(
+        eduSessionProvider.select((s) => s.account?.username),
+        (_, _) => ctrl.resetForAccountChange(),
+      );
+      return ctrl;
+    });
 
 // ---------------------------------------------------------------------------
 // ICS export

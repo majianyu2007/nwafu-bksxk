@@ -5,12 +5,20 @@ import 'package:pub_semver/pub_semver.dart';
 
 import '../core/update_links.dart';
 
+final _semVerRe = RegExp(
+  r'^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$',
+);
+final _userScriptHeaderRe =
+    RegExp(r'// ==UserScript==([\s\S]*?)// ==/UserScript==');
+final _userScriptVersionRe =
+    RegExp(r'^//\s*@version\s+(\S+)\s*$', multiLine: true);
+
 /// SemVer precedence ignores build metadata (unlike pub's package ordering).
 Version? parseUpdateVersion(String value) {
-  final normalized = value.trim().replaceFirst(RegExp(r'^v'), '');
-  if (!RegExp(
-    r'^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$',
-  ).hasMatch(normalized)) {
+  final trimmed = value.trim();
+  final normalized =
+      trimmed.startsWith('v') ? trimmed.substring(1) : trimmed;
+  if (!_semVerRe.hasMatch(normalized)) {
     return null;
   }
   try {
@@ -162,12 +170,15 @@ class UpdateService {
       if (!isOfficialUpdateLink(uri)) {
         throw const FormatException('Invalid release destination');
       }
+      final releaseName = _text(data['name']);
       return _compare(
         currentVersion,
         UpdateRelease(
           version: version.toString(),
           url: uri,
-          name: isWeb ? '网页版 ${version.toString()}' : _text(data['name']),
+          name: isWeb
+              ? '网页版 ${version.toString()}'
+              : (releaseName.isNotEmpty ? releaseName : version.toString()),
           notes: isWeb ? '' : _text(data['body']),
           publishedAt: DateTime.tryParse(_text(data['published_at'])),
         ),
@@ -205,14 +216,10 @@ class UpdateService {
       // Read the already-deployed userscript metadata; no new manifest or
       // unpublished GitHub release is required to check bridge updates.
       final script = await _read(bridgeInstallerUri, bustCache: true);
-      final header = RegExp(
-        r'// ==UserScript==([\s\S]*?)// ==/UserScript==',
-      ).firstMatch(script)?.group(1);
+      final header = _userScriptHeaderRe.firstMatch(script)?.group(1);
       final candidate = header == null
           ? null
-          : RegExp(r'^//\s*@version\s+(\S+)\s*$', multiLine: true)
-              .firstMatch(header)
-              ?.group(1);
+          : _userScriptVersionRe.firstMatch(header)?.group(1);
       final version = candidate == null ? null : parseUpdateVersion(candidate);
       if (version == null) {
         throw const FormatException('Invalid script version');

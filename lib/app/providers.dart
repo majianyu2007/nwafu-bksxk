@@ -29,11 +29,21 @@ import '../data/course_service.dart';
 import '../data/enroll_service.dart';
 import '../data/http_ocr_solver.dart';
 import '../data/info_service.dart';
-import '../data/captcha_solver_factory.dart';
+import '../data/onnx_captcha_solver.dart';
 import '../data/models.dart';
 import '../data/monitor_engine.dart';
 import '../data/notifications.dart';
 import '../data/storage.dart';
+import '../data/vpn/campus_proxy.dart';
+
+/// Updates [CampusProxy.customCampusHost] when the user configures a custom
+/// selection server origin whose host differs from [Env.defaultOrigin].
+void syncCustomCampusHost(String origin) {
+  final defaultHost = Uri.parse(Env.defaultOrigin).host.toLowerCase();
+  final host = Uri.tryParse(origin.trim())?.host.toLowerCase();
+  CampusProxy.instance.customCampusHost =
+      (host == null || host.isEmpty || host == defaultHost) ? null : host;
+}
 
 /// Overridden in main() once Storage has been opened.
 final storageProvider = Provider<Storage>((ref) => throw UnimplementedError());
@@ -76,8 +86,8 @@ final captchaSolverProvider = Provider<CaptchaSolver>((ref) {
     ref.onDispose(solver.dispose);
     return solver;
   }
-  final solver = createCaptchaSolver();
-  ref.onDispose(() => disposeCaptchaSolver(solver));
+  final solver = OnnxCaptchaSolver();
+  ref.onDispose(() => unawaited(solver.dispose().catchError((Object _) {})));
   return solver;
 });
 
@@ -142,20 +152,12 @@ final courseCacheProvider =
     Provider<CourseCache>((ref) => CourseCache(ref.watch(storageProvider)));
 
 /// How many captcha attempts a silent re-login may spend (Settings).
-class SilentReloginController extends StateNotifier<int> {
-  SilentReloginController(this._storage)
-      : super(_storage.silentReloginAttempts());
-  final Storage _storage;
-
-  Future<void> set(int attempts) async {
-    state = attempts;
-    await _storage.setSilentReloginAttempts(attempts);
-  }
-}
-
-final silentReloginAttemptsProvider =
-    StateNotifierProvider<SilentReloginController, int>(
-        (ref) => SilentReloginController(ref.watch(storageProvider)));
+final silentReloginAttemptsProvider = StateNotifierProvider<IntSetting, int>((
+  ref,
+) {
+  final s = ref.watch(storageProvider);
+  return IntSetting(s.silentReloginAttempts(), s.setSilentReloginAttempts);
+});
 
 /// The monitor cadence/safety config, shared by every session's engine.
 class MonitorConfigController extends StateNotifier<MonitorConfig> {
@@ -202,10 +204,6 @@ final publicInfoServiceProvider = Provider<InfoService>((ref) {
 /// once; refreshed when the origin changes.
 final sysParamsProvider = FutureProvider<SysParams>(
     (ref) => ref.watch(publicInfoServiceProvider).fetchSysParams());
-
-/// The filter dictionaries (通识类别, 开课单位, …), loaded once.
-final dictionaryProvider = FutureProvider<Map<String, List<DictEntry>>>(
-    (ref) => ref.watch(publicInfoServiceProvider).fetchDictionary());
 
 // ---------------------------------------------------------------------------
 // Per-account scope
@@ -264,8 +262,6 @@ final sessionScopeProvider = Provider.family<SessionScope, String>((ref, id) {
       (_, next) => manager.contestedWindow = Duration(minutes: next));
   manager.onSilentReloginFailed = () =>
       ref.read(sessionControllerProvider(id).notifier).markSessionExpired();
-  manager.onSilentReloginSucceeded = () =>
-      ref.read(sessionControllerProvider(id).notifier).onSessionRecovered();
 
   final engine = MonitorEngine(
     courseService: course,
@@ -279,7 +275,28 @@ final sessionScopeProvider = Provider.family<SessionScope, String>((ref, id) {
   } catch (_) {
     // A corrupt blob must not block sign-in.
   }
+  // Persist watch list per account on debounced structural changes rather than
+  // on every poll tick in UI providers.
+  var lastSavedWatches = engine.encodeWatches();
+  Timer? watchSaveTimer;
+  void flushWatches() {
+    watchSaveTimer?.cancel();
+    watchSaveTimer = null;
+    final encoded = engine.encodeWatches();
+    if (encoded == lastSavedWatches) return;
+    lastSavedWatches = encoded;
+    unawaited(storage.setWatchesJson(id, encoded));
+  }
+
+  final watchSaveSub = engine.changes.listen((_) {
+    watchSaveTimer?.cancel();
+    watchSaveTimer = Timer(const Duration(milliseconds: 400), flushWatches);
+  });
   ref.onDispose(() {
+    watchSaveSub.cancel();
+    flushWatches();
+    manager.onSilentReloginFailed = null;
+    manager.onSilentReloginSucceeded = null;
     engine.dispose();
     client.close();
   });
@@ -379,10 +396,13 @@ class SessionController extends StateNotifier<SessionState> {
   Storage get _storage => _ref.read(storageProvider);
 
   Timer? _heartbeat;
+  int _epoch = 0;
 
   /// Whether the monitor was running when the session dropped, so a
   /// successful re-login can start it again.
   bool _resumeMonitorAfterRelogin = false;
+
+  bool _current(int epoch) => mounted && epoch == _epoch;
 
   /// Fetches a fresh captcha challenge from this account's client.
   Future<CaptchaChallenge> fetchCaptcha() => _mgr.auth.fetchCaptcha();
@@ -414,6 +434,7 @@ class SessionController extends StateNotifier<SessionState> {
   /// notifies, and flips the phase so the shell shows the re-login dialog.
   void markSessionExpired() {
     if (state.phase != AuthPhase.loggedIn) return;
+    _heartbeat?.cancel();
     final engine = _scope.engine;
     _resumeMonitorAfterRelogin = engine.isRunning || engine.haltedForSession;
     engine.haltForSession();
@@ -424,10 +445,6 @@ class SessionController extends StateNotifier<SessionState> {
     NotificationService.instance.sessionExpired(who: state.displayName);
   }
 
-  /// A silent re-login recovered the session. The old monitor timers are
-  /// still ticking; nothing to restart.
-  void onSessionRecovered() {}
-
   /// Interactive re-login from the expired-session dialog. Keeps the shell
   /// (phase stays [AuthPhase.expired] until success), keeps the active round
   /// when it still exists, and restarts the monitor if it had been running.
@@ -436,6 +453,7 @@ class SessionController extends StateNotifier<SessionState> {
     required String verifyCode,
     required String vtoken,
   }) async {
+    final epoch = _epoch;
     final account = state.account;
     final loginName =
         account?.loginName ?? state.student?.studentCode ?? accountId;
@@ -447,7 +465,7 @@ class SessionController extends StateNotifier<SessionState> {
       verifyCode: verifyCode,
       vtoken: vtoken,
     );
-    if (!mounted) return;
+    if (!_current(epoch)) return;
     ElectiveBatch? active;
     for (final b in _mgr.batches) {
       if (b.code == previousActive) active = b;
@@ -467,7 +485,7 @@ class SessionController extends StateNotifier<SessionState> {
     if (isSaved) {
       await _storage.upsertAccount(updated, password: password);
     }
-    if (!mounted) return;
+    if (!_current(epoch)) return;
     state = SessionState(
       phase: AuthPhase.loggedIn,
       student: _mgr.student,
@@ -491,6 +509,7 @@ class SessionController extends StateNotifier<SessionState> {
     required String vtoken,
     bool remember = true,
   }) async {
+    final epoch = _epoch;
     state = state.copyWith(phase: AuthPhase.loggingIn, clearError: true);
     try {
       await _mgr.loginInteractive(
@@ -499,6 +518,7 @@ class SessionController extends StateNotifier<SessionState> {
         verifyCode: verifyCode,
         vtoken: vtoken,
       );
+      if (!_current(epoch)) return;
       final saved = _storage.accounts().where((a) => a.id == accountId);
       final previousBatch = saved.isEmpty ? '' : saved.first.lastBatchCode;
       ElectiveBatch? active = _mgr.activeBatch;
@@ -519,7 +539,7 @@ class SessionController extends StateNotifier<SessionState> {
         await _storage.upsertAccount(account, password: password);
         await _storage.setActiveAccount(account.id);
       }
-      if (!mounted) return;
+      if (!_current(epoch)) return;
       state = SessionState(
         phase: AuthPhase.loggedIn,
         student: _mgr.student,
@@ -532,7 +552,7 @@ class SessionController extends StateNotifier<SessionState> {
       // a direct, explicit action, exposed in Settings.
       if (!kIsWeb) await NotificationService.instance.requestPermission();
     } catch (e) {
-      if (mounted) {
+      if (_current(epoch)) {
         state = state.copyWith(phase: AuthPhase.loggedOut, error: _describe(e));
       }
       rethrow;
@@ -540,6 +560,7 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   Future<void> setActiveBatch(ElectiveBatch batch) async {
+    final epoch = _epoch;
     final changed = state.activeBatch?.code != batch.code;
     _mgr.activeBatch = batch;
     state = state.copyWith(activeBatch: batch);
@@ -547,9 +568,13 @@ class SessionController extends StateNotifier<SessionState> {
     if (account != null && account.lastBatchCode != batch.code) {
       final updated = account.copyWith(lastBatchCode: batch.code);
       state = state.copyWith(account: updated);
-      await _storage.upsertAccount(updated);
+      if (_storage.accounts().any((a) => a.id == accountId)) {
+        await _storage.upsertAccount(updated);
+      }
     }
+    if (!_current(epoch)) return;
     await _confirmBatchIfOpen(batch);
+    if (!_current(epoch)) return;
     // Re-picking the same batch (the post-login dialog usually confirms the
     // auto-selected one) changes no server-side data, so don't refetch.
     if (changed) bumpSelectionRevision(_ref, accountId);
@@ -575,10 +600,13 @@ class SessionController extends StateNotifier<SessionState> {
   }
 
   Future<void> reloadContext() async {
+    final epoch = _epoch;
     final code = _mgr.studentCode ?? state.student?.studentCode;
     if (code == null || code.isEmpty) return;
     var loaded = await _mgr.auth.loadContextDetailed(code);
+    if (!_current(epoch)) return;
     final nodeTs = await _scope.client.fetchCurrentNodeInitTimestamp();
+    if (!_current(epoch)) return;
     if (looksLikeStaleRoundSnapshot(
       studentBatches: loaded.batches,
       publicBatches: loaded.publicBatches,
@@ -586,6 +614,7 @@ class SessionController extends StateNotifier<SessionState> {
       knownClusterInitTimestamp: _scope.client.knownClusterInitTimestamp,
     )) {
       await _scope.client.pinFreshNode(forceRefresh: true);
+      if (!_current(epoch)) return;
       try {
         loaded = await _mgr.auth.loadContextDetailed(code);
       } catch (_) {
@@ -594,7 +623,7 @@ class SessionController extends StateNotifier<SessionState> {
     }
     final student = loaded.student;
     final batches = loaded.batches;
-    if (!mounted) return;
+    if (!_current(epoch)) return;
     final previousStudent = state.student;
     final mergedStudent = student.copyWith(
       name: student.name.isEmpty ? previousStudent?.name : student.name,
@@ -636,15 +665,21 @@ class SessionController extends StateNotifier<SessionState> {
       activeBatch: active,
       account: state.account,
     );
-    if (active != null && !alreadyConfirmed) await _confirmBatchIfOpen(active);
+    if (active != null && !alreadyConfirmed) {
+      await _confirmBatchIfOpen(active);
+      if (!_current(epoch)) return;
+    }
     bumpSelectionRevision(_ref, accountId);
   }
 
   /// Signs this account out: stops its monitor, tells the server, drops the
   /// token and cookies. The account list decides what the UI shows next.
   Future<void> logout() async {
+    ++_epoch;
+    _resumeMonitorAfterRelogin = false;
     _heartbeat?.cancel();
     _scope.engine.stop();
+    _mgr.clearCredentials();
     final code = state.student?.studentCode;
     if (code != null && code.isNotEmpty) {
       try {
@@ -668,6 +703,7 @@ class SessionController extends StateNotifier<SessionState> {
 
   @override
   void dispose() {
+    ++_epoch;
     _heartbeat?.cancel();
     super.dispose();
   }
@@ -694,8 +730,12 @@ void enterAccount(WidgetRef ref, String id) => _enter(ref.read, id);
 void enterAccountFrom(Ref ref, String id) => _enter(ref.read, id);
 
 /// Signs [id] out and shows the next signed-in account, or the login screen.
-Future<void> leaveAccount(WidgetRef ref, String id) =>
-    _leave(ref.read, ref.invalidate, id);
+/// Captures the [ProviderContainer] before awaiting logout so disposal of the
+/// calling widget cannot abort the cleanup.
+Future<void> leaveAccount(WidgetRef ref, String id) {
+  final container = ProviderScope.containerOf(ref.context, listen: false);
+  return _leave(container.read, container.invalidate, id);
+}
 
 /// [leaveAccount] for providers and controllers.
 Future<void> leaveAccountFrom(Ref ref, String id) =>
@@ -738,6 +778,8 @@ final backgroundDriverProvider = Provider<void>((ref) {
   final keepAwake = ref.watch(keepAwakeProvider);
   final engines = [for (final id in ids) ref.watch(sessionScopeProvider(id)).engine];
   final subs = <StreamSubscription<void>>[];
+  bool? lastMonitoring;
+  String? lastStatus;
   void apply() {
     var running = 0;
     var watching = 0;
@@ -751,10 +793,17 @@ final backgroundDriverProvider = Provider<void>((ref) {
             .length;
       }
     }
-    AppBackground.instance.setMonitoring(running > 0,
-        runInBackground: runInBackground, keepAwake: keepAwake);
-    AppBackground.instance
-        .updateStatus(running == 0 ? '' : '$running 个账号监控中，$watching 门课');
+    final active = running > 0;
+    if (active != lastMonitoring) {
+      lastMonitoring = active;
+      AppBackground.instance.setMonitoring(active,
+          runInBackground: runInBackground, keepAwake: keepAwake);
+    }
+    final status = running == 0 ? '' : '$running 个账号监控中，$watching 门课';
+    if (status != lastStatus) {
+      lastStatus = status;
+      AppBackground.instance.updateStatus(status);
+    }
   }
 
   for (final e in engines) {

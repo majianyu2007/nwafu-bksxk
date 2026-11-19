@@ -2,6 +2,7 @@
 # Builds nwafu-connect's embeddable library and copies it into
 # packages/nwafu_connect_ffi/prebuilt/<platform>/ for the app to bundle.
 # Usage: tool/build-vpn-lib.sh [macos|ios|android|linux|windows|all]
+#   (`all` builds the macOS-host targets: macos, ios, android.)
 # NWAFU_CONNECT_DIR defaults to ../nwafu-connect (branch embed-lib).
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,13 +13,10 @@ build() { (cd "$src" && scripts/build-lib.sh "$1"); }
 case "$target" in
   macos)
     build macos
-    mkdir -p "$out/macos" && cp "$src/build/macos/libnwafuconnect.dylib" "$out/macos/"
     # CocoaPods only vendors files inside the pod directory.
     cp "$src/build/macos/libnwafuconnect.dylib" "$here/packages/nwafu_connect_ffi/macos/" ;;
   ios)
     build ios
-    mkdir -p "$out/ios" && rm -rf "$out/ios/NwafuConnect.xcframework" &&
-      cp -R "$src/build/ios/NwafuConnect.xcframework" "$out/ios/"
     rm -rf "$here/packages/nwafu_connect_ffi/ios/NwafuConnect.xcframework"
     cp -R "$src/build/ios/NwafuConnect.xcframework" "$here/packages/nwafu_connect_ffi/ios/" ;;
   android)

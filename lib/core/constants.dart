@@ -77,7 +77,6 @@ class Api {
 
   // ---- Info ----
   static const publicInfo = '/sys/xsxkapp/publicinfo.do';
-  static const noticeList = '/sys/xsxkapp/publicinfo/notice.do';
   static const noticeView = '/sys/xsxkapp/publicinfo/notice/view.do';
   static const volunteerGrade = '/sys/xsxkapp/publicinfo/volunteer.do';
 }

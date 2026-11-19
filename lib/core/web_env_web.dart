@@ -10,54 +10,30 @@ import 'update_links.dart';
 
 bool get isWebRuntime => true;
 
-/// The userscript sets window.__bksxkBridgeReady = true at document-start.
-bool get isWebBridgeReady {
+bool _readBoolFlag(String jsProp, String domAttr) {
   try {
-    final bridgeReady =
-        web.window.getProperty<JSAny?>('__bksxkBridgeReady'.toJS)?.dartify();
-    if (bridgeReady == true) return true;
+    if (web.window.getProperty<JSAny?>(jsProp.toJS)?.dartify() == true) {
+      return true;
+    }
   } catch (_) {
     // Fall through to the DOM marker, which also works across isolated worlds.
   }
-
-  return web.document.documentElement
-          ?.getAttribute('data-bksxk-bridge-ready') ==
-      'true';
+  return web.document.documentElement?.getAttribute(domAttr) == 'true';
 }
 
-bool get isEduSessionBridgeReady {
-  try {
-    if (web.window
-            .getProperty<JSAny?>('__bksxkEduSessionBridgeReady'.toJS)
-            ?.dartify() ==
-        true) {
-      return true;
-    }
-  } catch (_) {
-    // The DOM capability marker also crosses extension-isolated worlds.
-  }
-  return web.document.documentElement?.getAttribute(
-        'data-bksxk-edu-session-bridge-ready',
-      ) ==
-      'true';
-}
+/// The userscript sets window.__bksxkBridgeReady = true at document-start.
+bool get isWebBridgeReady =>
+    _readBoolFlag('__bksxkBridgeReady', 'data-bksxk-bridge-ready');
 
-bool get isCasLoginBridgeReady {
-  try {
-    if (web.window
-            .getProperty<JSAny?>('__bksxkCasLoginBridgeReady'.toJS)
-            ?.dartify() ==
-        true) {
-      return true;
-    }
-  } catch (_) {
-    // The DOM capability marker also crosses extension-isolated worlds.
-  }
-  return web.document.documentElement?.getAttribute(
-        'data-bksxk-cas-login-bridge-ready',
-      ) ==
-      'true';
-}
+bool get isEduSessionBridgeReady => _readBoolFlag(
+      '__bksxkEduSessionBridgeReady',
+      'data-bksxk-edu-session-bridge-ready',
+    );
+
+bool get isCasLoginBridgeReady => _readBoolFlag(
+      '__bksxkCasLoginBridgeReady',
+      'data-bksxk-cas-login-bridge-ready',
+    );
 
 String? get installedWebBridgeVersion {
   try {

@@ -42,6 +42,8 @@ Future<IcsExportOutcome> exportTextFile(
   ExportKind kind,
 ) => impl.exportText(content, fileName, kind);
 
+final _icsFileNameRe = RegExp(r'[\\/:*?"<>|\s]');
+
 /// `课表-2026-2027-1.ics`, safe for every file system.
 String icsFileName(String termCode) =>
-    '课表-${termCode.replaceAll(RegExp(r'[\\/:*?"<>|\s]'), '_')}.ics';
+    '课表-${termCode.replaceAll(_icsFileNameRe, '_')}.ics';

@@ -31,181 +31,86 @@ String strEnc(String data, String firstKey, String secondKey, String thirdKey) {
   final length = data.length;
   if (length == 0) return '';
 
-  List<List<int>>? firstKeyBt;
-  List<List<int>>? secondKeyBt;
-  List<List<int>>? thirdKeyBt;
-  var firstLength = 0;
-  var secondLength = 0;
-  var thirdLength = 0;
-
+  // Mirror des.min.js key-presence prefix semantics: secondKey only applies
+  // when firstKey is non-empty, and thirdKey only when both preceding keys are.
+  final schedules = <List<List<int>>>[];
   if (firstKey.isNotEmpty) {
-    firstKeyBt = _getKeyBytes(firstKey);
-    firstLength = firstKeyBt.length;
+    for (final k in _getKeyBytes(firstKey)) {
+      schedules.add(_generateKeys(k));
+    }
+    if (secondKey.isNotEmpty) {
+      for (final k in _getKeyBytes(secondKey)) {
+        schedules.add(_generateKeys(k));
+      }
+      if (thirdKey.isNotEmpty) {
+        for (final k in _getKeyBytes(thirdKey)) {
+          schedules.add(_generateKeys(k));
+        }
+      }
+    }
   }
-  if (secondKey.isNotEmpty) {
-    secondKeyBt = _getKeyBytes(secondKey);
-    secondLength = secondKeyBt.length;
-  }
-  if (thirdKey.isNotEmpty) {
-    thirdKeyBt = _getKeyBytes(thirdKey);
-    thirdLength = thirdKeyBt.length;
-  }
-
-  final buffer = StringBuffer();
 
   List<int> encryptBlock(List<int> block) {
     var enc = block;
-    if (firstKey.isNotEmpty && secondKey.isNotEmpty && thirdKey.isNotEmpty) {
-      for (var b = 0; b < firstLength; b++) {
-        enc = _enc(enc, firstKeyBt![b]);
-      }
-      for (var h = 0; h < secondLength; h++) {
-        enc = _enc(enc, secondKeyBt![h]);
-      }
-      for (var x = 0; x < thirdLength; x++) {
-        enc = _enc(enc, thirdKeyBt![x]);
-      }
-    } else if (firstKey.isNotEmpty && secondKey.isNotEmpty) {
-      for (var b = 0; b < firstLength; b++) {
-        enc = _enc(enc, firstKeyBt![b]);
-      }
-      for (var h = 0; h < secondLength; h++) {
-        enc = _enc(enc, secondKeyBt![h]);
-      }
-    } else if (firstKey.isNotEmpty) {
-      for (var b = 0; b < firstLength; b++) {
-        enc = _enc(enc, firstKeyBt![b]);
-      }
+    for (final schedule in schedules) {
+      enc = _enc(enc, schedule);
     }
     return enc;
   }
 
-  if (length < 4) {
-    final block = _strToBt(data);
-    buffer.write(_bt64ToHex(encryptBlock(block)));
-    return buffer.toString();
-  }
-
-  final iterator = length ~/ 4;
-  final remainder = length % 4;
-  for (var i = 0; i < iterator; i++) {
-    final group = data.substring(i * 4, i * 4 + 4);
-    buffer.write(_bt64ToHex(encryptBlock(_strToBt(group))));
-  }
-  if (remainder > 0) {
-    final group = data.substring(iterator * 4, length);
-    buffer.write(_bt64ToHex(encryptBlock(_strToBt(group))));
+  final buffer = StringBuffer();
+  for (var start = 0; start < length; start += 4) {
+    final end = start + 4 <= length ? start + 4 : length;
+    buffer.write(_bt64ToHex(encryptBlock(_strToBt(data.substring(start, end)))));
   }
   return buffer.toString();
 }
 
 /// Splits a key string into 4-char sub-blocks, each turned into a 64-bit array.
-List<List<int>> _getKeyBytes(String key) {
-  final result = <List<int>>[];
-  final length = key.length;
-  final iterator = length ~/ 4;
-  final remainder = length % 4;
-  var i = 0;
-  for (i = 0; i < iterator; i++) {
-    result.add(_strToBt(key.substring(i * 4, i * 4 + 4)));
-  }
-  if (remainder > 0) {
-    result.add(_strToBt(key.substring(i * 4, length)));
-  }
-  return result;
-}
+List<List<int>> _getKeyBytes(String key) => [
+      for (var start = 0; start < key.length; start += 4)
+        _strToBt(key.substring(start, start + 4 <= key.length ? start + 4 : key.length)),
+    ];
 
 /// Turns up to 4 chars into a 64-bit array (16 bits per char, big-endian),
 /// zero-padding when fewer than 4 chars are present.
 List<int> _strToBt(String str) {
-  final length = str.length;
+  final count = str.length < 4 ? str.length : 4;
   final bt = List<int>.filled(64, 0);
-  if (length < 4) {
-    for (var i = 0; i < length; i++) {
-      final code = str.codeUnitAt(i);
-      for (var j = 0; j < 16; j++) {
-        var pow = 1;
-        for (var m = 15; m > j; m--) {
-          pow *= 2;
-        }
-        bt[16 * i + j] = (code ~/ pow) % 2;
-      }
-    }
-    // Chars beyond the string length pad with zero bits. bt is already
-    // zero-filled, so the original JS's explicit zero-write loop is a no-op here.
-  } else {
-    for (var i = 0; i < 4; i++) {
-      final code = str.codeUnitAt(i);
-      for (var j = 0; j < 16; j++) {
-        var pow = 1;
-        for (var m = 15; m > j; m--) {
-          pow *= 2;
-        }
-        bt[16 * i + j] = (code ~/ pow) % 2;
-      }
+  for (var i = 0; i < count; i++) {
+    final code = str.codeUnitAt(i);
+    final base = 16 * i;
+    for (var j = 0; j < 16; j++) {
+      bt[base + j] = (code >> (15 - j)) & 1;
     }
   }
   return bt;
 }
 
-String _bt4ToHex(String binary) {
-  switch (binary) {
-    case '0000': return '0';
-    case '0001': return '1';
-    case '0010': return '2';
-    case '0011': return '3';
-    case '0100': return '4';
-    case '0101': return '5';
-    case '0110': return '6';
-    case '0111': return '7';
-    case '1000': return '8';
-    case '1001': return '9';
-    case '1010': return 'A';
-    case '1011': return 'B';
-    case '1100': return 'C';
-    case '1101': return 'D';
-    case '1110': return 'E';
-    case '1111': return 'F';
-    default: return '';
-  }
-}
+const _hexDigits = '0123456789ABCDEF';
 
 String _bt64ToHex(List<int> byteData) {
   final buffer = StringBuffer();
   for (var i = 0; i < 16; i++) {
-    final group = StringBuffer();
-    for (var j = 0; j < 4; j++) {
-      group.write(byteData[4 * i + j]);
-    }
-    buffer.write(_bt4ToHex(group.toString()));
+    final base = 4 * i;
+    final nibble = (byteData[base] << 3) |
+        (byteData[base + 1] << 2) |
+        (byteData[base + 2] << 1) |
+        byteData[base + 3];
+    buffer.write(_hexDigits[nibble]);
   }
   return buffer.toString();
 }
 
-List<int> _enc(List<int> dataBt, List<int> keyBt) {
-  final keys = _generateKeys(keyBt);
+List<int> _enc(List<int> dataBt, List<List<int>> keys) {
   final ip = _initPermute(dataBt);
-  final liArr = List<int>.filled(32, 0);
-  final riArr = List<int>.filled(32, 0);
-  for (var m = 0; m < 32; m++) {
-    liArr[m] = ip[m];
-    riArr[m] = ip[32 + m];
-  }
+  var li = ip.sublist(0, 32);
+  var ri = ip.sublist(32, 64);
 
-  final li = liArr;
-  var ri = riArr;
   for (var round = 0; round < 16; round++) {
-    final mid = List<int>.filled(32, 0);
-    for (var n = 0; n < 32; n++) {
-      mid[n] = li[n];
-      li[n] = ri[n];
-    }
-    final key = List<int>.filled(48, 0);
-    for (var n = 0; n < 48; n++) {
-      key[n] = keys[round][n];
-    }
-    final expanded = _xor(_pPermute(_sBoxPermute(_xor(_expandPermute(ri), key))), mid);
-    ri = List<int>.from(expanded);
+    final prevLi = li;
+    li = ri;
+    ri = _xor(_pPermute(_sBoxPermute(_xor(_expandPermute(ri), keys[round]))), prevLi);
   }
 
   final result = List<int>.filled(64, 0);
@@ -305,17 +210,18 @@ const List<List<List<int>>> _sBoxes = [
 List<int> _sBoxPermute(List<int> expandPermuted) {
   final sBoxPermuted = List<int>.filled(32, 0);
   for (var m = 0; m < 8; m++) {
-    // NOTE: this mirrors the site's exact (mathematically odd) index formula.
-    final line = 2 * expandPermuted[6 * m + 0] + expandPermuted[6 * m + 5];
-    final row = 2 * expandPermuted[6 * m + 1] * 2 * 2 +
-        2 * expandPermuted[6 * m + 2] * 2 +
-        2 * expandPermuted[6 * m + 3] +
-        expandPermuted[6 * m + 4];
-    final value = _getBoxBinary(_sBoxes[m][line][row]);
-    sBoxPermuted[4 * m + 0] = int.parse(value.substring(0, 1));
-    sBoxPermuted[4 * m + 1] = int.parse(value.substring(1, 2));
-    sBoxPermuted[4 * m + 2] = int.parse(value.substring(2, 3));
-    sBoxPermuted[4 * m + 3] = int.parse(value.substring(3, 4));
+    final base = 6 * m;
+    final line = (expandPermuted[base] << 1) | expandPermuted[base + 5];
+    final row = (expandPermuted[base + 1] << 3) |
+        (expandPermuted[base + 2] << 2) |
+        (expandPermuted[base + 3] << 1) |
+        expandPermuted[base + 4];
+    final v = _sBoxes[m][line][row];
+    final out = 4 * m;
+    sBoxPermuted[out] = (v >> 3) & 1;
+    sBoxPermuted[out + 1] = (v >> 2) & 1;
+    sBoxPermuted[out + 2] = (v >> 1) & 1;
+    sBoxPermuted[out + 3] = v & 1;
   }
   return sBoxPermuted;
 }
@@ -344,14 +250,6 @@ List<int> _finallyPermute(List<int> endData) {
     result[i] = endData[order[i]];
   }
   return result;
-}
-
-String _getBoxBinary(int i) {
-  const table = [
-    '0000', '0001', '0010', '0011', '0100', '0101', '0110', '0111',
-    '1000', '1001', '1010', '1011', '1100', '1101', '1110', '1111',
-  ];
-  return table[i];
 }
 
 List<List<int>> _generateKeys(List<int> keyByte) {

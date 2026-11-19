@@ -134,7 +134,8 @@ class CasClient {
     this.random,
     this.webBridgeMode = kIsWeb,
     this.casLoginBridgeReady,
-  }) : _jar = cookieJar {
+  })  : _jar = cookieJar,
+        _ownsDio = dio == null {
     _dio =
         dio ??
         Dio(
@@ -159,6 +160,7 @@ class CasClient {
   }
 
   late final Dio _dio;
+  final bool _ownsDio;
   final CookieJar _jar;
 
   /// Source for the password/passkey nonces; tests pin it.
@@ -171,6 +173,39 @@ class CasClient {
   final bool? casLoginBridgeReady;
 
   bool get _casLoginBridgeReady => casLoginBridgeReady ?? isCasLoginBridgeReady;
+
+  /// Closes the underlying HTTP client sockets if owned by this instance.
+  void close({bool force = false}) {
+    if (_ownsDio) _dio.close(force: force);
+  }
+
+  static final _captchaSwitchRe =
+      RegExp(r'''\bvar\s+captchaSwitch\s*=\s*["']([^"']*)["']''');
+  static final _formRe = RegExp(
+    r'<form\b[^>]*>(.*?)</form>',
+    caseSensitive: false,
+    dotAll: true,
+  );
+  static final _inputRe = RegExp(r'<input\b([^>]*)>', caseSensitive: false);
+  static final _attrRe = RegExp(
+    r'''([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')''',
+    dotAll: true,
+  );
+  static final _mfaTagRe = RegExp(
+    r'<[a-z]+\b[^>]*\b(?:reauth-tab-item|reauth-tab-more-item|changeReAuthTypes)\b[^>]*>',
+    caseSensitive: false,
+    dotAll: true,
+  );
+  static final _mfaUsernameRe = RegExp(r'id="username"[^>]*value="([^"]*)"');
+  static final _valueAttrRe = RegExp(r'''\bvalue=["']([^"']*)["']''');
+
+  static Map<String, String> _parseAttrs(String raw) {
+    final attrs = <String, String>{};
+    for (final am in _attrRe.allMatches(raw)) {
+      attrs[am.group(1)!.toLowerCase()] = am.group(2) ?? am.group(3) ?? '';
+    }
+    return attrs;
+  }
 
   /// Stable browser fingerprint for `/authserver/bfp/info` (信任此设备).
   late final String _fingerprint = _generateFingerprint(random);
@@ -188,7 +223,7 @@ class CasClient {
 
   void _requireWebBridge() {
     if (!webBridgeMode) return;
-    if (casLoginBridgeReady == true) return;
+    if (_casLoginBridgeReady) return;
     requireBrowserSessionBridge();
   }
 
@@ -455,9 +490,7 @@ class CasClient {
       );
       final j = _json(res.data);
       if (j['isNeed'] == true) {
-        final sw = RegExp(
-          r'''\bvar\s+captchaSwitch\s*=\s*["']([^"']*)["']''',
-        ).firstMatch(html)?[1];
+        final sw = _captchaSwitchRe.firstMatch(html)?[1];
         final kind = sw == '2' ? '滑块验证' : '图形验证码';
         throw AppError(
           AppErrorKind.captcha,
@@ -473,26 +506,12 @@ class CasClient {
   }
 
   static Map<String, String> _parseFormFields(String html, String cllt) {
-    final formRe = RegExp(
-      r'<form\b[^>]*>(.*?)</form>',
-      caseSensitive: false,
-      dotAll: true,
-    );
-    final inputRe = RegExp(r'<input\b([^>]*)>', caseSensitive: false);
-    final attrRe = RegExp(
-      r'''([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')''',
-      dotAll: true,
-    );
-    for (final fm in formRe.allMatches(html)) {
+    for (final fm in _formRe.allMatches(html)) {
       final body = fm.group(1) ?? '';
       final fields = <String, String>{};
-      for (final im in inputRe.allMatches(body)) {
+      for (final im in _inputRe.allMatches(body)) {
         final rawAttrs = im.group(1) ?? '';
-        final attrs = <String, String>{};
-        for (final am in attrRe.allMatches(rawAttrs)) {
-          attrs[am.group(1)!.toLowerCase()] =
-              am.group(2) ?? am.group(3) ?? '';
-        }
+        final attrs = _parseAttrs(rawAttrs);
         final type = attrs['type']?.toLowerCase();
         if ((type == 'checkbox' || type == 'radio') &&
             !rawAttrs.toLowerCase().contains('checked')) {
@@ -525,15 +544,18 @@ class CasClient {
     );
     Map<String, dynamic> result;
     try {
-      result =
-          (jsonDecode(start.data ?? '') as Map)['result']
-              as Map<String, dynamic>;
+      final decoded = jsonDecode(start.data ?? '');
+      final rawResult = decoded is Map ? decoded['result'] : null;
+      result = rawResult is Map
+          ? rawResult.cast<String, dynamic>()
+          : const {};
     } catch (_) {
       result = const {};
     }
-    final request = result['request'] as Map<String, dynamic>?;
-    final options =
-        request?['publicKeyCredentialRequestOptions'] as Map<String, dynamic>?;
+    final rawReq = result['request'];
+    final request = rawReq is Map ? rawReq.cast<String, dynamic>() : null;
+    final rawOpts = request?['publicKeyCredentialRequestOptions'];
+    final options = rawOpts is Map ? rawOpts.cast<String, dynamic>() : null;
     final challenge = options?['challenge']?.toString() ?? '';
     final requestId = request?['requestId']?.toString() ?? '';
     if (result['success'] != true || challenge.isEmpty || requestId.isEmpty) {
@@ -620,20 +642,8 @@ class CasClient {
 
   CasMfaChallenge _parseMfaPage(String html, String service) {
     final methods = <MfaMethod>[];
-    final tagRe = RegExp(
-      r'<[a-z]+\b[^>]*\b(?:reauth-tab-item|reauth-tab-more-item|changeReAuthTypes)\b[^>]*>',
-      caseSensitive: false,
-      dotAll: true,
-    );
-    final attrRe = RegExp(
-      r'''([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')''',
-      dotAll: true,
-    );
-    for (final m in tagRe.allMatches(html)) {
-      final attrs = <String, String>{};
-      for (final am in attrRe.allMatches(m.group(0)!)) {
-        attrs[am.group(1)!.toLowerCase()] = am.group(2) ?? am.group(3) ?? '';
-      }
+    for (final m in _mfaTagRe.allMatches(html)) {
+      final attrs = _parseAttrs(m.group(0)!);
       var code = attrs['data-type'] ?? attrs['id'] ?? '';
       if (code.startsWith('tab_')) code = code.substring(4);
       final method = MfaMethod.byCode(code);
@@ -653,13 +663,12 @@ class CasClient {
         hint: '请使用官方认证页面登录。',
       );
     }
-    final name = RegExp(
-      r'id="username"[^>]*value="([^"]*)"',
-    ).firstMatch(html)?[1];
+    final name = _mfaUsernameRe.firstMatch(html)?[1];
     final isMultifactor = param('isMultifactor');
     final isSleepAccount = param('isSleepAccount');
+    final pageService = param('service');
     return CasMfaChallenge(
-      service: param('service').isNotEmpty ? param('service') : service,
+      service: pageService.isNotEmpty ? pageService : service,
       methods: methods,
       userId: param('reAuthUserId'),
       displayName: name ?? '',
@@ -751,15 +760,32 @@ class CasClient {
     bool trustDevice = true,
   }) async {
     _checkMfaMethod(c, method);
-    final trimmed = code.trim();
-    if (trimmed.isEmpty) {
+    final value = method == MfaMethod.password ? code : code.trim();
+    if (value.isEmpty) {
       throw AppError(
         AppErrorKind.captcha,
         message: method == MfaMethod.password ? '请输入认证密码' : '请输入二次验证码',
       );
     }
-    if (method == MfaMethod.totp && trimmed.length != 6) {
+    if (method == MfaMethod.totp && value.length != 6) {
       throw AppError(AppErrorKind.captcha, message: '安全令牌需要 6 位数字');
+    }
+    String encryptedPassword = '';
+    if (method == MfaMethod.password) {
+      final salt = c.salt.trim();
+      if (salt.isNotEmpty) {
+        final keyLen = utf8.encode(salt).length;
+        if (keyLen != 16 && keyLen != 24 && keyLen != 32) {
+          throw AppError(
+            AppErrorKind.schemaOrRedirect,
+            message: '二次认证加密参数异常（未发送密码）',
+            hint: '请重新登录或使用官方认证页面。',
+          );
+        }
+        encryptedPassword = encryptCasPassword(value, salt, random: random);
+      } else {
+        encryptedPassword = value;
+      }
     }
     if (method == MfaMethod.totp || method == MfaMethod.password) {
       await selectMfaMethod(c, method);
@@ -769,16 +795,12 @@ class CasClient {
       'service': c.service,
       'reAuthType': method == MfaMethod.password ? '2' : method.code,
       'isMultifactor': c.isMultifactor,
-      'password': method == MfaMethod.password
-          ? (c.salt.isNotEmpty
-                ? encryptCasPassword(trimmed, c.salt, random: random)
-                : trimmed)
-          : '',
-      'dynamicCode': method.needsSend ? trimmed : '',
+      'password': encryptedPassword,
+      'dynamicCode': method.needsSend ? value : '',
       'uuid': '',
       'answer1': '',
       'answer2': '',
-      'otpCode': method == MfaMethod.totp ? trimmed : '',
+      'otpCode': method == MfaMethod.totp ? value : '',
     };
     if (c.asksTrust) {
       data['skipTmpReAuth'] = trustDevice ? 'true' : 'false';
@@ -918,16 +940,37 @@ class CasClient {
 
   /// The re-check captcha image (PNG bytes).
   Future<Uint8List> recheckCaptcha() async {
-    final res = await _dio.get<List<int>>(
-      '$_pcBase/captcha/checkCode?data=${DateTime.now().millisecondsSinceEpoch}',
-      options: Options(responseType: ResponseType.bytes),
-    );
-    return Uint8List.fromList(res.data ?? const []);
+    _requireWebBridge();
+    try {
+      final res = await _dio.get<List<int>>(
+        '$_pcBase/captcha/checkCode?data=${DateTime.now().millisecondsSinceEpoch}',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final data = res.data ?? const <int>[];
+      if ((res.statusCode ?? 0) != 200 || data.isEmpty) {
+        throw AppError(
+          AppErrorKind.schemaOrRedirect,
+          message: '获取安全校验验证码失败',
+          hint: '请稍后重试。',
+        );
+      }
+      return data is Uint8List ? data : Uint8List.fromList(data);
+    } on DioException catch (e) {
+      throw AppError.fromDio(e);
+    }
   }
 
   /// Re-checks the password (with the captcha from [recheckCaptcha]).
   Future<void> recheckPassword(String password, String captcha) async {
-    final key = await _cookie('WIS_PER_ENC') ?? '';
+    final key = (await _cookie('WIS_PER_ENC') ?? '').trim();
+    final keyLen = utf8.encode(key).length;
+    if (keyLen != 16 && keyLen != 24 && keyLen != 32) {
+      throw AppError(
+        AppErrorKind.schemaOrRedirect,
+        message: '个人中心会话缺少加密密钥（未发送密码）',
+        hint: '请重新进入个人中心后再试。',
+      );
+    }
     final j = await _pcPost('/common/reCheckPwd', {
       'captcha': captcha.trim(),
       'password': encryptCasPassword(password, key, random: random),
@@ -947,11 +990,18 @@ class CasClient {
     AttestationFormat format = AttestationFormat.none,
   }) async {
     final start = await _pcPost('/accountSecurity/startRegister');
-    final request = (start['datas'] as Map?)?['request'];
+    if (start['code']?.toString() != '0') {
+      throw AppError(
+        AppErrorKind.account,
+        message: start['message']?.toString() ?? '学校未允许绑定新设备',
+      );
+    }
+    final startDatas = start['datas'];
+    final request = startDatas is Map ? startDatas['request'] : null;
     final options = request is Map
         ? request['publicKeyCredentialCreationOptions']
         : null;
-    if (start['code']?.toString() != '0' || options is! Map) {
+    if (request is! Map || options is! Map) {
       throw AppError(
         AppErrorKind.account,
         message: start['message']?.toString() ?? '学校未允许绑定新设备',
@@ -1044,8 +1094,7 @@ class CasClient {
       caseSensitive: false,
     ).firstMatch(html)?.group(0);
     if (tag == null) return null;
-    return RegExp(r'''\bvalue=["']([^"']*)["']''').firstMatch(tag)?.group(1) ??
-        '';
+    return _valueAttrRe.firstMatch(tag)?.group(1) ?? '';
   }
 
   static Map<String, dynamic> _json(String? body) {
@@ -1068,15 +1117,18 @@ class CasClient {
   }
 }
 
+final _showErrorTipRe = RegExp(r'id="showErrorTip"[^>]*>([^<]+)<');
+final _formErrorTipRe = RegExp(
+  r'id=["\x27]formErrorTip["\x27][^>]*>.*?<span[^>]*>([^<]+)</span>',
+  dotAll: true,
+);
+
 /// Turns a failed login page into an [AppError], keyed on the page's own
 /// error tip, as `wisedu_cas._classify_and_raise` does.
 AppError classifyLoginFailure(String html) {
   final tip =
-      RegExp(r'id="showErrorTip"[^>]*>([^<]+)<').firstMatch(html)?[1]?.trim() ??
-      RegExp(
-        r'id=["\x27]formErrorTip["\x27][^>]*>.*?<span[^>]*>([^<]+)</span>',
-        dotAll: true,
-      ).firstMatch(html)?[1]?.trim() ??
+      _showErrorTipRe.firstMatch(html)?[1]?.trim() ??
+      _formErrorTipRe.firstMatch(html)?[1]?.trim() ??
       '';
   if (tip.contains('锁定') ||
       tip.toUpperCase().contains('LOCK') ||

@@ -20,8 +20,12 @@
 /// of suggestions (the browse list still shows them).
 library;
 
+import 'academic_calendar.dart' show schoolDate;
 import 'edu_models.dart';
 import 'timetable_logic.dart';
+
+final _roomCodeRe = RegExp(r'^([A-Za-z]+\d)');
+final _roomTailRe = RegExp(r'[A-Za-z]?\d.*$');
 
 /// The day's blocks, by period.
 class RoomBlock {
@@ -29,8 +33,6 @@ class RoomBlock {
   final String label;
   final int from;
   final int to;
-
-  bool covers(int period) => period >= from && period <= to;
 
   @override
   bool operator ==(Object other) =>
@@ -48,18 +50,24 @@ const kRoomBlocks = [
 ];
 
 /// Where each free room is, from the school's own building field: room name
-/// → (building, campus). Built from every block's list, so a room that is
-/// free at any time of the day is known.
+/// → building. Built from every block's list, so a room that is free at any
+/// time of the day is known.
 class RoomDirectory {
   RoomDirectory(Iterable<List<FreeRoom>> lists) {
     for (final list in lists) {
       for (final r in list) {
-        _rooms.putIfAbsent(r.name, () => r);
+        if (_rooms.containsKey(r.name)) continue;
+        _rooms[r.name] = r;
+        final p = _prefix(r.name);
+        if (p != null) {
+          _byPrefix.putIfAbsent(p.toUpperCase(), () => r.building);
+        }
       }
     }
   }
 
   final _rooms = <String, FreeRoom>{};
+  final _byPrefix = <String, String?>{};
 
   /// The building of [room] (a timetable room name). Rooms never free today
   /// are matched by prefix: `N8618` → a room starting with `N8`,
@@ -72,30 +80,20 @@ class RoomDirectory {
     final prefix = _prefix(trimmed);
     if (prefix == null) return null;
     final upper = prefix.toUpperCase();
+    if (_byPrefix.containsKey(upper)) return _byPrefix[upper];
     for (final r in _rooms.values) {
-      if (r.name.toUpperCase().startsWith(upper)) return r.building;
+      if (r.name.toUpperCase().startsWith(upper)) {
+        return _byPrefix[upper] = r.building;
+      }
     }
-    return null;
-  }
-
-  String? campusOf(String room) {
-    final trimmed = room.trim();
-    if (trimmed.isEmpty) return null;
-    final known = _rooms[trimmed];
-    if (known != null) return known.campus;
-    final building = buildingOf(trimmed);
-    if (building == null) return null;
-    for (final r in _rooms.values) {
-      if (r.building == building) return r.campus;
-    }
-    return null;
+    return _byPrefix[upper] = null;
   }
 
   static String? _prefix(String room) {
     final trimmed = room.trim();
-    final code = RegExp(r'^([A-Za-z]+\d)').firstMatch(trimmed);
+    final code = _roomCodeRe.firstMatch(trimmed);
     if (code != null) return code.group(1)!.toUpperCase();
-    final base = trimmed.replaceFirst(RegExp(r'[A-Za-z]?\d.*$'), '');
+    final base = trimmed.replaceFirst(_roomTailRe, '');
     return base.length >= 2 ? base : null;
   }
 }
@@ -126,8 +124,9 @@ class RoomDirectory {
 /// Short building key used by the browse filter: `N8618` → `N8`, else the
 /// school's building label.
 String buildingKey(String room) {
-  final m = RegExp(r'^([A-Za-z]+\d)').firstMatch(room.trim());
-  return m?.group(1)?.toUpperCase() ?? room.trim();
+  final trimmed = room.trim();
+  final m = _roomCodeRe.firstMatch(trimmed);
+  return m?.group(1)?.toUpperCase() ?? trimmed;
 }
 
 final _notStudyBuilding = RegExp(r'体育|活动中心|博览园|曹新庄|实验动物|解剖|图书馆|学生处');
@@ -179,8 +178,6 @@ class RoomSuggestion {
 
   /// The school building of [anchorRoom], when known.
   final String? building;
-
-  RoomBlock get block => blocks.first;
 }
 
 /// Builds the day's suggestions. [classes] are the day's occurrences;
@@ -194,13 +191,14 @@ List<RoomSuggestion> suggestRooms({
   required Map<RoomBlock, List<FreeRoom>> free,
   required DateTime now,
   String? home,
+  RoomDirectory? directory,
   int limit = 6,
 }) {
   final minutes = _cstMinutes(now);
   final today = _sameDay(now, date);
   final sessions = [for (final o in classes) o.session]
     ..sort((a, b) => a.startPeriod.compareTo(b.startPeriod));
-  final dir = RoomDirectory(free.values);
+  final dir = directory ?? RoomDirectory(free.values);
 
   bool busy(RoomBlock b) =>
       sessions.any((s) => s.startPeriod <= b.to && s.endPeriod >= b.from);
@@ -230,13 +228,22 @@ List<RoomSuggestion> suggestRooms({
     final prev = sessions.where((s) => s.endPeriod < run.first.from).lastOrNull;
     final next = sessions.where((s) => s.startPeriod > run.last.to).firstOrNull;
     if (prev == null && next == null) continue;
-    // Filter past/unloaded blocks first so a long run (e.g. only morning class
-    // with afternoon blocks remaining) still yields active study suggestions.
-    var stretch = [
-      for (final b in run)
-        if (!past(b) && free.containsKey(b)) b,
-    ];
-    if (stretch.isEmpty) continue;
+    // Split on past/unloaded holes into contiguous sub-runs so a missing middle
+    // block is never mislabelled as one continuous stretch.
+    final subRuns = <List<RoomBlock>>[];
+    for (final b in run) {
+      if (!past(b) && free.containsKey(b)) {
+        if (subRuns.isEmpty) subRuns.add([]);
+        subRuns.last.add(b);
+      } else if (subRuns.isNotEmpty && subRuns.last.isNotEmpty) {
+        subRuns.add([]);
+      }
+    }
+    final activeSubs = subRuns.where((s) => s.isNotEmpty).toList();
+    if (activeSubs.isEmpty) continue;
+    // Pick the sub-run closest to the anchor class (last for beforeClass,
+    // first for afterClass, longest/first for between).
+    var stretch = prev == null ? activeSubs.last : activeSubs.first;
     // A long morning before the first class or evening after the last one
     // is not one study session: keep the two blocks closest to the class/now.
     if (prev == null && stretch.length > 2) {
@@ -280,8 +287,6 @@ List<RoomSuggestion> suggestRooms({
         },
         reason: anchorRoom.isEmpty
             ? '${next == null ? '上' : '下'}一节是${anchor.displayName}'
-            : next != null
-            ? '${periods(next)} ${next.displayName}'
             : '${periods(anchor)} ${anchor.displayName}',
         rooms: ranked.take(limit).toList(),
         sameRoom: same,
@@ -328,22 +333,22 @@ List<RankedRoom> _rank(
   final building =
       anchorBuilding ??
       (anchorRoom == null ? null : dir.buildingOf(anchorRoom));
-  final byName = <String, RankedRoom>{};
+  if (anchorRoom == null && building == null) return const [];
+  final byName = <String, (FreeRoom, List<RoomBlock>)>{};
   for (final b in stretch) {
     for (final r in free[b]!) {
-      if (!isStudyRoom(r) && r.name != anchorRoom) continue;
-      final seen = byName[r.name];
-      byName[r.name] = RankedRoom(r, [...?seen?.freeIn, b]);
+      final isAnchor = r.name == anchorRoom;
+      if (!isAnchor && (building == null || r.building != building)) continue;
+      if (!isAnchor && !isStudyRoom(r)) continue;
+      final entry = byName[r.name];
+      if (entry == null) {
+        byName[r.name] = (r, [b]);
+      } else {
+        entry.$2.add(b);
+      }
     }
   }
-  // Only the class's own building counts as "no walking".
-  final near = byName.values
-      .where(
-        (r) =>
-            r.room.name == anchorRoom ||
-            (building != null && r.room.building == building),
-      )
-      .toList();
+  final near = [for (final e in byName.values) RankedRoom(e.$1, e.$2)];
 
   // 40–150 seats is an ordinary classroom; very small or huge rooms last.
   int size(FreeRoom r) {
@@ -356,13 +361,12 @@ List<RankedRoom> _rank(
   bool own(RankedRoom r) =>
       r.room.name == anchorRoom && r.freeIn.length == stretch.length;
   return near..sort((a, b) {
-    for (final c in [
-      (own(a) ? 0 : 1).compareTo(own(b) ? 0 : 1),
-      b.freeIn.length.compareTo(a.freeIn.length),
-      size(a.room).compareTo(size(b.room)),
-    ]) {
-      if (c != 0) return c;
-    }
+    final c0 = (own(a) ? 0 : 1).compareTo(own(b) ? 0 : 1);
+    if (c0 != 0) return c0;
+    final c1 = b.freeIn.length.compareTo(a.freeIn.length);
+    if (c1 != 0) return c1;
+    final c2 = size(a.room).compareTo(size(b.room));
+    if (c2 != 0) return c2;
     return a.room.name.compareTo(b.room.name);
   });
 }
@@ -374,9 +378,10 @@ String _stretchLabel(List<RoomBlock> s) =>
 /// null when it cannot be told.
 String? homeBuilding(
   TermTimetable timetable,
-  Map<RoomBlock, List<FreeRoom>> free,
-) {
-  final dir = RoomDirectory(free.values);
+  Map<RoomBlock, List<FreeRoom>> free, {
+  RoomDirectory? directory,
+}) {
+  final dir = directory ?? RoomDirectory(free.values);
   final counts = <String, int>{};
   for (final s in timetable.sessions) {
     if (s.room.isEmpty) continue;
@@ -384,7 +389,15 @@ String? homeBuilding(
     if (b != null) counts[b] = (counts[b] ?? 0) + 1;
   }
   if (counts.isEmpty) return null;
-  return (counts.entries.toList()..sort((a, b) => b.value - a.value)).first.key;
+  String? best;
+  var bestCount = 0;
+  counts.forEach((k, v) {
+    if (v > bestCount) {
+      best = k;
+      bestCount = v;
+    }
+  });
+  return best;
 }
 
 /// The block containing or following [minutes] (CST), given each period's
@@ -406,7 +419,7 @@ int _cstMinutes(DateTime instant) {
 }
 
 bool _sameDay(DateTime now, DateTime date) {
-  final cst = now.toUtc().add(const Duration(hours: 8));
+  final cst = schoolDate(now);
   return cst.year == date.year &&
       cst.month == date.month &&
       cst.day == date.day;

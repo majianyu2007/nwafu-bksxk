@@ -19,9 +19,12 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
-STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/nwafu-bksxk-dmg.XXXXXX")"
+TMP_BASE="${TMPDIR:+${TMPDIR%/}}"
+STAGE_DIR="$(mktemp -d "${TMP_BASE:-/tmp}/nwafu-bksxk-dmg.XXXXXX")"
 cleanup() { rm -rf "$STAGE_DIR"; }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 mkdir -p "$(dirname "$DMG_PATH")"
 rm -f "$DMG_PATH"

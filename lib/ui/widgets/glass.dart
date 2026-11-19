@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/theme.dart';
+import '../layout.dart' show kRailBreakpoint;
 
 /// Whether animations should be skipped (system reduce-motion).
 bool reduceMotion(BuildContext context) =>
@@ -139,19 +140,30 @@ class GlassSurface extends StatelessWidget {
               width: 1,
             )
           : null;
-      return Material(
+      Widget surface = Material(
         color: fill,
         borderRadius: borderRadius,
         clipBehavior: Clip.antiAlias,
-        child: DecoratedBox(
+        child: solidBorder == null
+            ? inner
+            : DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: borderRadius,
+                  border: solidBorder,
+                ),
+                child: inner,
+              ),
+      );
+      if (shadow) {
+        surface = DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: borderRadius,
-            border: solidBorder,
-            boxShadow: shadow ? t.shadow : null,
+            boxShadow: t.shadow,
           ),
-          child: inner,
-        ),
-      );
+          child: surface,
+        );
+      }
+      return surface;
     }
 
     final apple = isApplePlatform(context);
@@ -222,27 +234,30 @@ class GlassCard extends StatelessWidget {
     if (tint != null) {
       base = Color.alphaBlend(tint!.withValues(alpha: tintAmount), base);
     }
+    final decoration = BoxDecoration(
+      color: base,
+      borderRadius: r,
+      border: Border.all(
+        color: t.enabled
+            ? t.border
+            : Theme.of(
+                context,
+              ).colorScheme.outlineVariant.withValues(alpha: 0.4),
+      ),
+      gradient: sheen && t.enabled ? sheenGradient(t, base) : null,
+    );
     Widget card = Material(
       color: Colors.transparent,
       child: Ink(
-        decoration: BoxDecoration(
-          color: base,
-          borderRadius: r,
-          border: Border.all(
-            color: t.enabled
-                ? t.border
-                : Theme.of(
-                    context,
-                  ).colorScheme.outlineVariant.withValues(alpha: 0.4),
-          ),
-          gradient: sheen && t.enabled ? sheenGradient(t, base) : null,
-        ),
-        child: InkWell(
-          borderRadius: r,
-          onTap: onTap,
-          onLongPress: onLongPress,
-          child: Padding(padding: padding, child: child),
-        ),
+        decoration: decoration,
+        child: onTap == null && onLongPress == null
+            ? Padding(padding: padding, child: child)
+            : InkWell(
+                borderRadius: r,
+                onTap: onTap,
+                onLongPress: onLongPress,
+                child: Padding(padding: padding, child: child),
+              ),
       ),
     );
     if (margin != null) card = Padding(padding: margin!, child: card);
@@ -290,10 +305,9 @@ class GlassCapsuleNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = GlassTokens.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final media = MediaQuery.of(context);
-    final bottom = media.padding.bottom;
-    final width = media.size.width;
-    final scale = media.textScaler.scale(12) / 12;
+    final bottom = MediaQuery.paddingOf(context).bottom;
+    final width = MediaQuery.sizeOf(context).width;
+    final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
     final tight = width < 360;
     final hideUnselectedLabels = width < 330 || scale > 1.45;
     final margin = tight ? 8.0 : t.navBarMargin;
@@ -406,14 +420,6 @@ class GlassCapsuleNavBar extends StatelessWidget {
   }
 }
 
-/// Height the floating bar occupies including its bottom gap, for content
-/// that must scroll clear of it.
-double glassNavBarExtent(BuildContext context) {
-  final t = GlassTokens.of(context);
-  final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
-  return t.navBarHeight + (scale > 1 ? (scale - 1) * 16 : 0) + 12;
-}
-
 /// A modal bottom sheet (phones) or dialog (wide) on a translucent glass
 /// surface with radius 28.
 Future<T?> showGlassSheet<T>(
@@ -421,9 +427,9 @@ Future<T?> showGlassSheet<T>(
   required WidgetBuilder builder,
   double maxWidth = 640,
 }) {
-  final size = MediaQuery.sizeOf(context);
+  final width = MediaQuery.sizeOf(context).width;
   final t = GlassTokens.of(context);
-  if (size.width < 840) {
+  if (width < kRailBreakpoint) {
     return showModalBottomSheet<T>(
       context: context,
       isScrollControlled: true,
@@ -457,22 +463,25 @@ Future<T?> showGlassSheet<T>(
   }
   return showDialog<T>(
     context: context,
-    builder: (context) => Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      insetPadding: const EdgeInsets.all(24),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: maxWidth,
-          maxHeight: size.height * 0.85,
+    builder: (context) {
+      final liveHeight = MediaQuery.sizeOf(context).height;
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: maxWidth,
+            maxHeight: liveHeight * 0.85,
+          ),
+          child: GlassSurface(
+            alpha: t.sheetSurfaceAlpha,
+            shadow: true,
+            borderRadius: BorderRadius.circular(t.sheetRadius),
+            child: builder(context),
+          ),
         ),
-        child: GlassSurface(
-          alpha: t.sheetSurfaceAlpha,
-          shadow: true,
-          borderRadius: BorderRadius.circular(t.sheetRadius),
-          child: builder(context),
-        ),
-      ),
-    ),
+      );
+    },
   );
 }

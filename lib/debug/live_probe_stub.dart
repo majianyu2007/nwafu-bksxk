@@ -17,3 +17,6 @@ void probeFetch(ProviderContainer c, String u) {}
 void probeRoomsTiming(ProviderContainer c, int n) {}
 void probeLibrary(ProviderContainer c) {}
 void probeAcademic(ProviderContainer c) {}
+void probeTheme(ProviderContainer c, bool dark) {}
+void probeShiftClock(ProviderContainer c, int minutes) {}
+String probeDay(ProviderContainer c, int y, int m, int d) => '';

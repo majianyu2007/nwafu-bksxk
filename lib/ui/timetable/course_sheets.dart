@@ -147,10 +147,7 @@ class _CourseDetails extends ConsumerWidget {
                   : [
                       for (final a in data.adjustments)
                         if (a.courseName.isNotEmpty &&
-                            a.courseName
-                                    .replaceFirst(RegExp(r'^【[^】]*】'), '')
-                                    .trim() ==
-                                cleanSessionName)
+                            stripCourseTag(a.courseName) == cleanSessionName)
                           '${a.fromLabel} → ${a.toLabel}',
                     ];
               return Column(
@@ -246,7 +243,7 @@ class _CourseDetails extends ConsumerWidget {
                   DetailRow('教师', s.teacher, icon: Icons.person_outline),
                   DetailRow(
                     '学分',
-                    s.credit == 0 ? '' : _num(s.credit),
+                    s.credit == 0 ? '' : formatCredit(s.credit),
                     icon: Icons.star_outline,
                   ),
                   DetailRow('校区', s.campus, icon: Icons.apartment_outlined),
@@ -315,7 +312,7 @@ class _CourseDetails extends ConsumerWidget {
                                 ],
                               ),
                             );
-                            if (ok != true) return;
+                            if (ok != true || !context.mounted) return;
                             await ref
                                 .read(timetableProvider.notifier)
                                 .removeCustom(s.id);
@@ -385,9 +382,6 @@ class _ColorPicker extends StatelessWidget {
     ],
   );
 }
-
-String _num(double v) =>
-    v == v.roundToDouble() ? v.toInt().toString() : v.toString();
 
 // ---------------------------------------------------------------------------
 // Custom course editor
@@ -500,10 +494,17 @@ class _CustomCourseEditorState extends ConsumerState<CustomCourseEditor> {
         : formatWeeks(widget.existing!.weeks),
   );
   late int _weekday = widget.existing?.weekday ?? widget.weekday ?? 1;
-  late int _start = widget.existing?.startPeriod ?? 1;
-  late int _end = widget.existing?.endPeriod ?? 2;
+  late int _start = (widget.existing?.startPeriod ?? 1).clamp(1, _maxPeriod);
+  late int _end = (widget.existing?.endPeriod ?? 2).clamp(_start, _maxPeriod);
+  bool _hadName = false;
   Map<String, String> _errors = const {};
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hadName = _name.text.trim().isNotEmpty;
+  }
 
   @override
   void dispose() {
@@ -568,8 +569,11 @@ class _CustomCourseEditorState extends ConsumerState<CustomCourseEditor> {
         : const <CourseSession>[];
     final previewWeeks = tryParseWeeks(_weeks.text, maxWeek: _maxWeek);
     final pickedSet = previewWeeks?.toSet() ?? const <int>{};
-    final periods = [for (var p = 1; p <= _maxPeriod; p++) p];
-    final endPeriods = [for (var p = _start; p <= _maxPeriod; p++) p];
+    final maxP = _maxPeriod;
+    final startClamped = _start.clamp(1, maxP);
+    final endClamped = _end.clamp(startClamped, maxP);
+    final periods = [for (var p = 1; p <= maxP; p++) p];
+    final endPeriods = [for (var p = startClamped; p <= maxP; p++) p];
     final maxW = _maxWeek;
     final half = (maxW / 2).ceil();
     final scheme = Theme.of(context).colorScheme;
@@ -583,11 +587,17 @@ class _CustomCourseEditorState extends ConsumerState<CustomCourseEditor> {
             labelText: '课程名称',
             errorText: _errors['name'],
           ),
-          onChanged: (_) => setState(() {
-            if (_errors.containsKey('name')) {
-              _errors = Map<String, String>.from(_errors)..remove('name');
+          onChanged: (v) {
+            final hasName = v.trim().isNotEmpty;
+            if (_errors.containsKey('name') || hasName != _hadName) {
+              _hadName = hasName;
+              setState(() {
+                if (_errors.containsKey('name')) {
+                  _errors = Map<String, String>.from(_errors)..remove('name');
+                }
+              });
             }
-          }),
+          },
         ),
         const SizedBox(height: 12),
         TextField(
@@ -620,14 +630,14 @@ class _CustomCourseEditorState extends ConsumerState<CustomCourseEditor> {
             Expanded(
               child: DropdownButtonFormField<int>(
                 key: const ValueKey('start-period'),
-                initialValue: _start.clamp(1, _maxPeriod),
+                initialValue: startClamped,
                 decoration: const InputDecoration(labelText: '开始节次'),
                 items: [
                   for (final p in periods)
                     DropdownMenuItem(value: p, child: Text('第 $p 节')),
                 ],
                 onChanged: (v) => setState(() {
-                  _start = v ?? _start;
+                  _start = (v ?? _start).clamp(1, maxP);
                   if (_end < _start) _end = _start;
                   _errors = Map<String, String>.from(_errors)..remove('period');
                 }),
@@ -636,8 +646,8 @@ class _CustomCourseEditorState extends ConsumerState<CustomCourseEditor> {
             const SizedBox(width: 12),
             Expanded(
               child: DropdownButtonFormField<int>(
-                key: ValueKey('end-period-$_start-$_end'),
-                initialValue: _end.clamp(_start, _maxPeriod),
+                key: ValueKey('end-period-$startClamped-$endClamped'),
+                initialValue: endClamped,
                 decoration: InputDecoration(
                   labelText: '结束节次',
                   errorText: _errors['period'],
@@ -647,7 +657,7 @@ class _CustomCourseEditorState extends ConsumerState<CustomCourseEditor> {
                     DropdownMenuItem(value: p, child: Text('第 $p 节')),
                 ],
                 onChanged: (v) => setState(() {
-                  _end = v ?? _end;
+                  _end = (v ?? _end).clamp(startClamped, maxP);
                   _errors = Map<String, String>.from(_errors)..remove('period');
                 }),
               ),

@@ -171,9 +171,12 @@ bool verifyP256(ECPoint q, Uint8List message, Uint8List der) {
 /// The private scalar of a PKCS#8 / SEC1 key.
 BigInt privateScalarOf(String keyValue) => _privateScalar(b64Decode(keyValue));
 
+/// The P-256 public point for private scalar [d].
+ECPoint publicPointForScalar(BigInt d) => (_p256.G * d)!;
+
 /// The public point for a key, for tests and diagnostics.
 ECPoint publicPointOf(String keyValue) =>
-    (_p256.G * _privateScalar(b64Decode(keyValue)))!;
+    publicPointForScalar(_privateScalar(b64Decode(keyValue)));
 
 /// A fresh P-256 key as base64url PKCS#8, the format Bitwarden exports.
 String generatePasskeyKey({Random? random}) {
@@ -184,7 +187,7 @@ String generatePasskeyKey({Random? random}) {
   } while (d == BigInt.zero || d >= _p256.n);
   final ecPrivateKey = _derSequence([
     _derInteger(BigInt.one),
-    _derTlv(0x04, _fixed32(d)),
+    _derTlv(0x04, fixed32(d)),
   ]);
   final pkcs8 = _derSequence([
     _derInteger(BigInt.zero),
@@ -271,7 +274,7 @@ BigInt _toBigInt(List<int> bytes) {
   return v;
 }
 
-Uint8List _fixed32(BigInt v) {
+Uint8List fixed32(BigInt v) {
   final out = Uint8List(32);
   var x = v;
   for (var i = 31; i >= 0; i--) {

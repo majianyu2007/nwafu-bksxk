@@ -54,6 +54,8 @@ class OnnxCaptchaSolver implements CaptchaSolver {
   bool _initFailed = false;
   DateTime? _lastFailureAt;
   bool _disposed = false;
+  int _inFlight = 0;
+  OrtSession? _pendingClose;
   Completer<void>? _initing;
 
   bool get unavailable => _initFailed;
@@ -106,29 +108,47 @@ class OnnxCaptchaSolver implements CaptchaSolver {
 
   @override
   Future<String?> solve(List<int> imageBytes) async {
+    if (_disposed || imageBytes.isEmpty) return null;
     await _ensureInit();
     final session = _session;
-    if (session == null || _charset.isEmpty) return null;
+    if (_disposed || session == null || _charset.isEmpty) return null;
 
     final pre = _preprocess(imageBytes);
-    if (pre == null) return null;
+    if (pre == null || _disposed) return null;
 
+    _inFlight++;
     OrtValue? input;
     Map<String, OrtValue>? outputs;
     try {
       input =
           await OrtValue.fromList(pre.data, [1, 1, targetHeight, pre.width]);
+      if (_disposed) return null;
       outputs = await session.run({_inputName: input});
+      if (_disposed || outputs.isEmpty) return null;
       final indices = await outputs.values.first.asFlattenedList();
       return _decode(indices);
     } catch (_) {
       return null;
     } finally {
-      await input?.dispose();
+      if (input != null) {
+        try {
+          await input.dispose();
+        } catch (_) {}
+      }
       if (outputs != null) {
         for (final v in outputs.values) {
-          await v.dispose();
+          try {
+            await v.dispose();
+          } catch (_) {}
         }
+      }
+      _inFlight--;
+      if (_inFlight == 0 && _pendingClose != null) {
+        final s = _pendingClose;
+        _pendingClose = null;
+        try {
+          await s?.close();
+        } catch (_) {}
       }
     }
   }
@@ -137,7 +157,8 @@ class OnnxCaptchaSolver implements CaptchaSolver {
   _Pre? _preprocess(List<int> bytes) {
     img.Image? im;
     try {
-      im = img.decodeImage(Uint8List.fromList(bytes));
+      final raw = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+      im = img.decodeImage(raw);
     } catch (_) {
       return null;
     }
@@ -158,12 +179,10 @@ class OnnxCaptchaSolver implements CaptchaSolver {
     final resized = img.copyResize(im, width: width, height: targetHeight);
     final out = Float32List(targetHeight * width);
     var i = 0;
-    for (var y = 0; y < targetHeight; y++) {
-      for (var x = 0; x < width; x++) {
-        final p = resized.getPixel(x, y);
-        final gray = 0.299 * p.r + 0.587 * p.g + 0.114 * p.b;
-        out[i++] = (gray / 255.0 - 0.5) / 0.5;
-      }
+    const scale = 2.0 / 255.0;
+    for (final p in resized) {
+      final gray = 0.299 * p.r + 0.587 * p.g + 0.114 * p.b;
+      out[i++] = gray * scale - 1.0;
     }
     return _Pre(out, width);
   }
@@ -198,10 +217,20 @@ class OnnxCaptchaSolver implements CaptchaSolver {
         (code >= 97 && code <= 122);
   }
 
+  @override
   Future<void> dispose() async {
+    if (_disposed) return;
     _disposed = true;
-    await _session?.close();
+    final session = _session;
     _session = null;
+    if (session == null) return;
+    if (_inFlight > 0) {
+      _pendingClose = session;
+      return;
+    }
+    try {
+      await session.close();
+    } catch (_) {}
   }
 }
 

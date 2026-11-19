@@ -4,25 +4,42 @@ import argparse
 from pathlib import Path
 import struct
 import subprocess
+import sys
+
+_PE_MACHINES = {0x8664: 'x64', 0xaa64: 'arm64', 0x14c: 'x86'}
+_ELF_MACHINES = {62: 'x64', 183: 'arm64', 3: 'x86', 40: 'arm32'}
+_MACHO_MAGICS = frozenset(
+    bytes.fromhex(x)
+    for x in (
+        'feedface', 'cefaedfe', 'feedfacf', 'cffaedfe',
+        'cafebabe', 'bebafeca', 'cafebabf', 'bfbafeca',
+    )
+)
+_JAVA_OR_FAT_MAGIC = bytes.fromhex('cafebabe')
 
 
 def architectures(path):
     with path.open('rb') as stream:
         head = stream.read(64)
-        if head[:2] == b'MZ':
-            stream.seek(struct.unpack_from('<I', head, 60)[0])
+        if len(head) >= 64 and head[:2] == b'MZ':
+            pe_offset = struct.unpack_from('<I', head, 60)[0]
+            stream.seek(pe_offset)
             pe = stream.read(6)
-            if pe[:4] != b'PE\0\0':
-                raise ValueError(f'Invalid PE file: {path}')
-            return {dict([(0x8664, 'x64'), (0xaa64, 'arm64'), (0x14c, 'x86')])
-                    .get(struct.unpack_from('<H', pe, 4)[0], 'unknown')}
-        if head[:4] == b'\x7fELF':
+            if len(pe) < 6 or pe[:4] != b'PE\0\0':
+                if path.suffix.lower() in ('.exe', '.dll'):
+                    raise ValueError(f'Invalid PE file: {path}')
+                return None
+            return {_PE_MACHINES.get(struct.unpack_from('<H', pe, 4)[0], 'unknown')}
+        if len(head) >= 20 and head[:4] == b'\x7fELF':
             endian = '<' if head[5] == 1 else '>'
-            return {{62: 'x64', 183: 'arm64', 3: 'x86', 40: 'arm32'}
-                    .get(struct.unpack_from(endian + 'H', head, 18)[0], 'unknown')}
-        if head[:4] in [bytes.fromhex(x) for x in
-                         ('feedface', 'cefaedfe', 'feedfacf', 'cffaedfe',
-                          'cafebabe', 'bebafeca', 'cafebabf', 'bfbafeca')]:
+            return {_ELF_MACHINES.get(struct.unpack_from(endian + 'H', head, 18)[0], 'unknown')}
+        if len(head) >= 8 and head[:4] in _MACHO_MAGICS:
+            # 0xcafebabe is shared by Java .class files (where bytes 4..7 hold
+            # minor/major version >= 45) and Mach-O fat binaries (nfat_arch < 20).
+            if head[:4] == _JAVA_OR_FAT_MAGIC and struct.unpack_from('>I', head, 4)[0] >= 20:
+                return None
+            if sys.platform != 'darwin':
+                return None
             result = subprocess.check_output(['lipo', '-archs', str(path)], text=True)
             return set(result.strip().split())
     return None

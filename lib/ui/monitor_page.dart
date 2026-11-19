@@ -112,7 +112,11 @@ class _WatchList extends StatelessWidget {
           runSpacing: 10,
           children: [
             for (final w in watches)
-              _WatchCard(watch: w, categoryLabel: labelOf(w.kind)),
+              _WatchCard(
+                key: ValueKey(w.id),
+                watch: w,
+                categoryLabel: labelOf(w.kind),
+              ),
           ],
         ),
       ],
@@ -128,10 +132,8 @@ class _StatusStrip extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final running = ref.watch(monitorRunningProvider);
-    // Watch watchesProvider so engine.changes (e.g. stopReason updates) rebuilds us.
-    ref.watch(watchesProvider);
+    final reason = ref.watch(monitorStopReasonProvider);
     final plan = ref.watch(planStateProvider);
-    final engine = ref.read(monitorEngineProvider);
     if (running) {
       final waiting = plan.armed && !plan.batchOpen;
       return NoticeStrip(
@@ -141,7 +143,6 @@ class _StatusStrip extends ConsumerWidget {
             : '监控中，发现空位立即提交',
       );
     }
-    final reason = engine.stopReason;
     if (reason != null) {
       return NoticeStrip(
           icon: Icons.pause_circle_outline, error: true, text: '已自动停止：$reason');
@@ -193,7 +194,7 @@ class _ModeSelector extends ConsumerWidget {
 }
 
 class _WatchCard extends ConsumerStatefulWidget {
-  const _WatchCard({required this.watch, required this.categoryLabel});
+  const _WatchCard({super.key, required this.watch, required this.categoryLabel});
   final Watch watch;
   final String categoryLabel;
 
@@ -215,32 +216,38 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
     final platform = tc.onlinePlatform;
     final volunteer = watch.volunteerGrade != null;
 
+    final placeText = tc.teachingPlace.isNotEmpty
+        ? tc.teachingPlace
+        : platform.isNotEmpty
+        ? '$platform 网课'
+        : '';
     return GlassCard(
-      padding: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(tc.courseName,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 15)),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  tc.courseName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
                 ),
-                StatusPill(label: label, color: color, icon: icon),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Text(tc.displayTitle,
-                style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13)),
+              ),
+              StatusPill(label: label, color: color, icon: icon),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            tc.displayTitle,
+            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 13),
+          ),
+          if (placeText.isNotEmpty)
             Text(
-              tc.teachingPlace.isNotEmpty
-                  ? tc.teachingPlace
-                  : platform.isNotEmpty
-                      ? '$platform 网课'
-                      : '',
+              placeText,
               style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
             ),
             const SizedBox(height: 6),
@@ -340,7 +347,6 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
               ],
             ),
           ],
-        ),
       ),
     );
   }
@@ -393,19 +399,13 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
       if (tc.hasBook &&
           watch.textbookOrderingOpen &&
           (bookSelection == null || bookSelection.isEmpty)) {
-        final results = await Future.wait([
-          course.fetchTextbookOptions(
-            studentCode: watch.studentCode,
-            batchCode: watch.batchCode,
-            teachingClassId: tc.teachingClassId,
-          ),
-          ref.read(infoServiceProvider).fetchTextbookReasons(),
-        ]);
-        final reasons = results[1] as List<TextbookReason>;
-        final options = [
-          for (final o in results[0] as List<TextbookOption>)
-            o.copyWith(reasonCodes: reasons),
-        ];
+        final options = await fetchAnnotatedTextbookOptions(
+          course: course,
+          info: ref.read(infoServiceProvider),
+          studentCode: watch.studentCode,
+          batchCode: watch.batchCode,
+          teachingClassId: tc.teachingClassId,
+        );
         if (!mounted) return;
         if (options.isEmpty) {
           showToast(context, '没有教材清单，暂时无法完成', success: false);
@@ -419,16 +419,26 @@ class _WatchCardState extends ConsumerState<_WatchCard> {
         if (selection == null || !mounted) return;
         bookSelection = selection.jcxx;
       }
-      ref.read(monitorEngineProvider).configureWatch(
-            watch.id,
-            testTeachingClassId: testId,
-            bookSelection: bookSelection,
-          );
+      final engine = ref.read(monitorEngineProvider);
+      if (!engine.watches.any((w) => w.id == watch.id)) {
+        if (mounted) showToast(context, '该监控已被移除');
+        return;
+      }
+      engine.configureWatch(
+        watch.id,
+        testTeachingClassId: testId,
+        bookSelection: bookSelection,
+      );
       if (!mounted) return;
-      final complete = watch.status != WatchStatus.needsSetup;
+      final updated = engine.watches.cast<Watch?>().firstWhere(
+        (w) => w?.id == watch.id,
+        orElse: () => null,
+      );
+      if (updated == null) return;
+      final complete = updated.status != WatchStatus.needsSetup;
       showToast(
         context,
-        complete ? '已保存，继续监控' : watch.note,
+        complete ? '已保存，继续监控' : updated.note,
         success: complete,
       );
     } catch (error) {

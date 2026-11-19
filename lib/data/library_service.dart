@@ -20,13 +20,14 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import '../core/crypto/library_crypto.dart';
 import '../core/errors.dart';
 import '../core/web_env.dart';
+import 'academic_calendar.dart' show calendarDate, schoolDate;
 import 'cas_client.dart';
 
 const kLibraryOrigin = 'https://booking-lib.nwafu.edu.cn';
-
-/// The official H5 page, for the actions the app leaves to it.
-Uri libraryPage([String route = '/home']) =>
-    Uri.parse('$kLibraryOrigin/h5/index.html#$route');
+final _authServerHost = Uri.parse(kAuthServer).host;
+final _hhmmRe = RegExp(r'(\d{1,2}):(\d{2})');
+final _isoDayRe = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+final _whitespaceRe = RegExp(r'\s');
 
 /// 选座 (id 1) or 空间服务 (研讨室 etc., id 2).
 enum LibraryKind {
@@ -76,7 +77,7 @@ class LibraryArea {
       }
     }
     return LibraryArea(
-      id: '${j['id']}',
+      id: '${j['id'] ?? ''}',
       parentId: '${j['parentId'] ?? j['parent_id'] ?? j['area'] ?? ''}',
       name: '${j['name'] ?? ''}',
       campus: '${j['premisesName'] ?? (merge.isNotEmpty ? merge.first : '')}',
@@ -152,24 +153,14 @@ class LibraryBookDate {
   final List<LibraryTimeSlot> times;
 }
 
-/// Floorplan image URLs for a reading area (`/api/seat/map`).
+/// Floorplan reference image URL for a reading area (`/api/seat/map`).
 class LibrarySeatMap {
-  const LibrarySeatMap({
-    required this.freeUrl,
-    this.bookUrl = '',
-    this.useUrl = '',
-    this.leaveUrl = '',
-    this.closeUrl = '',
-  });
+  const LibrarySeatMap({required this.freeUrl});
 
   factory LibrarySeatMap.fromJson(Map<String, dynamic> j) => LibrarySeatMap(
     freeUrl: _resolveUrl(
       '${j['free'] ?? j['img'] ?? j['map'] ?? j['thumb_img'] ?? j['background'] ?? ''}',
     ),
-    bookUrl: _resolveUrl('${j['book'] ?? ''}'),
-    useUrl: _resolveUrl('${j['use'] ?? ''}'),
-    leaveUrl: _resolveUrl('${j['leave'] ?? ''}'),
-    closeUrl: _resolveUrl('${j['close'] ?? ''}'),
   );
 
   static String _resolveUrl(String raw) {
@@ -189,10 +180,6 @@ class LibrarySeatMap {
   }
 
   final String freeUrl;
-  final String bookUrl;
-  final String useUrl;
-  final String leaveUrl;
-  final String closeUrl;
 
   bool get hasImage => freeUrl.isNotEmpty;
 }
@@ -343,7 +330,7 @@ class LibrarySeminarDay {
     if (asInt != null && s.length >= 9) {
       return _extractHhMm(asInt);
     }
-    final m = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(s);
+    final m = _hhmmRe.firstMatch(s);
     if (m != null) {
       return '${m.group(1)!.padLeft(2, '0')}:${m.group(2)}';
     }
@@ -434,18 +421,22 @@ class LibraryBooking {
     final rawEnd = '${j['end'] ?? ''}'.trim();
     // `/api/Member/seminar` puts YYYY-MM-DD in `start`/`end` and actual clock
     // times in `beginTime`/`endTime` (`YYYY-MM-DD HH:mm:ss`).
+    final extractedStart =
+        rawStart.contains(':') ? '' : LibrarySeminarDay._extractHhMm(j['beginTime']);
     final start = rawStart.contains(':')
         ? rawStart
-        : LibrarySeminarDay._extractHhMm(j['beginTime']).isNotEmpty
-        ? LibrarySeminarDay._extractHhMm(j['beginTime'])
+        : extractedStart.isNotEmpty
+        ? extractedStart
         : rawStart;
+    final extractedEnd =
+        rawEnd.contains(':') ? '' : LibrarySeminarDay._extractHhMm(j['endTime']);
     final end = rawEnd.contains(':')
         ? rawEnd
-        : LibrarySeminarDay._extractHhMm(j['endTime']).isNotEmpty
-        ? LibrarySeminarDay._extractHhMm(j['endTime'])
+        : extractedEnd.isNotEmpty
+        ? extractedEnd
         : rawEnd;
     return LibraryBooking(
-      id: '${j['id']}',
+      id: '${j['id'] ?? ''}',
       place: '${j['nameMerge'] ?? j['areaName'] ?? ''}',
       seat: '${j['no'] ?? j['name'] ?? j['title'] ?? ''}',
       day: '${j['day'] ?? ''}',
@@ -541,6 +532,7 @@ class LibraryService {
   /// same silent re-login the EMAP apps use).
   final Future<bool> Function()? onLoginRequired;
   String? _token;
+  int _generation = 0;
   Future<String>? _loginInFlight;
 
   Dio get _dio => cas.dio;
@@ -557,27 +549,35 @@ class LibraryService {
 
   Future<String> _login({bool retried = false}) {
     if (!retried && _loginInFlight != null) return _loginInFlight!;
-    final future = _doLogin(retried: retried);
+    final gen = _generation;
+    final future = _doLogin(retried: retried, generation: gen);
     if (!retried) {
-      _loginInFlight = future.whenComplete(() => _loginInFlight = null);
-      return _loginInFlight!;
+      late final Future<String> tracked;
+      tracked = future.whenComplete(() {
+        if (identical(_loginInFlight, tracked)) _loginInFlight = null;
+      });
+      _loginInFlight = tracked;
+      return tracked;
     }
     return future;
   }
 
-  Future<String> _doLogin({bool retried = false}) async {
+  Future<String> _doLogin({
+    bool retried = false,
+    required int generation,
+  }) async {
     _requireBridgeOnWeb();
     final res = await cas.follow('$kLibraryOrigin/api/cas/cas');
-    if (res.realUri.host == Uri.parse(kAuthServer).host && !retried) {
+    if (res.realUri.host == _authServerHost && !retried) {
       // The AuthServer wants a login: the unified session has expired.
       if (await (onLoginRequired?.call() ?? Future.value(false))) {
-        return _doLogin(retried: true);
+        return _doLogin(retried: true, generation: _generation);
       }
       throw AppError(
         AppErrorKind.sessionExpired,
         message: '统一身份认证未登录或已过期',
         hint: kIsWeb && !isCasLoginBridgeReady
-            ? '请更新桥接脚本至 1.5.0 以支持站内自动登录，或先在浏览器登录统一身份认证后刷新。'
+            ? '请更新桥接脚本至 $kRecommendedWebBridgeVersion 以支持站内自动登录，或先在浏览器登录统一身份认证后刷新。'
             : '请重新登录后再试。',
       );
     }
@@ -592,7 +592,7 @@ class LibraryService {
         AppErrorKind.sessionExpired,
         message: '图书馆登录没有完成',
         hint: kIsWeb && !isCasLoginBridgeReady
-            ? '请更新桥接脚本至 1.5.0，或先在浏览器打开 booking-lib.nwafu.edu.cn 登录后刷新。'
+            ? '请更新桥接脚本至 $kRecommendedWebBridgeVersion，或先在浏览器打开 booking-lib.nwafu.edu.cn 登录后刷新。'
             : '统一身份认证可能已过期，请重新登录后再试。',
       );
     }
@@ -601,7 +601,8 @@ class LibraryService {
     if (token == null || token.isEmpty) {
       throw AppError(AppErrorKind.unknown, message: '图书馆没有返回登录凭证');
     }
-    return _token = token;
+    if (generation == _generation) _token = token;
+    return token;
   }
 
   static Map<String, dynamic>? _decodeMap(Object? raw) {
@@ -665,7 +666,7 @@ class LibraryService {
           res.statusCode == 302 ||
           res.statusCode == 401) {
         if (auth && !retried) {
-          _token = null;
+          if (_token == token) _token = null;
           return _post(path, body, encrypted: encrypted, retried: true);
         }
         throw AppError(
@@ -681,9 +682,16 @@ class LibraryService {
       );
     }
     final code = '${data['code']}';
-    if (code == '10001' && auth && !retried) {
-      _token = null;
-      return _post(path, body, encrypted: encrypted, retried: true);
+    if (code == '10001' && auth) {
+      if (_token == token) _token = null;
+      if (!retried) {
+        return _post(path, body, encrypted: encrypted, retried: true);
+      }
+      throw AppError(
+        AppErrorKind.sessionExpired,
+        message: '图书馆登录状态已失效',
+        hint: '请重新登录后重试。',
+      );
     }
     // /api/* answers code 1 on success, /reserve/* answers 0.
     if (code != '1' && code != '0') {
@@ -805,14 +813,29 @@ class LibraryService {
         options: Options(
           responseType: ResponseType.bytes,
           followRedirects: true,
-          validateStatus: (s) => s != null && s >= 200 && s < 400,
+          validateStatus: (s) => s != null && s >= 200 && s < 300,
         ),
       );
       final data = res.data;
       if (data == null || data.isEmpty) {
         throw AppError(AppErrorKind.unknown, message: '楼层参考图内容为空');
       }
-      return Uint8List.fromList(data);
+      final contentType =
+          (res.headers.value('content-type') ?? '').toLowerCase();
+      if (contentType.contains('text/html')) {
+        throw AppError(AppErrorKind.schemaOrRedirect, message: '楼层参考图不可用');
+      }
+      final bytes = data is Uint8List ? data : Uint8List.fromList(data);
+      // Reject HTML login/404 pages even when content-type is omitted.
+      if (bytes.length >= 5 && bytes[0] == 0x3c /* '<' */) {
+        final head = String.fromCharCodes(bytes.take(32)).toLowerCase();
+        if (head.contains('<html') || head.contains('<!doctype')) {
+          throw AppError(AppErrorKind.schemaOrRedirect, message: '楼层参考图不可用');
+        }
+      }
+      return bytes;
+    } on AppError {
+      rethrow;
     } on DioException catch (e) {
       throw AppError(
         AppErrorKind.campusNetwork,
@@ -840,7 +863,7 @@ class LibraryService {
         final list = d
             .map((e) => e is Map ? '${e['day'] ?? e['date'] ?? ''}' : '$e')
             .map((s) => s.trim())
-            .where((s) => RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s))
+            .where(_isoDayRe.hasMatch)
             .toList();
         if (list.isNotEmpty) return list;
       }
@@ -848,11 +871,11 @@ class LibraryService {
       if (_isFatalLibraryError(e)) rethrow;
       // Fall through to v2 /api/Room/detail.
     }
-    final now = DateTime.now().toUtc().add(const Duration(hours: 8));
+    final now = schoolDate(DateTime.now());
     final months = <String>[
       '${now.year}-${now.month.toString().padLeft(2, '0')}',
       if (now.day >= 22) () {
-        final next = DateTime(now.year, now.month + 1, 1);
+        final next = DateTime.utc(now.year, now.month + 1, 1);
         return '${next.year}-${next.month.toString().padLeft(2, '0')}';
       }(),
     ];
@@ -872,20 +895,24 @@ class LibraryService {
                 final status = '${item['status'] ?? '0'}';
                 if (status != '0' && status != '1') continue;
                 final s = '${item['date'] ?? item['day'] ?? ''}'.trim();
-                if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s)) found.add(s);
+                if (_isoDayRe.hasMatch(s)) found.add(s);
               } else {
                 final s = '$item'.trim();
-                if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s)) found.add(s);
+                if (_isoDayRe.hasMatch(s)) found.add(s);
               }
             }
           }
           if (found.isEmpty) {
-            final start = DateTime.tryParse('${d['startDate'] ?? ''}');
-            final end = DateTime.tryParse('${d['endDate'] ?? ''}');
-            if (start != null && end != null && !end.isBefore(start)) {
-              final days = end.difference(start).inDays.clamp(0, 14);
-              for (var i = 0; i <= days; i++) {
-                found.add(_day(start.add(Duration(days: i))));
+            final rawStart = DateTime.tryParse('${d['startDate'] ?? ''}');
+            final rawEnd = DateTime.tryParse('${d['endDate'] ?? ''}');
+            if (rawStart != null && rawEnd != null) {
+              final start = calendarDate(rawStart);
+              final end = calendarDate(rawEnd);
+              if (!end.isBefore(start)) {
+                final days = end.difference(start).inDays.clamp(0, 14);
+                for (var i = 0; i <= days; i++) {
+                  found.add(_day(start.add(Duration(days: i))));
+                }
               }
             }
           }
@@ -1079,7 +1106,7 @@ class LibraryService {
     if (d is! Map) {
       throw AppError(AppErrorKind.schemaOrRedirect, message: '图书馆账号信息缺失');
     }
-    final qr = '${d['qrcode_image'] ?? ''}'.replaceAll(RegExp(r'\s'), '');
+    final qr = '${d['qrcode_image'] ?? ''}'.replaceAll(_whitespaceRe, '');
     return LibraryMember(
       name: '${d['name'] ?? ''}',
       roleName: '${d['roleName'] ?? ''}',
@@ -1087,5 +1114,9 @@ class LibraryService {
     );
   }
 
-  void reset() => _token = null;
+  void reset() {
+    _generation++;
+    _token = null;
+    _loginInFlight = null;
+  }
 }

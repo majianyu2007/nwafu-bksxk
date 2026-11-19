@@ -3,6 +3,8 @@
 /// course list on the left and the selected course's classes on the right.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -45,6 +47,7 @@ class CoursesPage extends ConsumerStatefulWidget {
 
 class _CoursesPageState extends ConsumerState<CoursesPage> {
   final _searchCtrl = TextEditingController();
+  Timer? _searchDebounce;
 
   /// Key of the course shown in the detail pane (wide layout only).
   String? _selectedKey;
@@ -62,11 +65,15 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  static String _keyOf(CourseRow row) => row.courseNumber;
+  static String _keyOf(CourseRow row) => row.courseNumber.isNotEmpty
+      ? row.courseNumber
+      : '${row.courseName}|'
+            '${row.teachingClasses.isNotEmpty ? row.teachingClasses.first.teachingClassId : ''}';
 
   @override
   Widget build(BuildContext context) {
@@ -95,8 +102,18 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
               onKind: ctrl.setKind,
               searchCtrl: _searchCtrl,
               onSearch: (q) {
+                _searchDebounce?.cancel();
                 ctrl.setQuery(q);
                 if (!state.paged) ctrl.load();
+              },
+              onLocalQueryChanged: (q) {
+                _searchDebounce?.cancel();
+                _searchDebounce = Timer(
+                  const Duration(milliseconds: 150),
+                  () {
+                    if (mounted) ctrl.setQuery(q);
+                  },
+                );
               },
               onRefresh: state.loading ? null : ctrl.refreshCatalogOrCourses,
               wide: wide,
@@ -197,7 +214,7 @@ class _CoursesPageState extends ConsumerState<CoursesPage> {
         itemCount: rows.length,
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (context, i) => _CourseCard(
-          key: ValueKey(rows[i].courseNumber),
+          key: ValueKey(_keyOf(rows[i])),
           row: rows[i],
           kind: state.kind,
         ),
@@ -263,6 +280,7 @@ class _Header extends StatelessWidget {
     required this.onKind,
     required this.searchCtrl,
     required this.onSearch,
+    required this.onLocalQueryChanged,
     required this.onRefresh,
     required this.wide,
   });
@@ -273,6 +291,7 @@ class _Header extends StatelessWidget {
   final ValueChanged<CourseKind> onKind;
   final TextEditingController searchCtrl;
   final ValueChanged<String> onSearch;
+  final ValueChanged<String> onLocalQueryChanged;
   final VoidCallback? onRefresh;
   final bool wide;
 
@@ -290,7 +309,7 @@ class _Header extends StatelessWidget {
           onPressed: () => onSearch(searchCtrl.text.trim()),
         ),
       ),
-      onChanged: kind.isBrowseOnly ? onSearch : null,
+      onChanged: kind.isBrowseOnly ? onLocalQueryChanged : null,
       onSubmitted: (q) => onSearch(q.trim()),
     );
     final chips = SizedBox(
@@ -432,7 +451,7 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
         if (grade == null || !mounted) return;
       }
       final selections = await _resolveSelectionsIfNeeded(tc);
-      if (selections == null) return;
+      if (selections == null || !mounted) return;
       final (testId, book) = selections;
       final outcome = await _ctrl.grabNow(tc,
           testTeachingClassId: testId,
@@ -481,7 +500,7 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
         if (grade == null || !mounted) return;
       }
       final selections = await _resolveSelectionsIfNeeded(tc);
-      if (selections == null) return;
+      if (selections == null || !mounted) return;
       final (testId, book) = selections;
       final watch = _ctrl.addToMonitor(tc,
           testTeachingClassId: testId,
@@ -546,21 +565,13 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
     final batch = session.activeBatch;
     if (student == null || batch == null) return null;
     try {
-      final course = ref.read(courseServiceProvider);
-      final info = ref.read(infoServiceProvider);
-      final results = await Future.wait([
-        course.fetchTextbookOptions(
-          studentCode: student.studentCode,
-          batchCode: batch.code,
-          teachingClassId: tc.teachingClassId,
-        ),
-        info.fetchTextbookReasons(),
-      ]);
-      final reasons = results[1] as List<TextbookReason>;
-      final options = [
-        for (final o in results[0] as List<TextbookOption>)
-          o.copyWith(reasonCodes: reasons),
-      ];
+      final options = await fetchAnnotatedTextbookOptions(
+        course: ref.read(courseServiceProvider),
+        info: ref.read(infoServiceProvider),
+        studentCode: student.studentCode,
+        batchCode: batch.code,
+        teachingClassId: tc.teachingClassId,
+      );
       if (!mounted) return null;
       if (options.isEmpty) {
         return TextbookSelection(tc.needBook.isNotEmpty ? tc.needBook : '', []);
@@ -619,14 +630,16 @@ mixin _CourseActions<T extends ConsumerStatefulWidget> on ConsumerState<T> {
 
   Widget _tile(TeachingClass tc, CourseRow row, CourseKind kind,
       {bool bordered = true}) {
-    final watched = ref.watch(watchesProvider).any(
-        (w) => w.id == _ctrl.watchIdFor(tc) && w.status != WatchStatus.grabbed);
+    final watched = ref.watch(watchActiveOfProvider(_ctrl.watchIdFor(tc)));
+    final volunteerRound = ref.watch(
+      sessionProvider.select((s) => s.activeBatch?.isVolunteerRound ?? false),
+    );
     return TeachingClassTile(
       teachingClass: tc,
       kind: kind,
       bordered: bordered,
       browseOnly: kind.isBrowseOnly,
-      volunteerRound: _volunteerRound,
+      volunteerRound: volunteerRound,
       courseAlreadyHeld: row.isHeld && !tc.isHeld,
       watched: watched,
       onGrab: () => _grab(tc),
@@ -906,6 +919,8 @@ class _CourseCardState extends ConsumerState<_CourseCard>
   }
 }
 
+final _editionSuffixRe = RegExp(r'-\d{4}版');
+
 /// The 通识 tab's credit requirements per category, the text the official
 /// page shows above the 通识 list (studentInfo.spCourseDescription).
 class _CreditRequirementStrip extends ConsumerWidget {
@@ -931,7 +946,7 @@ class _CreditRequirementStrip extends ConsumerWidget {
             child: Chip(
               visualDensity: VisualDensity.compact,
               label: Text(
-                  '${r.category.replaceAll('-2025版', '')}  ${r.earned}/${r.required}',
+                  '${r.category.replaceAll(_editionSuffixRe, '')}  ${r.earned}/${r.required}',
                   style:
                       TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
             ),
@@ -944,13 +959,13 @@ class _CreditRequirementStrip extends ConsumerWidget {
 
 /// Local facets for downloaded courses, with enrollment-only switches hidden
 /// for the query-only whole-school catalogue.
-class _FilterBar extends ConsumerWidget {
+class _FilterBar extends StatelessWidget {
   const _FilterBar({required this.state, required this.ctrl});
   final CoursesState state;
   final CoursesController ctrl;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final f = state.filters;
     final scheme = Theme.of(context).colorScheme;
     final chips = <Widget>[];
@@ -1209,7 +1224,7 @@ class _TextbookPickerState extends State<TextbookPicker> {
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
           left: 16,
           right: 16,
         ),

@@ -18,15 +18,17 @@ class AppTextScaler extends TextScaler {
   @override
   double get textScaleFactor => scale(14) / 14;
 
+  int get _quantizedFactor => (factor * 1000).round();
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is AppTextScaler &&
           other.system == system &&
-          (other.factor - factor).abs() < 1e-6;
+          other._quantizedFactor == _quantizedFactor;
 
   @override
-  int get hashCode => Object.hash(system, (factor * 1000).round());
+  int get hashCode => Object.hash(system, _quantizedFactor);
 }
 
 class AppTheme {

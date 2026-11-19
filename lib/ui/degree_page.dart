@@ -14,9 +14,6 @@ import 'layout.dart';
 import 'widgets.dart';
 import 'widgets/glass.dart';
 
-String creditText(double v) =>
-    v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
-
 class DegreePage extends ConsumerStatefulWidget {
   const DegreePage({super.key});
 
@@ -42,10 +39,8 @@ class _DegreePageState extends ConsumerState<DegreePage> {
   }
 
   Future<void> _login() async {
-    final ok = await Navigator.of(
-      context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => const EduLoginPage()));
-    if (ok == true && mounted) {
+    final ok = await pushEduLogin(context);
+    if (ok == true && mounted && !ref.read(degreeProvider).loading) {
       await ref.read(degreeProvider.notifier).sync();
     }
   }
@@ -68,9 +63,9 @@ class _DegreePageState extends ConsumerState<DegreePage> {
         }
       },
     );
-    final session = ref.watch(eduSessionProvider);
+    final signedIn = ref.watch(eduSessionProvider.select((s) => s.signedIn));
     final state = ref.watch(degreeProvider);
-    final audit = session.signedIn ? state.audit : null;
+    final audit = signedIn ? state.audit : null;
     final theme = Theme.of(context);
     return AuroraBackground(
       child: Scaffold(
@@ -96,7 +91,7 @@ class _DegreePageState extends ConsumerState<DegreePage> {
               icon: const Icon(Icons.filter_alt_outlined),
               selectedIcon: const Icon(Icons.filter_alt),
             ),
-          if (session.signedIn)
+          if (signedIn)
             IconButton(
               tooltip: '刷新',
               onPressed: state.loading ? null : _sync,
@@ -117,7 +112,7 @@ class _DegreePageState extends ConsumerState<DegreePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (!session.signedIn)
+                    if (!signedIn)
                       _Message(
                         icon: Icons.school_outlined,
                         title: '登录统一身份认证',
@@ -164,18 +159,7 @@ class _DegreePageState extends ConsumerState<DegreePage> {
                             includeSelected: _includeSelected,
                           ),
                           const SizedBox(height: 12),
-                          for (final g in plan.groups)
-                            if (!_onlyShort ||
-                                (_includeSelected
-                                    ? (g.missing - (g.selected ?? 0)) > 0.001
-                                    : g.short))
-                              _GroupCard(
-                                key: ValueKey(g.id),
-                                group: g,
-                                depth: 0,
-                                onlyShort: _onlyShort,
-                                includeSelected: _includeSelected,
-                              ),
+                          ..._buildPlanGroups(theme, plan),
                           const SizedBox(height: 20),
                         ],
                       if (audit != null)
@@ -194,6 +178,47 @@ class _DegreePageState extends ConsumerState<DegreePage> {
       ),
       ),
     );
+  }
+  List<Widget> _buildPlanGroups(ThemeData theme, DegreePlan plan) {
+    final visible = [
+      for (final g in plan.groups)
+        if (!_onlyShort ||
+            (_includeSelected
+                ? (g.missing - (g.selected ?? 0)) > 0.001
+                : g.short))
+          g,
+    ];
+    if (visible.isEmpty && _onlyShort) {
+      return [
+        GlassCard(
+          padding: const EdgeInsets.all(16),
+          tint: Colors.green,
+          tintAmount: 0.05,
+          child: Row(
+            children: [
+              const Icon(Icons.check_circle_outline, color: Colors.green),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _includeSelected ? '按本学期全过预计，所有课组均已修够。' : '当前所有课组均已修够。',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ];
+    }
+    return [
+      for (final g in visible)
+        _GroupCard(
+          key: ValueKey(g.id),
+          group: g,
+          depth: 0,
+          onlyShort: _onlyShort,
+          includeSelected: _includeSelected,
+        ),
+    ];
   }
 }
 
@@ -215,6 +240,10 @@ class _PlanHeader extends StatelessWidget {
     final shownProgress = goal <= 0
         ? plan.progress
         : (shownEarned / goal).clamp(0.0, 1.0);
+    final shortLeaves = [
+      for (final g in plan.shortLeaves)
+        if (!includeSelected || (g.missing - (g.selected ?? 0)) > 0.001) g,
+    ];
     return GlassCard(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -245,14 +274,14 @@ class _PlanHeader extends StatelessWidget {
             TextSpan(
               children: [
                 TextSpan(
-                  text: creditText(shownEarned),
+                  text: formatCredit(shownEarned),
                   style: theme.textTheme.displaySmall?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: scheme.primary,
                   ),
                 ),
                 TextSpan(
-                  text: ' / ${creditText(goal)} 学分',
+                  text: ' / ${formatCredit(goal)} 学分',
                   style: theme.textTheme.titleMedium,
                 ),
               ],
@@ -273,11 +302,11 @@ class _PlanHeader extends StatelessWidget {
             children: [
               Text(
                 shownMissing > 0
-                    ? '${includeSelected ? '预计仍差' : '还差'} ${creditText(shownMissing)} 学分'
+                    ? '${includeSelected ? '预计仍差' : '还差'} ${formatCredit(shownMissing)} 学分'
                     : (includeSelected ? '本学期全过即修够总学分' : '总学分已修够'),
               ),
               if (plan.selected != null)
-                Text('本学期已选 ${creditText(selected)} 学分'),
+                Text('本学期已选 ${formatCredit(selected)} 学分'),
               Text('${(shownProgress * 100).toStringAsFixed(0)}%'),
             ],
           ),
@@ -288,7 +317,7 @@ class _PlanHeader extends StatelessWidget {
               style: theme.textTheme.bodySmall,
             ),
           ],
-          if (plan.shortLeaves.isNotEmpty) ...[
+          if (shortLeaves.isNotEmpty) ...[
             const SizedBox(height: 12),
             Text(
               includeSelected ? '本学期后预计仍差' : '还没修够',
@@ -299,17 +328,16 @@ class _PlanHeader extends StatelessWidget {
               spacing: 6,
               runSpacing: 6,
               children: [
-                for (final g in plan.shortLeaves)
-                  if (!includeSelected || (g.missing - (g.selected ?? 0)) > 0.001)
-                    Chip(
-                      visualDensity: VisualDensity.compact,
-                      backgroundColor: scheme.secondaryContainer,
-                      side: BorderSide.none,
-                      label: Text(
-                        '${g.name} 差 ${creditText(includeSelected ? (g.missing - (g.selected ?? 0)).clamp(0.0, double.infinity).toDouble() : g.missing)}',
-                        style: TextStyle(color: scheme.onSecondaryContainer),
-                      ),
+                for (final g in shortLeaves)
+                  Chip(
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: scheme.secondaryContainer,
+                    side: BorderSide.none,
+                    label: Text(
+                      '${g.name} 差 ${formatCredit(includeSelected ? (g.missing - (g.selected ?? 0)).clamp(0.0, double.infinity).toDouble() : g.missing)}',
+                      style: TextStyle(color: scheme.onSecondaryContainer),
                     ),
+                  ),
               ],
             ),
           ],
@@ -409,7 +437,7 @@ class _GroupCardState extends State<_GroupCard> {
     ];
     final details = [
       if (g.nature.isNotEmpty) g.nature,
-      if (sel > 0) '本学期已选 ${creditText(sel)}',
+      if (sel > 0) '本学期已选 ${formatCredit(sel)}',
       if (g.openCourses != null && g.openCourses! > 0)
         '本学期可选 ${g.openCourses} 门',
     ];
@@ -439,8 +467,8 @@ class _GroupCardState extends State<_GroupCard> {
                 ),
                 Text(
                   g.goal > 0
-                      ? '${creditText(shownEarned)} / ${creditText(g.goal)}'
-                      : creditText(shownEarned),
+                      ? '${formatCredit(shownEarned)} / ${formatCredit(g.goal)}'
+                      : formatCredit(shownEarned),
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: isDone ? Colors.green : scheme.primary,
@@ -463,7 +491,7 @@ class _GroupCardState extends State<_GroupCard> {
             Text(
               [
                 if (isShort)
-                  '${inc ? '预计仍差' : '还差'} ${creditText(shownMissing)} 学分'
+                  '${inc ? '预计仍差' : '还差'} ${formatCredit(shownMissing)} 学分'
                 else if (isDone)
                   (inc && g.short ? '本学期全过即修够' : '已修够'),
                 ...details,
@@ -608,9 +636,9 @@ class DegreeProgressTile extends ConsumerWidget {
         plan == null
             ? '培养方案里每类课修了多少学分'
             : plan.missing > 0
-            ? '已修 ${creditText(plan.earned)} / ${creditText(plan.goal)} 学分，'
-                  '还差 ${creditText(plan.missing)}'
-            : '已修 ${creditText(plan.earned)} 学分，总学分已修够',
+            ? '已修 ${formatCredit(plan.earned)} / ${formatCredit(plan.goal)} 学分，'
+                  '还差 ${formatCredit(plan.missing)}'
+            : '已修 ${formatCredit(plan.earned)} 学分，总学分已修够',
       ),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => Navigator.of(

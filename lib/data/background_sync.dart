@@ -16,7 +16,7 @@ import 'ehall_service.dart';
 import 'ics.dart' show ExamSlot, examSlot;
 import 'storage.dart';
 import 'timetable_diff.dart';
-import 'timetable_logic.dart' show schoolInstant;
+import 'timetable_logic.dart' show fnv1a32, schoolInstant;
 
 /// Where change alerts go. [NotificationService] implements this; tests
 /// use a recorder.
@@ -212,7 +212,7 @@ List<ExamReminderPlan> planExamReminders(
   for (final e in exams) {
     final slot = examSlot(e);
     if (slot == null || !slot.start.isAfter(now)) continue;
-    final cleanName = e.courseName.replaceFirst(RegExp(r'^【[^】]*】'), '').trim();
+    final cleanName = e.displayName;
     final name = e.kind.isEmpty ? cleanName : '$cleanName（${e.kind}）';
     final hhmm = _hhmm(slot.start);
     final where = [
@@ -257,16 +257,9 @@ List<ExamReminderPlan> planExamReminders(
 }
 
 int examReminderId(ExamEntry e, ExamSlot slot, String tag) {
-  var hash = 0x811c9dc5;
   final s =
       'exam:${e.courseName}:${e.kind}:${slot.start.toIso8601String()}:$tag';
-  for (final unit in s.codeUnits) {
-    hash ^= unit;
-    final low = (hash & 0xffff) * 0x01000193;
-    final high = ((hash >>> 16) * 0x01000193) & 0xffff;
-    hash = (low + (high << 16)) & 0x3fffffff;
-  }
-  return (1 << 30) | hash;
+  return (1 << 30) | (fnv1a32(s) & 0x3fffffff);
 }
 
 String _two(int v) => v.toString().padLeft(2, '0');

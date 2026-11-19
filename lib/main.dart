@@ -8,18 +8,16 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'app/edu_providers.dart'
-    show debugClockOffsetProvider, timetableProvider;
 import 'app/providers.dart';
 import 'app/theme.dart';
 import 'app/ui_prefs.dart';
 import 'data/background.dart';
+import 'data/background_sync_task.dart';
+import 'data/notifications.dart';
+import 'data/storage.dart';
 import 'debug/live_probe_stub.dart'
     if (dart.library.io) 'debug/live_probe.dart'
     as live_probe;
-import 'data/notifications.dart';
-import 'data/storage.dart';
-import 'data/timetable_logic.dart';
 import 'ui/layout.dart';
 import 'ui/root_shell.dart';
 
@@ -39,13 +37,13 @@ void debugProbeRooms() => live_probe.probeRoomsMeta(debugContainer!);
 void debugProbeRoomsSample() => live_probe.probeRoomsSample(debugContainer!);
 void debugFetch(String u) => live_probe.probeFetch(debugContainer!, u);
 void debugRoomsTiming(int n) => live_probe.probeRoomsTiming(debugContainer!, n);
-void debugTheme(bool dark) => debugContainer!
-    .read(themeControllerProvider.notifier)
-    .setMode(dark ? ThemeMode.dark : ThemeMode.light);
+void debugTheme(bool dark) => live_probe.probeTheme(debugContainer!, dark);
 void debugShiftClock(int minutes) =>
-    debugContainer!.read(debugClockOffsetProvider.notifier).state = Duration(
-      minutes: minutes,
-    );
+    live_probe.probeShiftClock(debugContainer!, minutes);
+String debugDay(int y, int m, int d) =>
+    live_probe.probeDay(debugContainer!, y, m, d);
+void debugProbeLibrary() => live_probe.probeLibrary(debugContainer!);
+void debugProbeAcademic() => live_probe.probeAcademic(debugContainer!);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,10 +59,16 @@ Future<void> main() async {
 
   final prefs = await SharedPreferences.getInstance();
   final storage = Storage(prefs);
+  syncCustomCampusHost(storage.origin());
   try {
     await AppBackground.instance.init();
   } catch (e) {
     if (kDebugMode) debugPrint('AppBackground init skipped: $e');
+  }
+  try {
+    await initBackgroundRefresh();
+  } catch (e) {
+    if (kDebugMode) debugPrint('BackgroundRefresh init skipped: $e');
   }
   try {
     await NotificationService.instance.init();
@@ -135,11 +139,21 @@ class NwafuXkApp extends ConsumerWidget {
   }
 }
 
-/// Applies adaptive scaling + text scale inside [MaterialApp.builder] without
-/// rebuilding [MaterialApp] or both [ThemeData] objects when scale settings
-/// change.
-class _AdaptiveShellBuilder extends ConsumerWidget {
+/// Applies adaptive visual density and text scaling inside
+/// [MaterialApp.builder]. Density depends only on window size and scale mode,
+/// so it is isolated from `MediaQuery.of(context)` and never re-allocates
+/// `ThemeData` during keyboard `viewInsets` animations.
+class _AdaptiveShellBuilder extends StatelessWidget {
   const _AdaptiveShellBuilder({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      _AdaptiveTextScaler(child: _AdaptiveDensityTheme(child: child));
+}
+
+class _AdaptiveTextScaler extends ConsumerWidget {
+  const _AdaptiveTextScaler({required this.child});
   final Widget child;
 
   @override
@@ -153,33 +167,32 @@ class _AdaptiveShellBuilder extends ConsumerWidget {
       scaleMode,
       systemScale: systemScale,
     );
-    final currentTheme = Theme.of(context);
-    final scaledMedia = media.copyWith(
-      textScaler: AppTextScaler(
-        media.textScaler,
-        textScale * adaptive.factor,
-      ),
-    );
     return MediaQuery(
-      data: scaledMedia,
-      child: Theme(
-        data: currentTheme.visualDensity == adaptive.density
-            ? currentTheme
-            : currentTheme.copyWith(visualDensity: adaptive.density),
-        child: child,
+      data: media.copyWith(
+        textScaler: AppTextScaler(
+          media.textScaler,
+          textScale * adaptive.factor,
+        ),
       ),
+      child: child,
     );
   }
 }
 
-String debugDay(int y, int m, int d) => debugContainer!
-    .read(timetableProvider)
-    .data!
-    .classesOn(DateTime.utc(y, m, d))
-    .map(
-      (o) =>
-          '${o.session.courseName} ${o.session.startPeriod}-${o.session.endPeriod} ${o.session.room}',
-    )
-    .join('; ');
-void debugProbeLibrary() => live_probe.probeLibrary(debugContainer!);
-void debugProbeAcademic() => live_probe.probeAcademic(debugContainer!);
+class _AdaptiveDensityTheme extends ConsumerWidget {
+  const _AdaptiveDensityTheme({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scaleMode = ref.watch(uiScaleModeProvider);
+    final size = MediaQuery.sizeOf(context);
+    final density = computeAdaptiveScale(size, scaleMode).density;
+    final currentTheme = Theme.of(context);
+    if (currentTheme.visualDensity == density) return child;
+    return Theme(
+      data: currentTheme.copyWith(visualDensity: density),
+      child: child,
+    );
+  }
+}

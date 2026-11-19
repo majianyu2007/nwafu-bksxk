@@ -38,9 +38,6 @@ const kAndroidWidgetProviders = [
 /// right for a week even if neither the app nor the background task runs.
 const kWidgetDays = 7;
 
-String _hm(int m) =>
-    '${(m ~/ 60).toString().padLeft(2, '0')}:${(m % 60).toString().padLeft(2, '0')}';
-
 String _ymd(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-'
     '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -78,20 +75,21 @@ Map<String, Object?> widgetPayload(
       final classes = <Map<String, Object>>[];
       if (week != null) {
         for (final s in t.sessionsOn(week, date.weekday)) {
-          final o = t.occurrence(s, date);
           final first = t.period(s.startPeriod, on: date);
           final last = t.period(s.endPeriod, on: date);
-          if (o == null || first == null || last == null) continue;
+          if (first == null || last == null) continue;
+          final start = schoolInstant(date, first.start);
+          final end = schoolInstant(date, last.end);
           classes.add({
             'name': s.displayName,
             'room': s.room,
             'teacher': s.teacher,
-            'time': '${_hm(first.start)}-${_hm(last.end)}',
+            'time': '${first.startLabel}-${last.endLabel}',
             'sec': s.startPeriod == s.endPeriod
                 ? '${s.startPeriod}节'
                 : '${s.startPeriod}-${s.endPeriod}节',
-            'start': o.start.millisecondsSinceEpoch,
-            'end': o.end.millisecondsSinceEpoch,
+            'start': start.millisecondsSinceEpoch,
+            'end': end.millisecondsSinceEpoch,
           });
         }
       }

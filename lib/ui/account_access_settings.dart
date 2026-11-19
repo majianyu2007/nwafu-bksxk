@@ -67,7 +67,7 @@ class _DeviceSignInSettingState extends ConsumerState<DeviceSignInSetting> {
             ],
           ),
         );
-        if (ok == true) {
+        if (ok == true && mounted) {
           await ref.read(eduSessionProvider.notifier).unbindThisDevice();
         }
       }
@@ -86,7 +86,7 @@ class _DeviceSignInSettingState extends ConsumerState<DeviceSignInSetting> {
 
   @override
   Widget build(BuildContext context) {
-    final signedIn = ref.watch(eduSessionProvider).signedIn;
+    final signedIn = ref.watch(eduSessionProvider.select((s) => s.signedIn));
     if (!signedIn) return const SizedBox.shrink();
     final bound = ref.watch(deviceKeyBoundProvider).value;
     return SwitchListTile(
@@ -117,56 +117,21 @@ class CampusAccessSetting extends ConsumerWidget {
     final storage = ref.read(storageProvider);
     final existing = await storage.campusVpnTotp(account.username) ?? '';
     if (!context.mounted) return;
-    final ctrl = TextEditingController(text: existing);
-    try {
-      final result = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('校外 VPN 动态码密钥（TOTP）'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                '填入安全令牌的 Base32 密钥后，校外自动连接 VPN 时会自动生成动态码，免弹窗秒连。留空保存可清除。',
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: ctrl,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'TOTP Secret',
-                  hintText: '例如 JBSWY3DPEHPK3PXP',
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-              child: const Text('保存'),
-            ),
-          ],
-        ),
+    final result = await showDialog<String>(
+      context: context,
+      builder: (_) => _TotpEditDialog(initial: existing),
+    );
+    if (result == null) return;
+    await storage.setCampusVpnTotp(
+      account.username,
+      result.isEmpty ? null : result.replaceAll(RegExp(r'\s+'), ''),
+    );
+    if (context.mounted) {
+      showToast(
+        context,
+        result.isEmpty ? '已清除动态码密钥' : '已保存，校外连接将自动填充动态码',
+        success: true,
       );
-      if (result == null) return;
-      await storage.setCampusVpnTotp(
-        account.username,
-        result.isEmpty ? null : result.replaceAll(RegExp(r'\s+'), ''),
-      );
-      if (context.mounted) {
-        showToast(
-          context,
-          result.isEmpty ? '已清除动态码密钥' : '已保存，校外连接将自动填充动态码',
-          success: true,
-        );
-      }
-    } finally {
-      ctrl.dispose();
     }
   }
 
@@ -175,7 +140,7 @@ class CampusAccessSetting extends ConsumerWidget {
     final s = ref.watch(campusAccessProvider);
     final c = ref.read(campusAccessProvider.notifier);
     final autoVpn = ref.watch(campusAutoVpnProvider);
-    final signedIn = ref.watch(eduSessionProvider).signedIn;
+    final signedIn = ref.watch(eduSessionProvider.select((s) => s.signedIn));
     ref.listen(campusAccessProvider, (prev, next) {
       if (next.pending != null && prev?.pending != next.pending) {
         showVpnStepDialog(context, ref);
@@ -200,6 +165,11 @@ class CampusAccessSetting extends ConsumerWidget {
               ? const SizedBox.square(
                   dimension: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : s.pending != null
+              ? TextButton(
+                  onPressed: () => showVpnStepDialog(context, ref),
+                  child: const Text('继续验证'),
                 )
               : s.route == CampusRoute.vpn
               ? TextButton(onPressed: c.disconnect, child: const Text('断开'))
@@ -231,61 +201,38 @@ class CampusAccessSetting extends ConsumerWidget {
   }
 }
 
+bool _vpnDialogOpen = false;
+
 /// Shows the gateway's pending step: a click-the-characters captcha, or an
 /// SMS / authenticator code.
 Future<void> showVpnStepDialog(BuildContext context, WidgetRef ref) async {
+  if (_vpnDialogOpen) return;
   final c = ref.read(campusAccessProvider.notifier);
   final pending = ref.read(campusAccessProvider).pending;
   if (pending == null) return;
-  if (pending.needs == 'captcha') {
-    final image = c.pendingImage;
-    if (image == null) return;
-    final coords = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _ClickCaptchaDialog(image: image, hint: pending.hint),
-    );
-    if (coords == null) {
-      await c.disconnect();
-    } else {
-      await c.answer(coords);
-    }
-    return;
-  }
-  final code = TextEditingController();
+  _vpnDialogOpen = true;
   try {
+    if (pending.needs == 'captcha') {
+      final image = c.pendingImage;
+      if (image == null) return;
+      final coords = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _ClickCaptchaDialog(image: image, hint: pending.hint),
+      );
+      if (coords == null) {
+        await c.disconnect();
+      } else {
+        await c.answer(coords);
+      }
+      return;
+    }
     final value = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => ValueListenableBuilder<TextEditingValue>(
-        valueListenable: code,
-        builder: (context, text, _) {
-          final canSubmit = text.text.trim().isNotEmpty;
-          return AlertDialog(
-            title: Text(pending.needs == 'sms' ? '校外访问短信验证' : '校外访问动态码'),
-            content: TextField(
-              controller: code,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(labelText: pending.hint ?? '验证码'),
-              onSubmitted: (v) {
-                if (v.trim().isNotEmpty) Navigator.pop(context, v);
-              },
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('取消'),
-              ),
-              FilledButton(
-                onPressed: canSubmit
-                    ? () => Navigator.pop(context, code.text)
-                    : null,
-                child: const Text('确定'),
-              ),
-            ],
-          );
-        },
+      builder: (_) => _VpnCodeDialog(
+        title: pending.needs == 'sms' ? '校外访问短信验证' : '校外访问动态码',
+        label: pending.hint ?? '验证码',
       ),
     );
     if (value == null || value.trim().isEmpty) {
@@ -294,7 +241,114 @@ Future<void> showVpnStepDialog(BuildContext context, WidgetRef ref) async {
       await c.answer(value.trim());
     }
   } finally {
-    code.dispose();
+    _vpnDialogOpen = false;
+  }
+}
+
+class _TotpEditDialog extends StatefulWidget {
+  const _TotpEditDialog({required this.initial});
+  final String initial;
+
+  @override
+  State<_TotpEditDialog> createState() => _TotpEditDialogState();
+}
+
+class _TotpEditDialogState extends State<_TotpEditDialog> {
+  late final _ctrl = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('校外 VPN 动态码密钥（TOTP）'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '填入安全令牌的 Base32 密钥后，校外自动连接 VPN 时会自动生成动态码，免弹窗秒连。留空保存可清除。',
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'TOTP Secret',
+              hintText: '例如 JBSWY3DPEHPK3PXP',
+            ),
+            onSubmitted: (v) => Navigator.pop(context, v.trim()),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _ctrl.text.trim()),
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
+
+class _VpnCodeDialog extends StatefulWidget {
+  const _VpnCodeDialog({required this.title, required this.label});
+  final String title;
+  final String label;
+
+  @override
+  State<_VpnCodeDialog> createState() => _VpnCodeDialogState();
+}
+
+class _VpnCodeDialogState extends State<_VpnCodeDialog> {
+  final _code = TextEditingController();
+
+  @override
+  void dispose() {
+    _code.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _code,
+      builder: (context, text, _) {
+        final canSubmit = text.text.trim().isNotEmpty;
+        return AlertDialog(
+          title: Text(widget.title),
+          content: TextField(
+            controller: _code,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(labelText: widget.label),
+            onSubmitted: (v) {
+              if (v.trim().isNotEmpty) Navigator.pop(context, v);
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: canSubmit
+                  ? () => Navigator.pop(context, _code.text)
+                  : null,
+              child: const Text('确定'),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -362,15 +416,21 @@ class _ClickCaptchaDialogState extends State<_ClickCaptchaDialog> {
                   final w = box.maxWidth.clamp(0.0, natural.width * 1.5);
                   final scale = w / natural.width;
                   return GestureDetector(
-                    onTapUp: (d) =>
-                        setState(() => _points.add(d.localPosition / scale)),
+                    onTapUp: (d) {
+                      if (scale <= 0) return;
+                      setState(() => _points.add(d.localPosition / scale));
+                    },
                     child: SizedBox(
                       width: w,
                       height: natural.height * scale,
                       child: Stack(
                         children: [
                           Positioned.fill(
-                            child: Image.memory(widget.image, fit: BoxFit.fill),
+                            child: Image.memory(
+                              widget.image,
+                              fit: BoxFit.fill,
+                              gaplessPlayback: true,
+                            ),
                           ),
                           for (var i = 0; i < _points.length; i++)
                             Positioned(

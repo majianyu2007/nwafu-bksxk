@@ -6,10 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/edu_providers.dart';
 import '../../app/theme.dart';
-import '../../data/academic_calendar.dart' show schoolDate;
 import '../../data/edu_models.dart';
 import '../../data/timetable_logic.dart';
+import '../layout.dart' show layoutTextScale;
 import '../widgets.dart';
 import '../widgets/glass.dart';
 import 'course_sheets.dart';
@@ -22,21 +23,20 @@ class DateStrip extends StatelessWidget {
     required this.data,
     required this.week,
     required this.selected,
-    required this.now,
+    required this.today,
     required this.onSelect,
     this.exams = const [],
   });
   final TermTimetable data;
   final int week;
   final int selected;
-  final DateTime now;
+  final DateTime today;
   final ValueChanged<int> onSelect;
   final List<ExamEntry> exams;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final today = schoolDate(now);
     final examDays = {for (final e in exams) ?examDate(e)};
     return Row(
       children: [
@@ -146,7 +146,7 @@ class DayTimeline extends ConsumerWidget {
     required this.data,
     required this.week,
     required this.weekday,
-    required this.now,
+    required this.today,
     required this.showOtherWeeks,
     this.exams = const [],
     this.onAdd,
@@ -154,7 +154,7 @@ class DayTimeline extends ConsumerWidget {
   final TermTimetable data;
   final int week;
   final int weekday;
-  final DateTime now;
+  final DateTime today;
   final bool showOtherWeeks;
   final List<ExamEntry> exams;
   final VoidCallback? onAdd;
@@ -164,6 +164,10 @@ class DayTimeline extends ConsumerWidget {
     final colors = ref.watch(courseColorsProvider);
     final scheme = Theme.of(context).colorScheme;
     final date = data.dayOf(week, weekday);
+    // Only today's timeline subscribes to the 30-second live clock.
+    final now = date == today
+        ? (ref.watch(clockProvider).asData?.value ?? DateTime.now())
+        : schoolInstant(today, 12 * 60);
     final sessions = data.sessionsOn(week, weekday);
     final others = showOtherWeeks
         ? ([
@@ -199,7 +203,7 @@ class DayTimeline extends ConsumerWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      '考试 · ${e.courseName}'
+                      '考试 · ${e.displayName}'
                       '${e.time.isEmpty ? '' : '\n${e.time}'}'
                       '${e.room.isEmpty ? '' : ' · ${e.room}'}'
                       '${e.seat.isEmpty ? '' : ' · 座位 ${e.seat}'}',
@@ -316,25 +320,34 @@ class _TimelineItem extends StatelessWidget {
       _ => ('', scheme.outline),
     };
     final done = status == ClassStatus.done;
+    final timeColWidth = 52 * layoutTextScale(context).clamp(1.0, 1.4);
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
-            width: 52,
+            width: timeColWidth,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 const SizedBox(height: 12),
-                Text(
-                  start?.startLabel ?? '第${session.startPeriod}节',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    start?.startLabel ?? '第${session.startPeriod}节',
+                    maxLines: 1,
+                    softWrap: false,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
                 Text(
                   end?.endLabel ?? '',
+                  maxLines: 1,
+                  softWrap: false,
                   style: TextStyle(
                     fontSize: 11,
                     color: scheme.onSurfaceVariant,
@@ -408,86 +421,79 @@ class _TimelineItem extends StatelessWidget {
                             );
                             showToast(context, '已复制教室：${session.room}');
                           },
-                    child: IntrinsicHeight(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Container(
-                            width: 3,
-                            margin: const EdgeInsets.symmetric(vertical: 10),
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          left: 0,
+                          top: 10,
+                          bottom: 10,
+                          width: 3,
+                          child: DecoratedBox(
                             decoration: BoxDecoration(
                               color: color,
                               borderRadius: BorderRadius.circular(2),
                             ),
                           ),
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(
-                                12,
-                                12,
-                                12,
-                                12,
-                              ),
-                              child: Column(
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(15, 12, 12, 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          session.displayName,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleMedium
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                        ),
-                                      ),
-                                      if (overlapping.length > 1) ...[
-                                        StatusPill(
-                                          label: '时间冲突',
-                                          color: scheme.error,
-                                        ),
-                                        if (label.isNotEmpty)
-                                          const SizedBox(width: 6),
-                                      ],
-                                      if (label.isNotEmpty)
-                                        StatusPill(
-                                          label: label,
-                                          color: labelColor,
-                                        ),
-                                    ],
+                                  Expanded(
+                                    child: Text(
+                                      session.displayName,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
                                   ),
-                                  const SizedBox(height: 6),
-                                  Wrap(
-                                    spacing: 12,
-                                    runSpacing: 4,
-                                    children: [
-                                      _Meta(
-                                        Icons.schedule,
-                                        '第 ${session.startPeriod}–${session.endPeriod} 节',
-                                      ),
-                                      if (session.room.isNotEmpty)
-                                        _Meta(
-                                          Icons.place_outlined,
-                                          session.room,
-                                        ),
-                                      if (session.teacher.isNotEmpty)
-                                        _Meta(
-                                          Icons.person_outline,
-                                          session.teacher,
-                                        ),
-                                    ],
-                                  ),
+                                  if (overlapping.length > 1) ...[
+                                    StatusPill(
+                                      label: '时间冲突',
+                                      color: scheme.error,
+                                    ),
+                                    if (label.isNotEmpty)
+                                      const SizedBox(width: 6),
+                                  ],
+                                  if (label.isNotEmpty)
+                                    StatusPill(
+                                      label: label,
+                                      color: labelColor,
+                                    ),
                                 ],
                               ),
-                            ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 4,
+                                children: [
+                                  _Meta(
+                                    Icons.schedule,
+                                    '第 ${session.startPeriod}–${session.endPeriod} 节',
+                                  ),
+                                  if (session.room.isNotEmpty)
+                                    _Meta(
+                                      Icons.place_outlined,
+                                      session.room,
+                                    ),
+                                  if (session.teacher.isNotEmpty)
+                                    _Meta(
+                                      Icons.person_outline,
+                                      session.teacher,
+                                    ),
+                                ],
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

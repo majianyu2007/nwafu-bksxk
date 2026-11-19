@@ -14,23 +14,39 @@ let mockResponse = () => ({
   responseText: '{"code":1}',
 });
 
+let mockHandler = null;
 const attrs = {};
 const sandbox = {
   URL,
   Uint8Array,
   ArrayBuffer,
   TextDecoder,
+  Blob,
   FormData: class {},
   URLSearchParams,
   console,
   GM_xmlhttpRequest(details) {
     calls.push(details);
+    if (mockHandler) return mockHandler(details);
     const resp = mockResponse(details);
-    setTimeout(() => details.onload(resp), 0);
+    const timer = setTimeout(() => details.onload(resp), 0);
+    return {
+      abort() {
+        clearTimeout(timer);
+        if (typeof details.onabort === 'function') details.onabort();
+      },
+    };
   },
   window: {
     location: { href: 'https://mjy.js.org/nwafu-bksxk/app/' },
-    XMLHttpRequest: class NativeXHR {},
+    XMLHttpRequest: class NativeXHR {
+      open() {}
+      send() {}
+      setRequestHeader() {}
+      addEventListener() {}
+      removeEventListener() {}
+      overrideMimeType() {}
+    },
     document: {
       readyState: 'complete',
       documentElement: {
@@ -45,10 +61,12 @@ sandbox.unsafeWindow = sandbox.window;
 vm.runInNewContext(source, sandbox);
 
 assert.equal(sandbox.window.__bksxkBridgeReady, true);
-assert.equal(sandbox.window.__bksxkBridgeVersion, '1.5.0');
+assert.equal(sandbox.window.__bksxkBridgeVersion, '1.5.1');
 assert.equal(sandbox.window.__bksxkCasLoginBridgeReady, true);
-assert.equal(attrs['data-bksxk-bridge-version'], '1.5.0');
+assert.equal(attrs['data-bksxk-bridge-version'], '1.5.1');
 assert.equal(attrs['data-bksxk-cas-login-bridge-ready'], 'true');
+assert.equal(sandbox.window.XMLHttpRequest.DONE, 4);
+assert.equal(new sandbox.window.XMLHttpRequest().DONE, 4);
 
 function send(method, url, body = null, headers = {}) {
   return new Promise((resolve) => {
@@ -264,4 +282,122 @@ mockResponse = () => ({
   assert.equal((await send('POST', 'https://authserver.nwafu.edu.cn/authserver/evil', '{}')).ok, false);
 }
 
-console.log('All 11 web bridge tests passed.');
+// 12. dqzc.do is allowed on ehall (week-1 anchoring), onreadystatechange fires once per transition,
+//     onloadend fires, and getResponseHeader handles regex chars & comma-joins duplicates
+{
+  mockResponse = (d) => ({
+    status: 200,
+    statusText: 'OK',
+    finalUrl: d.url,
+    responseHeaders: 'content-type: application/json\r\nX-Custom: a\r\nx-custom: b\r\n',
+    responseText: '{"datas":{"dqzc":{"rows":[{"ZC":12}]}}}',
+  });
+  let stateChanges = 0;
+  let loadEnded = false;
+  const xhr = new sandbox.window.XMLHttpRequest();
+  xhr.onreadystatechange = () => { stateChanges++; };
+  xhr.onloadend = () => { loadEnded = true; };
+  await new Promise((resolve, reject) => {
+    xhr.onload = resolve;
+    xhr.onerror = () => reject(new Error('dqzc.do should be allowed'));
+    xhr.open('POST', 'https://ehall.nwafu.edu.cn/jwapp/sys/wdkbby/modules/jshkcb/dqzc.do', true);
+    xhr.send('XN=2026-2027&XQ=1');
+  });
+  assert.equal(stateChanges, 2, 'OPENED + DONE should fire onreadystatechange exactly twice');
+  assert.equal(loadEnded, true);
+  assert.equal(xhr.getResponseHeader('x-custom'), 'a, b');
+  assert.equal(xhr.getResponseHeader('x-custom[test]'), null);
+}
+
+// 13. Case-insensitive Origin/Referer stripping on authserver and Cookie stripping on bksxk
+{
+  mockResponse = (d) => ({
+    status: 200,
+    statusText: 'OK',
+    finalUrl: d.url,
+    responseHeaders: 'content-type: text/html',
+    responseText: '<html>ok</html>',
+  });
+  const r = await send(
+    'GET',
+    'https://authserver.nwafu.edu.cn/authserver/login',
+    null,
+    { referer: 'https://mjy.js.org/evil', origin: 'https://mjy.js.org' },
+  );
+  assert.equal(r.ok, true);
+  assert.equal(calls.at(-1).headers.referer, undefined);
+  assert.equal(calls.at(-1).headers.origin, undefined);
+  assert.equal(calls.at(-1).headers.Referer, 'https://authserver.nwafu.edu.cn/authserver/login');
+  assert.equal(calls.at(-1).headers.Origin, 'https://authserver.nwafu.edu.cn');
+}
+
+// 14. All-3-probes-failing (abort/error/throw) does not deadlock and re-probes next time
+{
+  const sandbox2 = {
+    ...sandbox,
+    window: {
+      ...sandbox.window,
+      XMLHttpRequest: sandbox.window.XMLHttpRequest,
+    },
+  };
+  let probeAttempt = 0;
+  sandbox2.window = {
+    location: { href: 'https://mjy.js.org/nwafu-bksxk/app/' },
+    XMLHttpRequest: class NativeXHR2 {
+      open() {}
+      send() {}
+      setRequestHeader() {}
+      addEventListener() {}
+      removeEventListener() {}
+      overrideMimeType() {}
+    },
+    document: { readyState: 'complete', documentElement: { setAttribute() {} } },
+  };
+  sandbox2.unsafeWindow = sandbox2.window;
+  let vcodeHeaders = null;
+  sandbox2.GM_xmlhttpRequest = (details) => {
+    if (details.url.includes('/publicinfo/sysparam.do')) {
+      probeAttempt++;
+      if (probeAttempt === 1) throw new Error('boom');
+      if (probeAttempt === 2) { setTimeout(() => details.onabort(), 0); return {}; }
+      if (probeAttempt === 3) { setTimeout(() => details.onerror(), 0); return {}; }
+      // Second wave succeeds!
+      setTimeout(() => details.onload({
+        status: 200,
+        statusText: 'OK',
+        finalUrl: details.url,
+        responseHeaders: 'set-cookie: route=healthy123; Path=/\r\n',
+        responseText: '{"code":"1","data":{"initTimestamp":"1792144680028"}}',
+      }), 0);
+      return {};
+    }
+    vcodeHeaders = details.headers;
+    setTimeout(() => details.onload({
+      status: 200,
+      statusText: 'OK',
+      finalUrl: details.url,
+      responseHeaders: 'content-type: application/json',
+      responseText: '{"code":"1","data":{"token":"t"}}',
+    }), 0);
+    return {};
+  };
+  vm.runInNewContext(source, sandbox2);
+
+  const callVcode = () => new Promise((resolve) => {
+    const x = new sandbox2.window.XMLHttpRequest();
+    x.open('GET', 'https://bksxk.nwafu.edu.cn/xsxkapp/sys/xsxkapp/student/4/vcode.do', true);
+    x.onload = () => resolve(true);
+    x.onerror = () => resolve(false);
+    x.send(null);
+  });
+
+  // First call: all 3 probes fail (throw/abort/error), should still complete without deadlocking
+  assert.equal(await callVcode(), true);
+  assert.equal(probeAttempt, 3);
+  // Second call: because bksxkRouteReady stayed false, it re-probes and pins healthy123
+  assert.equal(await callVcode(), true);
+  assert.equal(probeAttempt, 6);
+  assert.equal(vcodeHeaders.Cookie, 'route=healthy123');
+}
+
+console.log('All 14 web bridge tests passed.');

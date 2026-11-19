@@ -130,6 +130,10 @@ class AutoSelectionLogin extends StateNotifier<AutoSelectionLoginState> {
           continue;
         }
         if (!stillWanted()) return _stop();
+        final wasSaved = _ref
+            .read(storageProvider)
+            .accounts()
+            .any((a) => a.id == id);
         await _ref
             .read(sessionControllerProvider(id).notifier)
             .login(
@@ -139,8 +143,14 @@ class AutoSelectionLogin extends StateNotifier<AutoSelectionLoginState> {
               vtoken: challenge.vtoken,
             );
         if (!stillWanted()) {
-          // The identity changed while logging in; do not keep its session.
-          if (mounted) await leaveAccountFrom(_ref, id);
+          // The identity changed while logging in; do not keep its session
+          // or newly persisted selection credentials.
+          if (mounted) {
+            await leaveAccountFrom(_ref, id);
+            if (!wasSaved) {
+              await _ref.read(storageProvider).removeAccount(id);
+            }
+          }
           return _stop();
         }
         _ref.read(accountsProvider.notifier).refresh();

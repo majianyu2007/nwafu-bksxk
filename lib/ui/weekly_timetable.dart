@@ -5,36 +5,17 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../app/theme.dart' show courseColorFor;
 import '../data/academic_calendar.dart';
 import '../data/models.dart';
+import '../data/timetable_logic.dart' show kWeekdayNames;
 import 'layout.dart';
 import 'widgets.dart';
 import 'widgets/glass.dart';
 
-const _dayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-
-/// Harmonious 8-color accent palette (matching the main timetable feel).
-const _courseAccents = <Color>[
-  Color(0xFF0E7C66), // teal
-  Color(0xFF2563EB), // cobalt
-  Color(0xFF7C3AED), // violet
-  Color(0xFFD97706), // amber
-  Color(0xFFDB2777), // rose
-  Color(0xFF0891B2), // cyan
-  Color(0xFF4F46E5), // indigo
-  Color(0xFF16A34A), // emerald
-];
-
-Color _accentFor(ScheduleEntry entry) {
-  final key = entry.teachingClassId.isNotEmpty
-      ? entry.teachingClassId
-      : entry.courseName;
-  var hash = 0;
-  for (final code in key.codeUnits) {
-    hash = (hash * 31 + code) & 0x7fffffff;
-  }
-  return _courseAccents[hash % _courseAccents.length];
-}
+Color _accentFor(ScheduleEntry entry) => courseColorFor(
+  entry.teachingClassId.isNotEmpty ? entry.teachingClassId : entry.courseName,
+);
 
 class WeeklyTimetable extends StatefulWidget {
   const WeeklyTimetable({
@@ -214,7 +195,7 @@ class _WeeklyTimetableState extends State<WeeklyTimetable> {
                       ],
                     ),
                   ),
-                  if (currentWeek != null && _browsingWeek != null)
+                  if (currentWeek != null && week != currentWeek)
                     FilledButton.tonalIcon(
                       onPressed: () => setState(() => _browsingWeek = null),
                       icon: const Icon(Icons.today_outlined, size: 16),
@@ -330,7 +311,7 @@ class _DayHeader extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isToday = date == calendarDate(today);
-    final label = _dayNames[day - 1];
+    final label = kWeekdayNames[day - 1];
     final dateText = date == null ? '' : '${date!.month}/${date!.day}';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -586,76 +567,77 @@ class _CourseBlock extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => _details(context),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(width: 3.5, color: accent),
-              Expanded(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    compact ? 8 : 12,
-                    compact ? 8 : 10,
-                    compact ? 8 : 12,
-                    compact ? 8 : 10,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (conflicts.isNotEmpty) ...[
-                        Text(
-                          '时间重叠',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: scheme.error,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                      ],
-                      Text(
-                        entry.courseName,
-                        maxLines: compact ? 3 : 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: fg,
-                          fontWeight: FontWeight.w700,
-                          height: 1.25,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        entry.hasSlot ? entry.slotLabel : '时间待公布',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontSize: compact ? 11 : 12,
-                          color: fg.withValues(alpha: 0.85),
-                        ),
-                      ),
-                      if (entry.teachingPlace.isNotEmpty)
-                        Text(
-                          entry.teachingPlace,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontSize: compact ? 11 : 12,
-                            color: fg.withValues(alpha: 0.85),
-                          ),
-                        ),
-                      if (!compact && entry.teacherName.isNotEmpty)
-                        Text(
-                          entry.teacherName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: fg.withValues(alpha: 0.78),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
+        child: Stack(
+          children: [
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 3.5,
+              child: ColoredBox(color: accent),
+            ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                (compact ? 8 : 12) + 3.5,
+                compact ? 8 : 10,
+                compact ? 8 : 12,
+                compact ? 8 : 10,
               ),
-            ],
-          ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (conflicts.isNotEmpty) ...[
+                    Text(
+                      '时间重叠',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: scheme.error,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                  ],
+                  Text(
+                    entry.courseName,
+                    maxLines: compact ? 3 : 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: fg,
+                      fontWeight: FontWeight.w700,
+                      height: 1.25,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    entry.hasSlot ? entry.slotLabel : '时间待公布',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: compact ? 11 : 12,
+                      color: fg.withValues(alpha: 0.85),
+                    ),
+                  ),
+                  if (entry.teachingPlace.isNotEmpty)
+                    Text(
+                      entry.teachingPlace,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: compact ? 11 : 12,
+                        color: fg.withValues(alpha: 0.85),
+                      ),
+                    ),
+                  if (!compact && entry.teacherName.isNotEmpty)
+                    Text(
+                      entry.teacherName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: fg.withValues(alpha: 0.78),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

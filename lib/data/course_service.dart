@@ -59,7 +59,7 @@ class CourseService {
       if (pageRows.isEmpty) break;
 
       for (final row in pageRows) {
-        rows.add(_asCourseRow(kind, row));
+        rows.add(rowFromJson(row));
       }
       if (rows.length >= total) break;
       pageNumber++;
@@ -102,13 +102,18 @@ class CourseService {
 
   static List<CourseRow> catalogRowsFromJson(
           Iterable<Map<String, dynamic>> rows) =>
-      [for (final row in rows) _asCourseRow(CourseKind.qxkc, row)];
+      [for (final row in rows) rowFromJson(row)];
+
+  /// Parses course rows (grouped with `tcList` or flat teaching-class rows)
+  /// and merges flat rows per course number.
+  static List<CourseRow> rowsFromJson(Iterable<Map<String, dynamic>> rows) =>
+      groupFlatRows([for (final row in rows) rowFromJson(row)]);
 
   /// Some endpoints return course rows with a `tcList`; others (publicCourse
   /// for XGXK, queryCourse for QXKC) return one flat row per teaching class.
   /// Flat rows are wrapped as single-class courses here and merged per course
   /// number by [groupFlatRows] afterwards.
-  static CourseRow _asCourseRow(CourseKind kind, Map<String, dynamic> row) {
+  static CourseRow rowFromJson(Map<String, dynamic> row) {
     final flat = !row.containsKey('tcList') && row['teachingClassID'] != null;
     if (flat) {
       final tc = TeachingClass.fromJson(row);
@@ -127,12 +132,12 @@ class CourseService {
     return CourseRow.fromJson(row);
   }
 
-  /// Merges consecutive single-class rows that share a course number into one
-  /// course with all its classes (the official page shows flat lists, but a
-  /// course-per-card view needs them grouped). Rows that already carry a
+  /// Merges single-class flat rows that share a course number into one course
+  /// with all its classes in O(N) time (the official page shows flat lists, but
+  /// a course-per-card view needs them grouped). Rows that already carry a
   /// tcList pass through untouched; order of first appearance is kept.
   static List<CourseRow> groupFlatRows(List<CourseRow> rows) {
-    final out = <CourseRow>[];
+    final slots = <Object>[];
     final index = <String, int>{};
     for (final row in rows) {
       final isFlat = row.number == 1 &&
@@ -140,35 +145,26 @@ class CourseService {
           !row.raw.containsKey('tcList');
       final key = row.courseNumber;
       if (!isFlat || key.isEmpty) {
-        out.add(row);
+        slots.add(row);
         continue;
       }
       final at = index[key];
       if (at == null) {
-        index[key] = out.length;
-        out.add(row);
+        index[key] = slots.length;
+        slots.add(row);
         continue;
       }
-      final prev = out[at];
-      final classes = [...prev.teachingClasses, ...row.teachingClasses];
-      out[at] = CourseRow(
-        courseNumber: prev.courseNumber,
-        courseName: prev.courseName,
-        credit: prev.credit,
-        courseNatureName: prev.courseNatureName,
-        departmentName: prev.departmentName,
-        number: classes.length,
-        selected: prev.selected || row.selected,
-        teachingClasses: classes,
-        // Preserve every merged class in `raw.tcList` so CourseCache round-trips
-        // all classes of multi-class flat courses instead of only the first.
-        raw: {
-          ...prev.raw,
-          'tcList': [for (final c in classes) c.raw],
-        },
-      );
+      final existing = slots[at];
+      if (existing is _FlatGroup) {
+        existing.add(row);
+      } else {
+        final group = _FlatGroup(existing as CourseRow)..add(row);
+        slots[at] = group;
+      }
     }
-    return out;
+    return [
+      for (final s in slots) s is _FlatGroup ? s.build() : s as CourseRow,
+    ];
   }
 
   /// The student's currently-selected courses (with drop metadata).
@@ -213,7 +209,7 @@ class CourseService {
       final tcs = m['tcList'];
       if (tcs is List) {
         for (final t in tcs.whereType<Map>()) {
-          // Carry course-level names down so a class row reads like the others.
+          // Carry course-level names down without letting inner nulls clobber them.
           final tm = t.cast<String, dynamic>();
           out.add(TeachingClass.fromJson({
             'courseName': m['courseName'],
@@ -221,7 +217,8 @@ class CourseService {
             'courseNatureName': m['courseNatureName'],
             'departmentName': m['departmentName'],
             'credit': m['credit'],
-            ...tm,
+            for (final e in tm.entries)
+              if (e.value != null) e.key: e.value,
           }));
         }
       } else {
@@ -253,11 +250,7 @@ class CourseService {
     if (!res.ok) {
       if (res.msg.isNotEmpty) {
         final err = AppError.fromBusiness(res.code, res.msg);
-        if (err.kind == AppErrorKind.maintenanceOrThrottle ||
-            err.kind == AppErrorKind.sessionExpired ||
-            err.isHardStop) {
-          throw err;
-        }
+        if (err.isHardStop) throw err;
       }
       return tc;
     }
@@ -546,5 +539,37 @@ class CourseService {
           jcxx: jcxx,
           cancelAll: cancel,
         ),
+      );
+}
+
+class _FlatGroup {
+  _FlatGroup(this.first)
+      : classes = List<TeachingClass>.of(first.teachingClasses),
+        selected = first.selected;
+
+  final CourseRow first;
+  final List<TeachingClass> classes;
+  bool selected;
+
+  void add(CourseRow row) {
+    classes.addAll(row.teachingClasses);
+    if (row.selected) selected = true;
+  }
+
+  CourseRow build() => CourseRow(
+        courseNumber: first.courseNumber,
+        courseName: first.courseName,
+        credit: first.credit,
+        courseNatureName: first.courseNatureName,
+        departmentName: first.departmentName,
+        number: classes.length,
+        selected: selected,
+        teachingClasses: classes,
+        // Preserve every merged class in `raw.tcList` so CourseCache round-trips
+        // all classes of multi-class flat courses instead of only the first.
+        raw: {
+          ...first.raw,
+          'tcList': [for (final c in classes) c.raw],
+        },
       );
 }

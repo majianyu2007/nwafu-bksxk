@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         西农教务助手 · 网页版桥接 (NWAFU Web Bridge)
 // @namespace    cn.edu.nwafu.bksxk.webbridge
-// @version      1.5.0
+// @version      1.5.1
 // @description  让西农教务助手网页版访问学校接口：选课、站内统一身份认证登录与自动重登，以及课表、成绩、考试、空教室、学业进度、消息与图书馆。仅在校园网内或可访问学校服务的网络下有效。
 // @author       nwafu-bksxk
 // @match        https://mjy.js.org/nwafu-bksxk/*
@@ -23,22 +23,22 @@
 //
 // HOW IT WORKS
 // ------------
-// The Flutter web app (served from GitHub Pages / localhost / etc.) makes its
-// API calls with XMLHttpRequest to https://bksxk.nwafu.edu.cn/... (selection)
-// and https://ehall.nwafu.edu.cn/... (timetable, grades, exams, free rooms). A browser
-// blocks those as cross-origin (the school server sends no CORS headers) and
-// also forbids setting Cookie / User-Agent from page JS.
+// The Flutter web app (served from GitHub Pages / localhost) calls NWAFU hosts
+// (bksxk, ehall, newehall, booking-lib, authserver) via XMLHttpRequest.
+// Browsers block those cross-origin requests (the school servers send no CORS
+// headers) and forbid setting Cookie / Origin / Referer from page JS.
 //
-// This script replaces window.XMLHttpRequest for selection and HTTPS jwapp
-// requests only. GM follows redirects itself and carries browser cookies.
-// It does NOT expose manual CAS redirects or import passwords/private keys.
-// The user signs in on the official school page, then connects that session.
+// This script replaces window.XMLHttpRequest only for the allowlisted NWAFU
+// hosts and endpoints. Selection (bksxk) uses isolated in-memory cookies with
+// fresh-node route pinning; academic/CAS hosts reuse the browser's session via
+// GM_xmlhttpRequest while stripping Set-Cookie and blocking unallowlisted paths.
 // Academic access is restricted to the app's deployment and local development;
 // do not restore wildcard hosting @match rules: they expose browser sessions.
 //
 (function () {
   'use strict';
 
+  var BRIDGE_VERSION = '1.5.1';
   var API_HOST = 'bksxk.nwafu.edu.cn';
   var EDU_HOST = 'ehall.nwafu.edu.cn';
   var PORTAL_HOST = 'newehall.nwafu.edu.cn';
@@ -50,7 +50,7 @@
   // Signal to the app that the bridge is present (used to skip the install prompt).
   try {
     win.__bksxkBridgeReady = true;
-    win.__bksxkBridgeVersion = '1.5.0';
+    win.__bksxkBridgeVersion = BRIDGE_VERSION;
     win.__bksxkEduSessionBridgeReady = true;
     win.__bksxkCasLoginBridgeReady = true;
   } catch (e) { /* ignore */ }
@@ -62,7 +62,7 @@
     try {
       if (win.document && win.document.documentElement) {
         win.document.documentElement.setAttribute('data-bksxk-bridge-ready', 'true');
-        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.5.0');
+        win.document.documentElement.setAttribute('data-bksxk-bridge-version', BRIDGE_VERSION);
         win.document.documentElement.setAttribute('data-bksxk-edu-session-bridge-ready', 'true');
         win.document.documentElement.setAttribute('data-bksxk-cas-login-bridge-ready', 'true');
       }
@@ -76,12 +76,11 @@
 
   function isApiUrl(url) {
     try {
-      // Absolute URL to the API host, or a protocol-relative/absolute path that
-      // resolves to it.
+      // Absolute URL to an allowlisted campus host, or a relative URL that resolves to one.
       var u = new URL(url, win.location.href);
       return u.hostname === API_HOST || u.hostname === EDU_HOST ||
         u.hostname === PORTAL_HOST || u.hostname === LIBRARY_HOST ||
-        u.hostname === 'authserver.nwafu.edu.cn';
+        u.hostname === AUTH_HOST;
     } catch (e) {
       return false;
     }
@@ -154,7 +153,7 @@
     }
     if (m !== 'POST' || u.search) return false;
     return /^\/execCardMethod\/[\w-]+\/[\w-]+$/.test(path) ||
-      /^\/jwapp\/sys\/wdkbby\/modules\/(jshkcb\/(dqxnxq|xnxqcx|jc)|xskcb\/(cxxljc|cxxszhxqkb|xswpkc|xsdkkc))\.do$/.test(path) ||
+      /^\/jwapp\/sys\/wdkbby\/modules\/(jshkcb\/(dqxnxq|xnxqcx|jc|dqzc)|xskcb\/(cxxljc|cxxszhxqkb|xswpkc|xsdkkc))\.do$/.test(path) ||
       /^\/jwapp\/sys\/cjcx\/modules\/cjcx\/(xscjcx|cxxscjpm)\.do$/.test(path) ||
       path === '/jwapp/sys/studentWdksapApp/WdksapController/cxxsksap.do' ||
       path === '/jwapp/sys/studentWdksapApp/modules/wdksap/cxxsjbxx.do' ||
@@ -167,7 +166,7 @@
       var u = new URL(url);
       return isHttpsCampus(u) &&
         (u.hostname === EDU_HOST || u.hostname === PORTAL_HOST ||
-          u.hostname === LIBRARY_HOST || u.hostname === 'authserver.nwafu.edu.cn');
+          u.hostname === LIBRARY_HOST || u.hostname === AUTH_HOST);
     } catch (e) { return false; }
   }
 
@@ -193,6 +192,8 @@
     this.onerror = null;
     this.ontimeout = null;
     this.onabort = null;
+    this.onprogress = null;
+    this.onloadend = null;
     this._responseHeaders = '';
     this._aborted = false;
     var noop = function () {};
@@ -203,6 +204,8 @@
     this._method = method;
     this._url = url;
     this._async = async !== false;
+    this._headers = {};
+    this._aborted = false;
     this.readyState = 1;
     this._emitReadyState();
   };
@@ -216,20 +219,38 @@
   };
 
   BridgedXHR.prototype.getResponseHeader = function (name) {
-    var re = new RegExp('^' + name + ':\\s*(.*)$', 'im');
-    var m = re.exec(this._responseHeaders || '');
-    return m ? m[1].trim() : null;
+    if (!name || !this._responseHeaders) return null;
+    var target = String(name).toLowerCase();
+    var lines = this._responseHeaders.split(/\r?\n/);
+    var values = [];
+    for (var i = 0; i < lines.length; i++) {
+      var idx = lines[i].indexOf(':');
+      if (idx <= 0) continue;
+      if (lines[i].slice(0, idx).trim().toLowerCase() === target) {
+        values.push(lines[i].slice(idx + 1).trim());
+      }
+    }
+    return values.length ? values.join(', ') : null;
   };
 
-  BridgedXHR.prototype.addEventListener = function (type, fn) {
-    (this._listeners[type] = this._listeners[type] || []).push(fn);
+  BridgedXHR.prototype.addEventListener = function (type, fn, opts) {
+    if (typeof fn !== 'function') return;
+    var list = (this._listeners[type] = this._listeners[type] || []);
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].fn === fn) return;
+    }
+    list.push({ fn: fn, once: !!(opts && typeof opts === 'object' && opts.once) });
   };
 
   BridgedXHR.prototype.removeEventListener = function (type, fn) {
     var l = this._listeners[type];
     if (!l) return;
-    var i = l.indexOf(fn);
-    if (i >= 0) l.splice(i, 1);
+    for (var i = 0; i < l.length; i++) {
+      if (l[i].fn === fn) {
+        l.splice(i, 1);
+        return;
+      }
+    }
   };
 
   BridgedXHR.prototype._emit = function (type) {
@@ -237,13 +258,15 @@
     var direct = this['on' + type];
     if (typeof direct === 'function') direct.call(this, evt);
     var l = this._listeners[type];
-    if (l) for (var i = 0; i < l.length; i++) l[i].call(this, evt);
+    if (!l || !l.length) return;
+    var snapshot = l.slice();
+    for (var i = 0; i < snapshot.length; i++) {
+      if (snapshot[i].once) this.removeEventListener(type, snapshot[i].fn);
+      snapshot[i].fn.call(this, evt);
+    }
   };
 
   BridgedXHR.prototype._emitReadyState = function () {
-    if (typeof this.onreadystatechange === 'function') {
-      this.onreadystatechange({ type: 'readystatechange', target: this });
-    }
     this._emit('readystatechange');
   };
 
@@ -373,7 +396,12 @@
       if (best && best.route && (bksxkHighestInitTs === 0 || best.ts >= bksxkHighestInitTs)) {
         bksxkCookies.route = best.route;
       }
-      bksxkRouteReady = true;
+      // Only lock route-ready once at least one probe answered; if every probe
+      // failed (e.g. off-campus or momentary blip), allow the next request to
+      // re-probe rather than disabling pinning for the whole session.
+      if (best && best.route) {
+        bksxkRouteReady = true;
+      }
       var q = bksxkProbeCallbacks || [];
       bksxkProbeCallbacks = null;
       for (var m = 0; m < q.length; m++) {
@@ -384,21 +412,32 @@
     var base = Date.now();
     for (var i = 0; i < 3; i++) {
       (function (idx) {
-        GM_xmlhttpRequest({
-          method: 'GET',
-          url: 'https://' + API_HOST + '/xsxkapp/sys/xsxkapp/publicinfo/sysparam.do?timestamp=' + (base + idx),
-          headers: { 'Cache-Control': 'no-cache', 'X-Requested-With': 'XMLHttpRequest' },
-          timeout: 5000,
-          anonymous: true,
-          onload: function (resp) {
-            finishOne({
-              route: extractRouteFromHeaders(resp.responseHeaders || ''),
-              ts: parseInitTsFromBody(resp.responseText || ''),
-            });
-          },
-          onerror: function () { finishOne(null); },
-          ontimeout: function () { finishOne(null); },
-        });
+        var settled = false;
+        function doneOne(probe) {
+          if (settled) return;
+          settled = true;
+          finishOne(probe);
+        }
+        try {
+          GM_xmlhttpRequest({
+            method: 'GET',
+            url: 'https://' + API_HOST + '/xsxkapp/sys/xsxkapp/publicinfo/sysparam.do?timestamp=' + (base + idx),
+            headers: { 'Cache-Control': 'no-cache', 'X-Requested-With': 'XMLHttpRequest' },
+            timeout: 5000,
+            anonymous: true,
+            onload: function (resp) {
+              doneOne({
+                route: extractRouteFromHeaders(resp.responseHeaders || ''),
+                ts: parseInitTsFromBody(resp.responseText || ''),
+              });
+            },
+            onerror: function () { doneOne(null); },
+            ontimeout: function () { doneOne(null); },
+            onabort: function () { doneOne(null); },
+          });
+        } catch (e) {
+          doneOne(null);
+        }
       })(i);
     }
   }
@@ -420,10 +459,13 @@
     var sendHeaders = {};
     for (var hk in this._headers) {
       if (!Object.prototype.hasOwnProperty.call(this._headers, hk)) continue;
-      if (!academic && hk.toLowerCase() === 'x-bksxk-refresh-route') {
+      var lowerKey = hk.toLowerCase();
+      if (!academic && lowerKey === 'x-bksxk-refresh-route') {
         refreshRoute = true;
         continue;
       }
+      if (!academic && lowerKey === 'cookie') continue;
+      if (url.hostname === AUTH_HOST && (lowerKey === 'origin' || lowerKey === 'referer')) continue;
       sendHeaders[hk] = this._headers[hk];
     }
 
@@ -534,16 +576,23 @@
 
   // Install: a facade whose open() picks the bridged impl for API-host URLs and
   // the native XHR for everything else (fonts, same-origin assets, etc.).
-  win.XMLHttpRequest = function () {
+  var XHRFacade = function () {
     var bridged = new BridgedXHR();
     var native = new NativeXHR();
     var useBridge = false;
+    var opened = false;
 
     var active = function () { return useBridge ? bridged : native; };
 
     var handler = {
+      UNSENT: 0,
+      OPENED: 1,
+      HEADERS_RECEIVED: 2,
+      LOADING: 3,
+      DONE: 4,
       open: function (method, url, async) {
         useBridge = isApiUrl(url);
+        opened = true;
         active().open(method, url, async !== false);
       },
       send: function (b) { active().send(b); },
@@ -551,8 +600,22 @@
       getAllResponseHeaders: function () { return active().getAllResponseHeaders(); },
       getResponseHeader: function (n) { return active().getResponseHeader(n); },
       abort: function () { active().abort(); },
-      addEventListener: function (t, f) { bridged.addEventListener(t, f); native.addEventListener(t, f); },
-      removeEventListener: function (t, f) { bridged.removeEventListener(t, f); native.removeEventListener(t, f); },
+      addEventListener: function (t, f, opts) {
+        if (opened) {
+          active().addEventListener(t, f, opts);
+        } else {
+          bridged.addEventListener(t, f, opts);
+          if (typeof native.addEventListener === 'function') native.addEventListener(t, f, opts);
+        }
+      },
+      removeEventListener: function (t, f, opts) {
+        if (opened) {
+          active().removeEventListener(t, f, opts);
+        } else {
+          bridged.removeEventListener(t, f, opts);
+          if (typeof native.removeEventListener === 'function') native.removeEventListener(t, f, opts);
+        }
+      },
       overrideMimeType: function (m) { if (!useBridge) native.overrideMimeType(m); },
     };
     Object.defineProperty(handler, 'upload', { get: function () { return active().upload; }, configurable: true });
@@ -560,14 +623,19 @@
     // Properties read from / write to the active implementation.
     var props = ['readyState', 'status', 'statusText', 'response', 'responseText',
                  'responseURL', 'responseType', 'timeout', 'withCredentials',
-                 'onreadystatechange', 'onload', 'onerror', 'ontimeout', 'onabort'];
+                 'onreadystatechange', 'onload', 'onerror', 'ontimeout', 'onabort',
+                 'onprogress', 'onloadend'];
     props.forEach(function (p) {
       Object.defineProperty(handler, p, {
         get: function () { return active()[p]; },
         set: function (v) {
-          // Set on both until open() picks one; harmless either way.
-          try { bridged[p] = v; } catch (e) { /* ignore */ }
-          try { native[p] = v; } catch (e) { /* ignore */ }
+          if (opened) {
+            try { active()[p] = v; } catch (e) { /* ignore */ }
+          } else {
+            // Set on both until open() picks one; harmless either way.
+            try { bridged[p] = v; } catch (e) { /* ignore */ }
+            try { native[p] = v; } catch (e) { /* ignore */ }
+          }
         },
         configurable: true,
         enumerable: true,
@@ -576,6 +644,13 @@
 
     return handler;
   };
+  XHRFacade.UNSENT = 0;
+  XHRFacade.OPENED = 1;
+  XHRFacade.HEADERS_RECEIVED = 2;
+  XHRFacade.LOADING = 3;
+  XHRFacade.DONE = 4;
+  win.XMLHttpRequest = XHRFacade;
 
-  console.log('[NWAFU Web Bridge] installed — 选课与教务请求将通过 GM_xmlhttpRequest 访问 ' + API_HOST + ' / ' + EDU_HOST);
+  console.log('[NWAFU Web Bridge v' + BRIDGE_VERSION + '] installed — 校园请求将通过 GM_xmlhttpRequest 访问 ' +
+    [API_HOST, EDU_HOST, PORTAL_HOST, LIBRARY_HOST, AUTH_HOST].join(' / '));
 })();

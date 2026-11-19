@@ -16,6 +16,8 @@
 /// delegates that to a pluggable [CaptchaSolver].
 library;
 
+import 'dart:typed_data';
+
 import '../core/constants.dart';
 import '../core/crypto/des_login.dart';
 import '../core/errors.dart';
@@ -27,9 +29,12 @@ import 'param_builders.dart';
 
 /// A single captcha challenge: the token to submit with, and the image bytes.
 class CaptchaChallenge {
-  CaptchaChallenge({required this.vtoken, required this.imageBytes});
+  CaptchaChallenge({required this.vtoken, required List<int> imageBytes})
+      : imageBytes = imageBytes is Uint8List
+            ? imageBytes
+            : Uint8List.fromList(imageBytes);
   final String vtoken;
-  final List<int> imageBytes;
+  final Uint8List imageBytes;
 }
 
 /// Outcome of a login attempt.
@@ -76,6 +81,28 @@ class AuthService {
     await _client.pinFreshNode();
     final tokenRes =
         await _client.getJson(Api.vcodeToken, auth: false, allowRelogin: false);
+    if (!tokenRes.ok) {
+      final body = tokenRes.data is String ? tokenRes.data as String : '';
+      if (body.contains('Not allowed to visit') || body.contains('禁止访问')) {
+        throw AppError(
+          AppErrorKind.maintenanceOrThrottle,
+          message: '获取验证码过于频繁，网关暂时限制访问',
+          hint: '请稍等片刻再刷新验证码，不要连续快速点击。',
+          retryable: false,
+        );
+      }
+      if (tokenRes.msg == 'non-json' || tokenRes.msg == 'empty') {
+        throw AppError(
+          AppErrorKind.schemaOrRedirect,
+          message: '验证码接口返回异常内容',
+          hint: '请确认校园网连接正常后重试。',
+        );
+      }
+      throw AppError.fromBusiness(
+        tokenRes.code,
+        tokenRes.msg.isEmpty ? '获取验证码令牌失败' : tokenRes.msg,
+      );
+    }
     final vtoken = _extractToken(tokenRes);
     if (vtoken.isEmpty) {
       throw LoginException('0', '获取验证码令牌失败');
@@ -87,9 +114,14 @@ class AuthService {
 
   String _extractToken(ApiResult res) {
     final data = res.data;
-    if (data is Map && data['token'] != null) return data['token'].toString();
-    // Some deployments put it directly in msg/data string.
-    if (data is String && data.isNotEmpty) return data;
+    if (data is Map && data['token'] != null) {
+      return data['token'].toString().trim();
+    }
+    // Some deployments put it directly in a short data string; never accept HTML.
+    if (data is String) {
+      final s = data.trim();
+      if (s.isNotEmpty && !s.contains('<') && s.length < 256) return s;
+    }
     return '';
   }
 
@@ -138,6 +170,13 @@ class AuthService {
       case '3':
         throw LoginException('3', '验证码不正确');
       default:
+        if (res.msg == 'non-json' || res.msg == 'empty') {
+          throw AppError(
+            AppErrorKind.schemaOrRedirect,
+            message: '选课服务器返回异常页面，请稍后重试',
+            hint: '请确认校园网连接正常；若刚刷过验证码请稍等片刻。',
+          );
+        }
         throw LoginException(code, res.msg.isEmpty ? '登录失败' : res.msg);
     }
   }
@@ -288,7 +327,13 @@ List<ElectiveBatch> mergeBatchAvailability(
 DateTime? _parseServerDateTime(String raw) {
   final s = raw.trim();
   if (s.isEmpty) return null;
-  return DateTime.tryParse(s.replaceFirst(' ', 'T'));
+  final iso = s.replaceFirst(' ', 'T');
+  // NWAFU timestamps have no timezone suffix and are always China Standard Time.
+  final hasZone = iso.endsWith('Z') ||
+      iso.endsWith('z') ||
+      (iso.length > 10 &&
+          (iso.substring(10).contains('+') || iso.substring(10).contains('-')));
+  return DateTime.tryParse(hasZone ? iso : '$iso+08:00');
 }
 
 DateTime? _newestBatchTime(List<ElectiveBatch> list) {
@@ -427,6 +472,15 @@ class SessionManager {
   void rememberCredentials(String loginName, String password) {
     _loginName = loginName;
     _password = password;
+    contested = false;
+    _lastSilentRelogin = null;
+  }
+
+  /// Clears in-memory credentials so any in-flight silent re-login halts
+  /// immediately on explicit logout.
+  void clearCredentials() {
+    _loginName = null;
+    _password = null;
     contested = false;
     _lastSilentRelogin = null;
   }
@@ -634,16 +688,26 @@ class SessionManager {
       } on AppError catch (e) {
         if (e.kind == AppErrorKind.account ||
             e.kind == AppErrorKind.maintenanceOrThrottle ||
+            e.kind == AppErrorKind.cancelled ||
             (unlimited && e.kind == AppErrorKind.campusNetwork)) {
           lastFailure = e.message;
           return null;
         }
         lastError = e.message;
-        // Transient (server restarting / busy) → back off and retry.
-        await Future<void>.delayed(Duration(milliseconds: 500 * attempt));
+        // Transient (server restarting / busy) → brief capped backoff before
+        // the next attempt (skip sleeping when this was the last attempt).
+        if (unlimited || attempt < budget) {
+          await Future<void>.delayed(
+            Duration(milliseconds: (500 * attempt).clamp(500, 15000)),
+          );
+        }
       } catch (e) {
         lastError = '$e';
-        await Future<void>.delayed(Duration(milliseconds: 500 * attempt));
+        if (unlimited || attempt < budget) {
+          await Future<void>.delayed(
+            Duration(milliseconds: (500 * attempt).clamp(500, 15000)),
+          );
+        }
       }
     }
     final tried = misreads + unreadable;

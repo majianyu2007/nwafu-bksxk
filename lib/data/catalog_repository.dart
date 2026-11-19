@@ -69,16 +69,28 @@ class _Manifest {
 /// of a completed generation. Complete snapshots never expire or auto-refresh.
 class CatalogRepository {
   CatalogRepository(this._storage, this._service, this.scope,
-      {this.onChanged}) {
+      {this.onChanged})
+      : _scopeKey = scope.key {
     _complete = _readManifest('complete');
     _staging = _readManifest('staging');
     final completeRows = _readRows(_complete);
-    if (completeRows == null) _complete = null;
+    if (completeRows == null && _complete != null) {
+      final corrupt = _complete!;
+      _complete = null;
+      unawaited(_storage.cacheRemove(_key('complete')));
+      unawaited(_removePages(corrupt));
+    }
     if (_staging?.generation == _complete?.generation) _staging = null;
     final partialRows = _readRows(_staging);
-    if (partialRows == null) _staging = null;
+    if (partialRows == null && _staging != null) {
+      final corrupt = _staging!;
+      _staging = null;
+      unawaited(_storage.cacheRemove(_key('staging')));
+      unawaited(_removePages(corrupt));
+    }
     _pending = partialRows ?? [];
     _visible = completeRows ?? partialRows ?? [];
+    _groupedVisible = CourseService.groupFlatRows(_visible);
     _publish();
   }
 
@@ -88,14 +100,16 @@ class CatalogRepository {
   final Storage _storage;
   final CourseService _service;
   final CatalogScope scope;
+  final String _scopeKey;
   final void Function(CatalogStatus)? onChanged;
   late CatalogStatus status;
   _Manifest? _complete, _staging;
   List<CourseRow> _visible = [], _pending = [];
+  List<CourseRow> _groupedVisible = const [];
   Future<void>? _inFlight;
   bool _disposed = false, _attempted = false;
 
-  String _key(String suffix) => '${scope.key}:$suffix';
+  String _key(String suffix) => '$_scopeKey:$suffix';
   String _pageKey(_Manifest m, int page) => _key('${m.generation}:$page');
 
   _Manifest? _readManifest(String kind) {
@@ -131,7 +145,7 @@ class CatalogRepository {
     if (_disposed) return;
     final progress = _staging ?? _complete;
     status = CatalogStatus(
-        rows: CourseService.groupFlatRows(_visible),
+        rows: _groupedVisible,
         downloaded: progress?.count ?? 0,
         total: progress?.total ?? 0,
         complete: _complete != null,
@@ -217,7 +231,12 @@ class CatalogRepository {
             _key('staging'), jsonEncode(checkpoint.toJson()));
         _staging = staging = checkpoint;
         _pending.addAll(page.rows);
-        if (_complete == null) _visible = _pending;
+        if (_complete == null) {
+          _visible = _pending;
+          // Only re-group during cold initial download; background refreshes
+          // keep `_groupedVisible` untouched until `_promote`.
+          _groupedVisible = CourseService.groupFlatRows(_visible);
+        }
         if (_disposed) return;
         if (staging.count == staging.total) {
           await _promote(staging);
@@ -237,6 +256,7 @@ class CatalogRepository {
     await _storage.cacheSet(_key('complete'), jsonEncode(staging.toJson()));
     _complete = staging;
     _visible = _pending;
+    _groupedVisible = CourseService.groupFlatRows(_visible);
     _pending = [];
     _staging = null;
     await _storage.cacheRemove(_key('staging'));
