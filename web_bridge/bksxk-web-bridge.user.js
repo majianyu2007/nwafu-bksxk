@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         西农教务助手 · 网页版桥接 (NWAFU Web Bridge)
 // @namespace    cn.edu.nwafu.bksxk.webbridge
-// @version      1.4.2
+// @version      1.4.3
 // @description  让西农教务助手网页版访问学校接口：选课，以及用本浏览器里已登录的教务会话查看课表、成绩、考试、空教室、学业进度、消息与图书馆。教务登录在学校官方页面完成；仅在校园网内有效。
 // @author       nwafu-bksxk
 // @match        https://mjy.js.org/nwafu-bksxk/*
@@ -49,7 +49,7 @@
   // Signal to the app that the bridge is present (used to skip the install prompt).
   try {
     win.__bksxkBridgeReady = true;
-    win.__bksxkBridgeVersion = '1.4.2';
+    win.__bksxkBridgeVersion = '1.4.3';
     win.__bksxkEduSessionBridgeReady = true;
   } catch (e) { /* ignore */ }
 
@@ -60,7 +60,7 @@
     try {
       if (win.document && win.document.documentElement) {
         win.document.documentElement.setAttribute('data-bksxk-bridge-ready', 'true');
-        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.4.2');
+        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.4.3');
         win.document.documentElement.setAttribute('data-bksxk-edu-session-bridge-ready', 'true');
       }
     } catch (e) { /* ignore */ }
@@ -119,9 +119,10 @@
           /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(path);
       }
       if (m === 'POST') {
-        return /^\/api\/(cas\/user|Member\/(my|seat|seminar)|Seat\/(date|seat|confirm)|seat\/(map|xuzuoconfirm)|Space\/(signin|leave|checkout|cancel)|Seminar\/(date|detail|seminar|group|submit|roomConfirm|roomCancel)|Room\/detail)$/.test(path) ||
+        return /^\/api\/(cas\/user|Member\/(my|seat|seminar)|Seat\/(date|seat|confirm)|seat\/(map|xuzuoconfirm)|Space\/(signin|leave|checkout|cancel)|space\/seminarCancel|Seminar\/(date|detail|seminar|group|submit|roomConfirm|roomCancel)|Room\/detail)$/.test(path) ||
           path === '/reserve/index/list' ||
-          path === '/reserve/index/confirm';
+          path === '/reserve/index/confirm' ||
+          path === '/reserve/seminar/signout';
       }
       return false;
     }
@@ -256,6 +257,132 @@
     return new Blob([bytes], { type: type || 'application/octet-stream' });
   }
 
+  // Isolated cookie jar + fresh-node pinning for bksxk.nwafu.edu.cn ONLY.
+  // NWAFU's bksxk cluster fronts multiple Tomcat nodes behind nginx sticky
+  // `route` cookies; if the browser's cookie jar is stuck on a stale backend
+  // node, every login gets frozen historical rounds. Using `anonymous: true`
+  // with an in-memory cookie map isolates bksxk from stale browser cookies and
+  // pins a verified-fresh `route` (highest sysparam.do `initTimestamp`).
+  // Academic hosts (ehall/newehall/booking-lib/authserver) still use
+  // `anonymous: false` to carry the browser's official CAS session.
+  var bksxkCookies = {};
+  var bksxkHighestInitTs = 0;
+  var bksxkRouteReady = false;
+  var bksxkProbeCallbacks = null;
+
+  function extractRouteFromHeaders(rawHeaders) {
+    if (!rawHeaders) return null;
+    var lines = String(rawHeaders).split(/\r?\n/);
+    for (var i = 0; i < lines.length; i++) {
+      var m = /^set-cookie:\s*route=([^;\s]+)/i.exec(lines[i]);
+      if (m && m[1]) return m[1].trim();
+    }
+    return null;
+  }
+
+  function mergeBksxkSetCookies(rawHeaders) {
+    if (!rawHeaders) return;
+    var lines = String(rawHeaders).split(/\r?\n/);
+    for (var i = 0; i < lines.length; i++) {
+      var m = /^set-cookie:\s*([^=\s]+)=([^;\r\n]*)/i.exec(lines[i]);
+      if (!m) continue;
+      var name = m[1].trim();
+      var val = m[2].trim();
+      if (!val) continue;
+      if (/^route$/i.test(name)) bksxkCookies.route = val;
+      else if (/^jsessionid$/i.test(name)) bksxkCookies.JSESSIONID = val;
+    }
+  }
+
+  function serializeBksxkCookies() {
+    var parts = [];
+    for (var k in bksxkCookies) {
+      if (Object.prototype.hasOwnProperty.call(bksxkCookies, k) && bksxkCookies[k]) {
+        parts.push(k + '=' + bksxkCookies[k]);
+      }
+    }
+    return parts.join('; ');
+  }
+
+  function parseInitTsFromBody(text) {
+    if (!text) return 0;
+    try {
+      var j = JSON.parse(text);
+      var raw = j && j.data ? j.data.initTimestamp : null;
+      var n = parseInt(raw, 10);
+      return isNaN(n) || n <= 0 ? 0 : n;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function isBksxkRouteSensitivePath(pathname) {
+    return /\/(vcode\.do|check\/login\.do|student\/[^/]+\.do|elective\/batch\.do|publicinfo\/sysparam\.do)$/.test(pathname || '');
+  }
+
+  function ensureFreshBksxkRoute(force, done) {
+    if (!force && bksxkRouteReady) {
+      done();
+      return;
+    }
+    if (bksxkProbeCallbacks !== null) {
+      bksxkProbeCallbacks.push(done);
+      return;
+    }
+    bksxkProbeCallbacks = [done];
+    var excludedRoute = force ? (bksxkCookies.route || null) : null;
+    var pending = 3;
+    var probes = [];
+
+    function finishOne(probe) {
+      if (probe) probes.push(probe);
+      pending -= 1;
+      if (pending > 0) return;
+      for (var j = 0; j < probes.length; j++) {
+        if (probes[j].ts > bksxkHighestInitTs) bksxkHighestInitTs = probes[j].ts;
+      }
+      var best = null;
+      for (var k = 0; k < probes.length; k++) {
+        var p = probes[k];
+        if (!p.route) continue;
+        if (!best || p.ts > best.ts ||
+            (p.ts === best.ts && excludedRoute && best.route === excludedRoute && p.route !== excludedRoute)) {
+          best = p;
+        }
+      }
+      if (best && best.route && (bksxkHighestInitTs === 0 || best.ts >= bksxkHighestInitTs)) {
+        bksxkCookies.route = best.route;
+      }
+      bksxkRouteReady = true;
+      var q = bksxkProbeCallbacks || [];
+      bksxkProbeCallbacks = null;
+      for (var m = 0; m < q.length; m++) {
+        try { q[m](); } catch (e) { /* ignore */ }
+      }
+    }
+
+    var base = Date.now();
+    for (var i = 0; i < 3; i++) {
+      (function (idx) {
+        GM_xmlhttpRequest({
+          method: 'GET',
+          url: 'https://' + API_HOST + '/xsxkapp/sys/xsxkapp/publicinfo/sysparam.do?timestamp=' + (base + idx),
+          headers: { 'Cache-Control': 'no-cache', 'X-Requested-With': 'XMLHttpRequest' },
+          timeout: 5000,
+          anonymous: true,
+          onload: function (resp) {
+            finishOne({
+              route: extractRouteFromHeaders(resp.responseHeaders || ''),
+              ts: parseInitTsFromBody(resp.responseText || ''),
+            });
+          },
+          onerror: function () { finishOne(null); },
+          ontimeout: function () { finishOne(null); },
+        });
+      })(i);
+    }
+  }
+
   BridgedXHR.prototype.send = function (body) {
     var self = this;
     var url = new URL(this._url, win.location.href);
@@ -268,15 +395,39 @@
       this._emit('loadend');
       return;
     }
-    var details = {
-      method: this._method,
-      url: new URL(this._url, win.location.href).href,
-      headers: this._headers,
-      data: normaliseBody(body, this._headers),
-      timeout: this.timeout || 0,
-      // Use the browser's session; no app-side Cookie header or cookie export.
-      anonymous: false,
-      responseType: this.responseType === 'arraybuffer' ? 'arraybuffer' : undefined,
+
+    var refreshRoute = false;
+    var sendHeaders = {};
+    for (var hk in this._headers) {
+      if (!Object.prototype.hasOwnProperty.call(this._headers, hk)) continue;
+      if (!academic && hk.toLowerCase() === 'x-bksxk-refresh-route') {
+        refreshRoute = true;
+        continue;
+      }
+      sendHeaders[hk] = this._headers[hk];
+    }
+
+    function dispatch() {
+      if (self._aborted) return;
+      if (!academic) {
+        if (url.pathname.indexOf('/check/login.do') >= 0) {
+          delete bksxkCookies.JSESSIONID;
+        }
+        var cookieHeader = serializeBksxkCookies();
+        if (cookieHeader) sendHeaders.Cookie = cookieHeader;
+        else delete sendHeaders.Cookie;
+      }
+      var details = {
+        method: self._method,
+        url: url.href,
+        headers: sendHeaders,
+        data: normaliseBody(body, sendHeaders),
+        timeout: self.timeout || 0,
+        // Academic hosts reuse the browser's official CAS session; bksxk runs
+        // isolated with its own verified-fresh route cookie so stale browser
+        // cookies never stick to a lagging backend node.
+        anonymous: !academic,
+        responseType: self.responseType === 'arraybuffer' ? 'arraybuffer' : undefined,
       onload: function (resp) {
         if (self._aborted) return;
         if (academic && !isSafeEduResponse(resp.finalUrl)) {
@@ -294,36 +445,55 @@
             .filter(function (line) {
               return !/^(set-cookie|set-cookie2|x-bksxk-final-url):/i.test(line);
             }).join('\r\n') + '\r\nx-bksxk-final-url: ' + resp.finalUrl + '\r\n';
-        }
-        if (self.responseType === 'arraybuffer') {
-          self.response = resp.response;
-        } else {
-          self.response = resp.responseText;
-          self.responseText = resp.responseText;
-        }
-        self.readyState = 4;
-        self._emitReadyState();
-        self._emit('progress');
-        self._emit('load');
-        self._emit('loadend');
-      },
-      onerror: function () {
-        if (self._aborted) return;
-        self.status = 0;
-        self.readyState = 4;
-        self._emitReadyState();
-        self._emit('error');
-        self._emit('loadend');
-      },
-      ontimeout: function () {
-        self.status = 0;
-        self.readyState = 4;
-        self._emitReadyState();
-        self._emit('timeout');
-        self._emit('loadend');
-      },
-    };
-    this._gm = GM_xmlhttpRequest(details);
+          } else {
+            mergeBksxkSetCookies(resp.responseHeaders || '');
+            if (url.pathname.indexOf('/publicinfo/sysparam.do') >= 0) {
+              var ts = parseInitTsFromBody(resp.responseText || '');
+              if (ts > bksxkHighestInitTs) {
+                bksxkHighestInitTs = ts;
+              } else if (ts > 0 && ts < bksxkHighestInitTs) {
+                delete bksxkCookies.route;
+                bksxkRouteReady = false;
+              }
+            }
+          }
+          if (self.responseType === 'arraybuffer') {
+            self.response = resp.response;
+          } else {
+            self.response = resp.responseText;
+            self.responseText = resp.responseText;
+          }
+          self.readyState = 4;
+          self._emitReadyState();
+          self._emit('progress');
+          self._emit('load');
+          self._emit('loadend');
+        },
+        onerror: function () {
+          if (self._aborted) return;
+          self.status = 0;
+          self.readyState = 4;
+          self._emitReadyState();
+          self._emit('error');
+          self._emit('loadend');
+        },
+        ontimeout: function () {
+          if (self._aborted) return;
+          self.status = 0;
+          self.readyState = 4;
+          self._emitReadyState();
+          self._emit('timeout');
+          self._emit('loadend');
+        },
+      };
+      self._gm = GM_xmlhttpRequest(details);
+    }
+
+    if (!academic && (refreshRoute || (!bksxkRouteReady && isBksxkRouteSensitivePath(url.pathname)))) {
+      ensureFreshBksxkRoute(refreshRoute, dispatch);
+    } else {
+      dispatch();
+    }
   };
 
   // Some callers set/read these; keep them harmless.

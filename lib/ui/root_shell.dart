@@ -275,6 +275,8 @@ class _RootShellState extends ConsumerState<RootShell>
   @override
   Widget build(BuildContext context) {
     final signedIn = ref.watch(signedInAccountsProvider);
+    _onboarded.removeWhere((id) => !signedIn.contains(id));
+    _unsuccessfulChecked.removeWhere((id) => !signedIn.contains(id));
     final activeId = ref.watch(activeAccountIdProvider);
     final multi = ref.watch(multiAccountProvider);
     ref.listen<String?>(activeAccountIdProvider, (previous, next) {

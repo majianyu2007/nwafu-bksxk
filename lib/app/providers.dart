@@ -577,7 +577,23 @@ class SessionController extends StateNotifier<SessionState> {
   Future<void> reloadContext() async {
     final code = _mgr.studentCode ?? state.student?.studentCode;
     if (code == null || code.isEmpty) return;
-    final (student, batches) = await _mgr.auth.loadContext(code);
+    var loaded = await _mgr.auth.loadContextDetailed(code);
+    final nodeTs = await _scope.client.fetchCurrentNodeInitTimestamp();
+    if (looksLikeStaleRoundSnapshot(
+      studentBatches: loaded.batches,
+      publicBatches: loaded.publicBatches,
+      nodeInitTimestamp: nodeTs,
+      knownClusterInitTimestamp: _scope.client.knownClusterInitTimestamp,
+    )) {
+      await _scope.client.pinFreshNode(forceRefresh: true);
+      try {
+        loaded = await _mgr.auth.loadContextDetailed(code);
+      } catch (_) {
+        // Keep the earlier response if the refresh attempt fails.
+      }
+    }
+    final student = loaded.student;
+    final batches = loaded.batches;
     if (!mounted) return;
     final previousStudent = state.student;
     final mergedStudent = student.copyWith(

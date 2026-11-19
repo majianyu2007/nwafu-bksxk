@@ -39,6 +39,20 @@ bool get isFullCampusBridgeReady {
   }
 }
 
+/// True on web when the bridge script is >= 1.4.3 (supporting isolated bksxk
+/// cookies and fresh-node route pinning via X-Bksxk-Refresh-Route).
+bool get isFreshRouteBridgeReady {
+  if (!isWebRuntime) return false;
+  if (!isWebBridgeReady) return false;
+  final raw = installedWebBridgeVersion;
+  if (raw == null) return false;
+  try {
+    return Version.parse(raw) >= Version(1, 4, 3);
+  } catch (_) {
+    return false;
+  }
+}
+
 /// Opens the deployed userscript URL so Tampermonkey or ScriptCat can install
 /// the web bridge directly. This is a no-op on native platforms.
 void openWebBridgeInstaller() => impl.openWebBridgeInstaller();

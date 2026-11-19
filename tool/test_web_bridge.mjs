@@ -45,8 +45,8 @@ sandbox.unsafeWindow = sandbox.window;
 vm.runInNewContext(source, sandbox);
 
 assert.equal(sandbox.window.__bksxkBridgeReady, true);
-assert.equal(sandbox.window.__bksxkBridgeVersion, '1.4.2');
-assert.equal(attrs['data-bksxk-bridge-version'], '1.4.2');
+assert.equal(sandbox.window.__bksxkBridgeVersion, '1.4.3');
+assert.equal(attrs['data-bksxk-bridge-version'], '1.4.3');
 
 function send(method, url, body = null, headers = {}) {
   return new Promise((resolve) => {
@@ -129,7 +129,7 @@ mockResponse = (d) => ({
   assert.equal(JSON.parse(r.xhr.responseText).code, 1);
 }
 
-// 4b. booking-lib seat map, floorplan image, and seminar confirm endpoints allowed
+// 4b. booking-lib seat map, floorplan image, and seminar confirm/cancel/signout endpoints allowed
 {
   const r1 = await send('POST', 'https://booking-lib.nwafu.edu.cn/api/seat/map', '{"id":"1"}');
   assert.equal(r1.ok, true);
@@ -137,6 +137,10 @@ mockResponse = (d) => ({
   assert.equal(r2.ok, true);
   const r3 = await send('GET', 'https://booking-lib.nwafu.edu.cn/uploads/floor4.png');
   assert.equal(r3.ok, true);
+  const r4 = await send('POST', 'https://booking-lib.nwafu.edu.cn/api/space/seminarCancel', '{"aesjson":"xxx"}');
+  assert.equal(r4.ok, true);
+  const r5 = await send('POST', 'https://booking-lib.nwafu.edu.cn/reserve/seminar/signout', '{"aesjson":"xxx"}');
+  assert.equal(r5.ok, true);
 }
 
 // 5. Unsafe redirect target rejected
@@ -158,4 +162,53 @@ mockResponse = () => ({
   assert.equal(r.ok, false);
 }
 
-console.log('All 6 web bridge tests passed.');
+// 7. bksxk fresh-node pinning avoids zombie node (old initTimestamp) & isolates cookies
+{
+  let probeIdx = 0;
+  const probeNodes = [
+    { route: '2074c2538aee3dfbb37bbf24e6596c51', ts: '1788928141330' }, // stale Sep-9 zombie
+    { route: 'f5a676915751f478db3c4448bd0d8db3', ts: '1792144680028' }, // healthy Oct-16
+    { route: '622503b5c3b661d3018e64339e65752b', ts: '1792144680028' }, // healthy Oct-16
+  ];
+  mockResponse = (d) => {
+    if (d.url.includes('/publicinfo/sysparam.do')) {
+      const node = probeNodes[probeIdx % probeNodes.length];
+      probeIdx++;
+      return {
+        status: 200,
+        statusText: 'OK',
+        finalUrl: d.url,
+        responseHeaders: `content-type: application/json\r\nset-cookie: route=${node.route}; Path=/\r\n`,
+        responseText: JSON.stringify({ code: '1', data: { initTimestamp: node.ts } }),
+      };
+    }
+    return {
+      status: 200,
+      statusText: 'OK',
+      finalUrl: d.url,
+      responseHeaders: 'content-type: application/json',
+      responseText: '{"code":"1","data":{"token":"vtok1"}}',
+    };
+  };
+  const r = await send('GET', 'https://bksxk.nwafu.edu.cn/xsxkapp/sys/xsxkapp/student/4/vcode.do?timestamp=1');
+  assert.equal(r.ok, true);
+  const vcodeCall = calls.at(-1);
+  assert.equal(vcodeCall.anonymous, true);
+  assert.equal(vcodeCall.headers.Cookie, 'route=f5a676915751f478db3c4448bd0d8db3');
+
+  // 8. X-Bksxk-Refresh-Route triggers rotation away from previous route & is stripped
+  probeIdx = 0;
+  const r2 = await send(
+    'GET',
+    'https://bksxk.nwafu.edu.cn/xsxkapp/sys/xsxkapp/student/2025013665.do?timestamp=2',
+    null,
+    { token: 'tok', 'X-Bksxk-Refresh-Route': '1' },
+  );
+  assert.equal(r2.ok, true);
+  const stuCall = calls.at(-1);
+  assert.equal(stuCall.anonymous, true);
+  assert.equal(stuCall.headers['X-Bksxk-Refresh-Route'], undefined);
+  assert.equal(stuCall.headers.Cookie, 'route=622503b5c3b661d3018e64339e65752b');
+}
+
+console.log('All 8 web bridge tests passed.');

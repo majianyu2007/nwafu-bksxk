@@ -21,8 +21,35 @@ import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 
 import '../core/constants.dart';
 import '../core/errors.dart';
+import '../core/web_env.dart';
 import 'models.dart';
 import 'vpn/campus_proxy.dart';
+
+/// Result of probing one backend node of the course-selection cluster.
+class ClusterNodeProbe {
+  const ClusterNodeProbe({
+    this.route,
+    this.initTimestamp,
+  });
+
+  /// Load-balancer sticky cookie value (`route=<hash>`), or null if absent.
+  final String? route;
+
+  /// Server cache generation (`publicinfo/sysparam.do` → `data.initTimestamp`).
+  final int? initTimestamp;
+}
+
+class _CachedFreshNode {
+  const _CachedFreshNode({
+    required this.route,
+    required this.initTimestamp,
+    required this.verifiedAt,
+  });
+
+  final String route;
+  final int initTimestamp;
+  final DateTime verifiedAt;
+}
 
 /// Result of a lightweight reachability probe (for the diagnostics page).
 class ReachabilityResult {
@@ -45,7 +72,8 @@ class ApiClient {
     CookieJar? cookieJar,
     Dio? dio,
   })  : _cookieJar = cookieJar ?? CookieJar(),
-        _origin = _normaliseOrigin(origin) {
+        _origin = _normaliseOrigin(origin),
+        _usesDefaultTransport = dio == null {
     _dio = dio ??
         Dio(BaseOptions(
           connectTimeout: const Duration(seconds: 10),
@@ -65,9 +93,25 @@ class ApiClient {
     }
   }
 
+  /// Process-wide cache of the freshest verified load-balancer node per origin
+  /// (so `anonymousAuthProvider`, `publicInfoServiceProvider`, and per-account
+  /// clients all avoid stale/zombie backend nodes without redundant probes).
+  static final Map<String, _CachedFreshNode> _freshNodes = {};
+  static final Map<String, int> _highestInitTimestamps = {};
+  static const _freshNodeTtl = Duration(minutes: 5);
+
+  @visibleForTesting
+  static void resetClusterNodeCache() {
+    _freshNodes.clear();
+    _highestInitTimestamps.clear();
+  }
+
   late final Dio _dio;
+  Dio? _probeDio;
   final CookieJar _cookieJar;
+  final bool _usesDefaultTransport;
   String _origin;
+  bool _pendingBridgeRouteRefresh = false;
 
   /// Current auth token (`data.token` from login). Null when logged out.
   String? token;
@@ -84,6 +128,65 @@ class ApiClient {
 
   CookieJar get cookieJar => _cookieJar;
 
+  /// Highest `sysparam.do -> data.initTimestamp` observed on this origin.
+  int? get knownClusterInitTimestamp => _highestInitTimestamps[_origin];
+
+  /// Records a node's `initTimestamp` into the cluster high-water mark.
+  /// If a newer generation appears, any older cached node is evicted.
+  void recordClusterInitTimestamp(int? ts) {
+    if (ts == null || ts <= 0) return;
+    final prev = _highestInitTimestamps[_origin] ?? 0;
+    if (ts > prev) {
+      _highestInitTimestamps[_origin] = ts;
+      final cached = _freshNodes[_origin];
+      if (cached != null && cached.initTimestamp < ts) {
+        _freshNodes.remove(_origin);
+      }
+    }
+  }
+
+  /// Whether this client should probe multiple backend nodes for freshness.
+  /// Disabled on web (handled by the bridge), custom mock Dio clients, and
+  /// RFC 2606 / loopback test hosts.
+  bool get supportsClusterProbe {
+    if (!_usesDefaultTransport || kIsWeb) return false;
+    final host = Uri.tryParse(_origin)?.host.toLowerCase() ?? '';
+    if (host.isEmpty ||
+        host == 'localhost' ||
+        host == '127.0.0.1' ||
+        host == '::1' ||
+        host.endsWith('.invalid') ||
+        host.endsWith('.test') ||
+        host.endsWith('.example') ||
+        host.endsWith('.local')) {
+      return false;
+    }
+    return true;
+  }
+
+  static int? parseInitTimestamp(dynamic data) {
+    if (data is! Map) return null;
+    final raw = data['initTimestamp'];
+    if (raw == null) return null;
+    if (raw is int) return raw > 0 ? raw : null;
+    if (raw is num) return raw > 0 ? raw.toInt() : null;
+    final parsed = int.tryParse(raw.toString().trim());
+    return (parsed != null && parsed > 0) ? parsed : null;
+  }
+
+  static String? extractRouteCookie(List<String>? setCookies) {
+    if (setCookies == null) return null;
+    for (final header in setCookies) {
+      final match = RegExp(r'^\s*route=([^;\s]+)', caseSensitive: false)
+          .firstMatch(header);
+      if (match != null) {
+        final v = match.group(1)?.trim();
+        if (v != null && v.isNotEmpty) return v;
+      }
+    }
+    return null;
+  }
+
   static String _normaliseOrigin(String origin) {
     var o = origin.trim();
     if (o.endsWith('/')) o = o.substring(0, o.length - 1);
@@ -92,12 +195,18 @@ class ApiClient {
 
   String _url(String path) => '$_origin/xsxkapp$path';
 
+  Uri get _cookieUri => Uri.parse('$_origin/xsxkapp/');
+
   Map<String, String> _headers({bool auth = true}) {
     final h = <String, String>{};
     if (auth && token != null && token!.isNotEmpty) {
       h['token'] = token!;
     }
     h['Cache-Control'] = 'no-cache';
+    if (_pendingBridgeRouteRefresh && isFreshRouteBridgeReady) {
+      _pendingBridgeRouteRefresh = false;
+      h['X-Bksxk-Refresh-Route'] = '1';
+    }
     return h;
   }
 
@@ -116,7 +225,7 @@ class ApiClient {
     if (addTimestamp && !q.containsKey('timestamp')) {
       q['timestamp'] = nowStamp();
     }
-    return _request(
+    final res = await _request(
       () => _dio.get(
         _url(path),
         queryParameters: q,
@@ -130,6 +239,10 @@ class ApiClient {
           addTimestamp: addTimestamp,
           allowRelogin: false),
     );
+    if (path == Api.sysParam && res.ok) {
+      recordClusterInitTimestamp(parseInitTimestamp(res.data));
+    }
+    return res;
   }
 
   /// POST form-encoded, returning the parsed envelope.
@@ -312,8 +425,182 @@ class ApiClient {
 
   Future<void> clearCookies() => _cookieJar.deleteAll();
 
+  /// Returns the sticky `route` cookie currently stored in this client's jar.
+  Future<String?> currentRouteCookie() async {
+    if (kIsWeb) return null;
+    try {
+      final cookies = await _cookieJar.loadForRequest(_cookieUri);
+      for (final c in cookies) {
+        if (c.name.toLowerCase() == 'route' && c.value.isNotEmpty) {
+          return c.value;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Pins a specific load-balancer sticky `route` cookie in this client's jar.
+  Future<void> setRouteCookie(String route) async {
+    if (kIsWeb || route.isEmpty) return;
+    final cookie = Cookie('route', route)..path = '/';
+    await _cookieJar.saveFromResponse(_cookieUri, [cookie]);
+  }
+
+  /// Sends one cookieless `sysparam.do` probe to observe a backend node's
+  /// `route` cookie and `initTimestamp` without touching this client's jar.
+  Future<ClusterNodeProbe?> probeCookielessNode() async {
+    if (kIsWeb) return null;
+    final dio = _probeDio ??= () {
+      final d = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 4),
+        receiveTimeout: const Duration(seconds: 5),
+        responseType: ResponseType.plain,
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (compatible; nwafu-xk/1.0; +local) AppleWebKit/537.36',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Cache-Control': 'no-cache',
+        },
+      ));
+      CampusProxy.instance.attach(d);
+      return d;
+    }();
+    try {
+      final resp = await dio.get(
+        _url(Api.sysParam),
+        queryParameters: {'timestamp': nowStamp()},
+      );
+      final route = extractRouteCookie(resp.headers['set-cookie']);
+      final parsed = _parse(resp);
+      final ts = parsed.ok ? parseInitTimestamp(parsed.data) : null;
+      if (route == null && ts == null) return null;
+      return ClusterNodeProbe(route: route, initTimestamp: ts);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Queries `sysparam.do` on this client's currently-pinned node to inspect
+  /// its `initTimestamp`. Never throws; returns null when unavailable.
+  Future<int?> fetchCurrentNodeInitTimestamp() async {
+    if (!supportsClusterProbe && !kIsWeb) return null;
+    try {
+      final res = await getJson(
+        Api.sysParam,
+        auth: false,
+        allowRelogin: false,
+      );
+      if (!res.ok) return null;
+      final ts = parseInitTimestamp(res.data);
+      recordClusterInitTimestamp(ts);
+      return ts;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Pins this client to a verified-fresh backend node in the cluster.
+  ///
+  /// NWAFU's `bksxk` deployment runs multiple Tomcat nodes behind nginx sticky
+  /// `route` cookies; if any node fails to refresh its round cache, its
+  /// `sysparam.do -> data.initTimestamp` lags behind the rest of the cluster
+  /// and serves stale historical rounds until the `route` cookie is rotated.
+  /// Probing a small batch of cookieless `sysparam.do` calls in parallel picks
+  /// a node with the highest `initTimestamp` before login/context calls run.
+  Future<ClusterNodeProbe?> pinFreshNode({
+    bool forceRefresh = false,
+    int probes = 3,
+  }) async {
+    if (kIsWeb) {
+      if (forceRefresh && isFreshRouteBridgeReady) {
+        _pendingBridgeRouteRefresh = true;
+      }
+      return null;
+    }
+    if (!supportsClusterProbe) return null;
+
+    final knownMax = _highestInitTimestamps[_origin] ?? 0;
+    if (!forceRefresh) {
+      final cached = _freshNodes[_origin];
+      if (cached != null &&
+          DateTime.now().difference(cached.verifiedAt) < _freshNodeTtl &&
+          cached.initTimestamp >= knownMax) {
+        await setRouteCookie(cached.route);
+        return ClusterNodeProbe(
+          route: cached.route,
+          initTimestamp: cached.initTimestamp,
+        );
+      }
+    }
+
+    final excludedRoute = forceRefresh ? await currentRouteCookie() : null;
+    final count = probes < 1 ? 1 : probes;
+    final results = <ClusterNodeProbe>[
+      for (final p in await Future.wait(
+        List.generate(count, (_) => probeCookielessNode()),
+      ))
+        if (p != null) p,
+    ];
+    for (final p in results) {
+      recordClusterInitTimestamp(p.initTimestamp);
+    }
+
+    // If every parallel probe landed on a lagging node compared to the
+    // highest generation already known for this cluster, try a few more
+    // cookieless probes to escape the zombie node.
+    var targetMax = _highestInitTimestamps[_origin] ?? 0;
+    bool hasFreshCandidate() => results.any(
+          (p) =>
+              p.route != null &&
+              p.route!.isNotEmpty &&
+              (p.initTimestamp ?? 0) >= targetMax &&
+              (excludedRoute == null || p.route != excludedRoute),
+        );
+    for (var extra = 0; extra < 3 && targetMax > 0 && !hasFreshCandidate(); extra++) {
+      final p = await probeCookielessNode();
+      if (p == null) continue;
+      results.add(p);
+      recordClusterInitTimestamp(p.initTimestamp);
+      targetMax = _highestInitTimestamps[_origin] ?? targetMax;
+    }
+
+    ClusterNodeProbe? best;
+    for (final p in results) {
+      final route = p.route;
+      if (route == null || route.isEmpty) continue;
+      if (best == null) {
+        best = p;
+        continue;
+      }
+      final bestTs = best.initTimestamp ?? 0;
+      final curTs = p.initTimestamp ?? 0;
+      if (curTs > bestTs) {
+        best = p;
+      } else if (curTs == bestTs &&
+          excludedRoute != null &&
+          best.route == excludedRoute &&
+          route != excludedRoute) {
+        best = p;
+      }
+    }
+
+    if (best != null && best.route != null && best.route!.isNotEmpty) {
+      await setRouteCookie(best.route!);
+      _freshNodes[_origin] = _CachedFreshNode(
+        route: best.route!,
+        initTimestamp: best.initTimestamp ?? 0,
+        verifiedAt: DateTime.now(),
+      );
+      return best;
+    }
+    return null;
+  }
+
   /// Closes the underlying HTTP client sockets when this scope is disposed.
-  void close() => _dio.close();
+  void close() {
+    _dio.close();
+    _probeDio?.close();
+  }
 
   /// Lightweight reachability probe for the diagnostics page. Hits a cheap
   /// public endpoint (batch list) and classifies the outcome. Never throws.

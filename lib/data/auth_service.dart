@@ -50,6 +50,20 @@ class LoginException implements Exception {
   String toString() => 'LoginException($code): $message';
 }
 
+/// Full post-login context, retaining the public `batch.do` rows so callers
+/// can detect frozen/historical student round snapshots.
+class ContextLoadResult {
+  const ContextLoadResult({
+    required this.student,
+    required this.batches,
+    required this.publicBatches,
+  });
+
+  final StudentInfo student;
+  final List<ElectiveBatch> batches;
+  final List<ElectiveBatch> publicBatches;
+}
+
 class AuthService {
   AuthService(this._client);
 
@@ -57,6 +71,9 @@ class AuthService {
 
   /// Step 1+2: fetch a fresh captcha token and its image.
   Future<CaptchaChallenge> fetchCaptcha() async {
+    // Warm/pin a verified-fresh cluster node before fetching the captcha so
+    // vcode.do, check/login.do, and student/<code>.do avoid stale backend nodes.
+    await _client.pinFreshNode();
     final tokenRes =
         await _client.getJson(Api.vcodeToken, auth: false, allowRelogin: false);
     final vtoken = _extractToken(tokenRes);
@@ -85,9 +102,11 @@ class AuthService {
     required String verifyCode,
     required String vtoken,
   }) async {
-    // Clear any stale cookies from a prior expired session before starting a
-    // fresh login so the server never binds the new token to stale session state.
+    // Clear any stale cookies from a prior expired session, then immediately
+    // pin a verified-fresh load-balancer `route` cookie so login never lands on
+    // a zombie backend node serving frozen historical rounds.
     await _client.clearCookies();
+    await _client.pinFreshNode();
     final loginPwd = encodeLoginPassword(password);
     final res = await _client.getJson(
       Api.checkLogin,
@@ -126,6 +145,13 @@ class AuthService {
   /// The student profile owns round membership; public rows only enrich it.
   Future<(StudentInfo, List<ElectiveBatch>)> loadContext(
       String studentCode) async {
+    final detailed = await loadContextDetailed(studentCode);
+    return (detailed.student, detailed.batches);
+  }
+
+  /// Same as [loadContext], also exposing the public `batch.do` rows so login
+  /// and refresh flows can detect stale historical snapshots.
+  Future<ContextLoadResult> loadContextDetailed(String studentCode) async {
     final infoRes = await _client.getJson(Api.studentInfo(studentCode));
     if (!infoRes.ok) {
       throw AppError.fromBusiness(
@@ -146,14 +172,17 @@ class AuthService {
     }
     final info = StudentInfo.fromJson(infoMap);
     final batchRes = await _client.getJson(Api.batch);
-    final batches = mergeBatchAvailability(
-      batchRes.dataList
-          .whereType<Map>()
-          .map((e) => e.cast<String, dynamic>())
-          .toList(),
-      infoMap,
+    final publicRows = batchRes.dataList
+        .whereType<Map>()
+        .map((e) => e.cast<String, dynamic>())
+        .toList();
+    final batches = mergeBatchAvailability(publicRows, infoMap);
+    final publicBatches = publicRows.map(ElectiveBatch.fromJson).toList();
+    return ContextLoadResult(
+      student: info,
+      batches: batches,
+      publicBatches: publicBatches,
     );
-    return (info, batches);
   }
 
   /// Confirms whether a batch is currently open (called before write ops).
@@ -179,12 +208,13 @@ class AuthService {
 
   /// Logs out on the server (logout.do). Best-effort: the caller clears the
   /// local session regardless of the outcome, since the cookie/token are gone
-  /// either way.
+  /// either way. Official indexBS.min.js sends the `token` header so the server
+  /// actually invalidates the session instead of redirecting to index.do.
   Future<void> logout(String studentCode) async {
     try {
       await _client.getJson(
         Api.logout,
-        auth: false,
+        auth: true,
         addTimestamp: false,
         allowRelogin: false,
         query: buildLogoutQuery(
@@ -253,6 +283,77 @@ List<ElectiveBatch> mergeBatchAvailability(
     if (b.canSelect) return (batch: b, hasSelectable: true);
   }
   return (batch: list.first, hasSelectable: false);
+}
+
+DateTime? _parseServerDateTime(String raw) {
+  final s = raw.trim();
+  if (s.isEmpty) return null;
+  return DateTime.tryParse(s.replaceFirst(' ', 'T'));
+}
+
+DateTime? _newestBatchTime(List<ElectiveBatch> list) {
+  DateTime? newest;
+  for (final b in list) {
+    final t = _parseServerDateTime(b.endTime) ??
+        _parseServerDateTime(b.beginTime);
+    if (t != null && (newest == null || t.isAfter(newest))) {
+      newest = t;
+    }
+  }
+  return newest;
+}
+
+/// True when [now] falls inside the batch's advertised `[beginTime, endTime]`.
+bool isBatchWindowActiveNow(ElectiveBatch batch, {DateTime? now}) {
+  final start = _parseServerDateTime(batch.beginTime);
+  final end = _parseServerDateTime(batch.endTime);
+  if (start == null || end == null) return false;
+  final cur = now ?? DateTime.now();
+  return !cur.isBefore(start) && !cur.isAfter(end);
+}
+
+/// Detects when a post-login round list looks like a frozen/historical
+/// snapshot (either from a lagging backend node in NWAFU's multi-node `bksxk`
+/// cluster or from a cold first-login server cache) rather than the cluster's
+/// current rounds.
+bool looksLikeStaleRoundSnapshot({
+  required List<ElectiveBatch> studentBatches,
+  required List<ElectiveBatch> publicBatches,
+  int? nodeInitTimestamp,
+  int? knownClusterInitTimestamp,
+}) {
+  // 1. Definitive signal: this node's sysparam initTimestamp lags behind
+  //    another node we already observed in the same cluster.
+  if (nodeInitTimestamp != null &&
+      knownClusterInitTimestamp != null &&
+      nodeInitTimestamp < knownClusterInitTimestamp) {
+    return true;
+  }
+
+  // 2. Cross-check regular student rounds against fresh public batch.do rows:
+  //    if the student only received closed historical regular rounds that have
+  //    ZERO overlap with the cluster's current batch.do and are strictly older
+  //    than batch.do, the student snapshot is stale.
+  final regularStudent =
+      studentBatches.where((b) => b.batchType != '02').toList();
+  final regularPublic =
+      publicBatches.where((b) => b.batchType != '02').toList();
+  if (regularStudent.isEmpty || regularPublic.isEmpty) return false;
+  if (regularStudent.any((b) => b.canSelect)) return false;
+
+  final studentCodes =
+      regularStudent.map((b) => b.code).where((c) => c.isNotEmpty).toSet();
+  final publicCodes =
+      regularPublic.map((b) => b.code).where((c) => c.isNotEmpty).toSet();
+  if (studentCodes.isEmpty || publicCodes.isEmpty) return false;
+  if (studentCodes.intersection(publicCodes).isNotEmpty) return false;
+
+  final studentNewest = _newestBatchTime(regularStudent);
+  final publicNewest = _newestBatchTime(regularPublic);
+  if (studentNewest != null && publicNewest != null) {
+    return publicNewest.isAfter(studentNewest);
+  }
+  return true;
 }
 
 /// Owns the live session and performs silent, captcha-solving re-login.
@@ -346,22 +447,73 @@ class SessionManager {
     );
     // Silent re-login replays exactly these.
     rememberCredentials(loginName, password);
-    var (info, batchList) = await _auth.loadContext(res.studentCode);
+
+    var loaded = await _auth.loadContextDetailed(res.studentCode);
+    var nodeTs = await _client.fetchCurrentNodeInitTimestamp();
+    var stale = looksLikeStaleRoundSnapshot(
+      studentBatches: loaded.batches,
+      publicBatches: loaded.publicBatches,
+      nodeInitTimestamp: nodeTs,
+      knownClusterInitTimestamp: _client.knownClusterInitTimestamp,
+    );
+
+    // Recovery 1: if this node lags behind the cluster (e.g., a frozen zombie
+    // backend node serving old rounds), rotate to a verified-fresh node and
+    // reload the context.
+    if (stale) {
+      await _client.pinFreshNode(forceRefresh: true);
+      try {
+        final refreshed = await _auth.loadContextDetailed(res.studentCode);
+        loaded = refreshed;
+        nodeTs = await _client.fetchCurrentNodeInitTimestamp();
+        stale = looksLikeStaleRoundSnapshot(
+          studentBatches: loaded.batches,
+          publicBatches: loaded.publicBatches,
+          nodeInitTimestamp: nodeTs,
+          knownClusterInitTimestamp: _client.knownClusterInitTimestamp,
+        );
+      } catch (_) {
+        // Fall through to Recovery 2 if the fresh node rejected the session.
+      }
+    }
+
+    // Recovery 2: if the student profile STILL returned a stale/historical
+    // round snapshot on first login (even on a verified-fresh node), perform
+    // one transparent silent re-login and reload the context so the user never
+    // has to manually log out and log back in.
+    if (stale) {
+      final previousFailure = lastFailure;
+      final freshToken = await _silentRelogin(maxAttemptsOverride: 2);
+      lastFailure = previousFailure;
+      if (freshToken != null) {
+        try {
+          loaded = await _auth.loadContextDetailed(res.studentCode);
+        } catch (_) {
+          // Keep the earlier response if reload fails.
+        }
+      }
+    }
+
+    var info = loaded.student;
+    var batchList = loaded.batches;
     var initialChoice = selectInitialBatch(batchList);
-    // On a cold first login, bksxk occasionally returns uninitialized/stale
-    // round availability before the fresh session propagates; one short retry
-    // catches live rounds without forcing the user to manually re-login.
-    if (!initialChoice.hasSelectable && batchList.isNotEmpty) {
+
+    // Recovery 3: if a round's advertised window is open right now yet came
+    // back closed on cold login, give the fresh session one short retry.
+    if (!stale &&
+        !initialChoice.hasSelectable &&
+        batchList.any(isBatchWindowActiveNow)) {
       await Future<void>.delayed(const Duration(milliseconds: 350));
       try {
-        final retry = await _auth.loadContext(res.studentCode);
-        info = retry.$1;
-        batchList = retry.$2;
+        final retry = await _auth.loadContextDetailed(res.studentCode);
+        info = retry.student;
+        batchList = retry.batches;
         initialChoice = selectInitialBatch(batchList);
       } catch (_) {
         // Keep the first response if the retry fails.
       }
     }
+
     var merged = info;
     // The student/<code>.do profile often omits name/college/major/grade;
     // xkxf.do (credit info) carries them. Best-effort merge so the home page
@@ -415,10 +567,10 @@ class SessionManager {
   }
 
   /// One captcha fetch + OCR + login per attempt, at most
-  /// [maxSilentReloginAttempts] times. Each captcha fetch is a server request,
-  /// and the school's gateway blocks clients that hammer vcode.do, so the
-  /// budget is deliberately small.
-  Future<String?> _silentRelogin() async {
+  /// [maxSilentReloginAttempts] times (or [maxAttemptsOverride] when specified).
+  /// Each captcha fetch is a server request, and the school's gateway blocks
+  /// clients that hammer vcode.do, so the budget is deliberately small.
+  Future<String?> _silentRelogin({int? maxAttemptsOverride}) async {
     final name = _loginName;
     final pw = _password;
     if (name == null || pw == null) {
@@ -430,9 +582,10 @@ class SessionManager {
     var unreadable = 0;
     String? lastError;
 
-    final unlimited = maxSilentReloginAttempts < 0;
+    final budget = maxAttemptsOverride ?? maxSilentReloginAttempts;
+    final unlimited = budget < 0;
     for (var attempt = 1;
-        unlimited || attempt <= maxSilentReloginAttempts;
+        unlimited || attempt <= budget;
         attempt++) {
       // Stop immediately if credentials were cleared (explicit logout).
       if (_loginName != name || _password != pw) {

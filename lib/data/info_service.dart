@@ -44,6 +44,7 @@ class InfoService {
   /// The deployment's system parameters (sysparam.do): tab names and display
   /// switches. Public; the official page loads it right after login.
   Future<SysParams> fetchSysParams() async {
+    await _client.pinFreshNode();
     final res = await _client.getJson(Api.sysParam, auth: false);
     if (!res.ok || res.data is! Map) return SysParams.empty;
     return SysParams.fromJson((res.data as Map).cast<String, dynamic>());
