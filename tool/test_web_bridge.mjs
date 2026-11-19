@@ -45,8 +45,8 @@ sandbox.unsafeWindow = sandbox.window;
 vm.runInNewContext(source, sandbox);
 
 assert.equal(sandbox.window.__bksxkBridgeReady, true);
-assert.equal(sandbox.window.__bksxkBridgeVersion, '1.4.1');
-assert.equal(attrs['data-bksxk-bridge-version'], '1.4.1');
+assert.equal(sandbox.window.__bksxkBridgeVersion, '1.4.2');
+assert.equal(attrs['data-bksxk-bridge-version'], '1.4.2');
 
 function send(method, url, body = null, headers = {}) {
   return new Promise((resolve) => {
@@ -129,12 +129,14 @@ mockResponse = (d) => ({
   assert.equal(JSON.parse(r.xhr.responseText).code, 1);
 }
 
-// 4b. booking-lib seat map and seminar confirm endpoints allowed
+// 4b. booking-lib seat map, floorplan image, and seminar confirm endpoints allowed
 {
   const r1 = await send('POST', 'https://booking-lib.nwafu.edu.cn/api/seat/map', '{"id":"1"}');
   assert.equal(r1.ok, true);
   const r2 = await send('POST', 'https://booking-lib.nwafu.edu.cn/reserve/index/confirm', '{"aesjson":"xxx"}');
   assert.equal(r2.ok, true);
+  const r3 = await send('GET', 'https://booking-lib.nwafu.edu.cn/uploads/floor4.png');
+  assert.equal(r3.ok, true);
 }
 
 // 5. Unsafe redirect target rejected

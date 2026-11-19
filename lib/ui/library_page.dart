@@ -3,6 +3,8 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -136,7 +138,7 @@ Widget _error(BuildContext context, Object e, VoidCallback retry) {
               FilledButton.icon(
                 onPressed: openWebBridgeInstaller,
                 icon: const Icon(Icons.download_outlined),
-                label: const Text('更新桥接脚本 (1.4.1)'),
+                label: const Text('更新桥接脚本 (1.4.2)'),
               ),
             TextButton(onPressed: retry, child: const Text('重试')),
           ],
@@ -1116,7 +1118,9 @@ class _SeatMapLegend extends StatelessWidget {
 }
 
 /// Interactive zoomable/pannable floorplan with percentage-positioned seats.
-class _FloorplanSeatMap extends StatefulWidget {
+/// Fetches the reference image through [LibraryService.fetchImageBytes] so Web
+/// CanvasKit avoids CORS failures and native works through CampusProxy VPN.
+class _FloorplanSeatMap extends ConsumerStatefulWidget {
   const _FloorplanSeatMap({
     required this.imageUrl,
     required this.seats,
@@ -1132,63 +1136,65 @@ class _FloorplanSeatMap extends StatefulWidget {
   final ValueChanged<LibrarySeat> onSelect;
 
   @override
-  State<_FloorplanSeatMap> createState() => _FloorplanSeatMapState();
+  ConsumerState<_FloorplanSeatMap> createState() => _FloorplanSeatMapState();
 }
 
-class _FloorplanSeatMapState extends State<_FloorplanSeatMap> {
+class _FloorplanSeatMapState extends ConsumerState<_FloorplanSeatMap> {
+  Uint8List? _bytes;
   double? _aspectRatio;
-  ImageStream? _stream;
-  ImageStreamListener? _listener;
+  bool _loading = true;
+  bool _failed = false;
 
   @override
   void initState() {
     super.initState();
-    _resolveAspect();
+    _loadImage();
   }
 
   @override
   void didUpdateWidget(covariant _FloorplanSeatMap oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.imageUrl != widget.imageUrl) {
-      _disposeStream();
+      _loadImage();
+    }
+  }
+
+  Future<void> _loadImage() async {
+    setState(() {
+      _bytes = null;
       _aspectRatio = null;
-      _resolveAspect();
-    }
-  }
-
-  void _resolveAspect() {
-    final provider = NetworkImage(widget.imageUrl);
-    final stream = provider.resolve(const ImageConfiguration());
-    final listener = ImageStreamListener((info, _) {
-      if (!mounted) return;
-      final img = info.image;
-      if (img.width > 0 && img.height > 0) {
-        setState(() => _aspectRatio = img.width / img.height);
-      }
+      _loading = true;
+      _failed = false;
     });
-    stream.addListener(listener);
-    _stream = stream;
-    _listener = listener;
-  }
-
-  void _disposeStream() {
-    if (_stream != null && _listener != null) {
-      _stream!.removeListener(_listener!);
+    try {
+      final bytes = await ref
+          .read(libraryServiceProvider)
+          .fetchImageBytes(widget.imageUrl);
+      if (!mounted) return;
+      ui.decodeImageFromList(bytes, (img) {
+        if (!mounted) return;
+        if (img.width > 0 && img.height > 0) {
+          setState(() => _aspectRatio = img.width / img.height);
+        }
+        img.dispose();
+      });
+      setState(() {
+        _bytes = bytes;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _failed = true;
+      });
     }
-    _stream = null;
-    _listener = null;
-  }
-
-  @override
-  void dispose() {
-    _disposeStream();
-    super.dispose();
   }
 
   Color _seatColor(LibrarySeat seat, bool selected, ColorScheme scheme) {
     if (selected) return scheme.primary.withValues(alpha: 0.9);
     return switch (seat.visualStatus) {
-      LibrarySeatStatus.free => Colors.green.withValues(alpha: 0.32),
+      LibrarySeatStatus.free => Colors.green.withValues(alpha: 0.34),
       LibrarySeatStatus.leave => Colors.orange.withValues(alpha: 0.55),
       LibrarySeatStatus.booked => Colors.blueGrey.withValues(alpha: 0.5),
       LibrarySeatStatus.inUse => Colors.blueGrey.withValues(alpha: 0.65),
@@ -1205,7 +1211,9 @@ class _FloorplanSeatMapState extends State<_FloorplanSeatMap> {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: scheme.surfaceContainerLowest,
-          border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.4),
+          ),
           borderRadius: BorderRadius.circular(14),
         ),
         child: InteractiveViewer(
@@ -1223,17 +1231,31 @@ class _FloorplanSeatMapState extends State<_FloorplanSeatMap> {
                   return Stack(
                     fit: StackFit.expand,
                     children: [
-                      Image.network(
-                        widget.imageUrl,
-                        fit: BoxFit.fill,
-                        loadingBuilder: (context, child, progress) =>
-                            progress == null
-                            ? child
-                            : const Center(child: CircularProgressIndicator()),
-                        errorBuilder: (_, _, _) => const Center(
-                          child: Text('楼层参考图加载失败，请切换「列表」选座'),
+                      if (_bytes != null)
+                        Image.memory(
+                          _bytes!,
+                          fit: BoxFit.fill,
+                          gaplessPlayback: true,
+                        )
+                      else if (_loading)
+                        const Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      else if (_failed)
+                        Align(
+                          alignment: Alignment.topRight,
+                          child: Padding(
+                            padding: const EdgeInsets.all(6),
+                            child: Text(
+                              '底图未加载（座位仍可直接点选）',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
                         ),
-                      ),
                       for (final seat in widget.seats)
                         if (seat.hasCoords)
                           Positioned(

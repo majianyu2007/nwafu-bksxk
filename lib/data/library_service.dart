@@ -12,6 +12,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -416,8 +417,8 @@ class LibraryService {
     if (kIsWeb && !isFullCampusBridgeReady) {
       throw AppError(
         AppErrorKind.schemaOrRedirect,
-        message: '请更新网页版桥接脚本（需 ≥ 1.4.1）',
-        hint: '旧版桥接脚本不支持楼层平面图和研讨室预约接口，请点击更新脚本后刷新页面。',
+        message: '请更新网页版桥接脚本（需 ≥ 1.4.2）',
+        hint: '旧版桥接脚本不支持楼层平面图加载和研讨室预约接口，请点击更新脚本后刷新页面。',
       );
     }
   }
@@ -652,8 +653,36 @@ class LibraryService {
     return null;
   }
 
+  /// Downloads a floorplan image via Dio (so Web uses the GM bridge without
+  /// CanvasKit CORS errors, and native uses CampusProxy VPN off-campus).
+  Future<Uint8List> fetchImageBytes(String url) async {
+    _requireBridgeOnWeb();
+    try {
+      final res = await _dio.get<List<int>>(
+        url,
+        options: Options(
+          responseType: ResponseType.bytes,
+          followRedirects: true,
+          validateStatus: (s) => s != null && s >= 200 && s < 400,
+        ),
+      );
+      final data = res.data;
+      if (data == null || data.isEmpty) {
+        throw AppError(AppErrorKind.unknown, message: '楼层参考图内容为空');
+      }
+      return Uint8List.fromList(data);
+    } on DioException catch (e) {
+      throw AppError(
+        AppErrorKind.campusNetwork,
+        message: '加载楼层参考图失败',
+        raw: e,
+      );
+    }
+  }
+
   /// Bookable dates for a seminar room: tries `/api/Seminar/date`, and falls
-  /// back to `/api/Room/detail` (v2 seminar room flow used by NWAFU).
+  /// back to `/api/Room/detail` (v2 seminar room flow used by NWAFU, reading
+  /// `list[].date` with `status == 0` or `startDate`..`endDate`).
   Future<List<String>> seminarDates(String roomId) async {
     try {
       final r = await _post('/api/Seminar/date', {'build_id': roomId});
@@ -662,7 +691,7 @@ class LibraryService {
         final list = d
             .map((e) => e is Map ? '${e['day'] ?? e['date'] ?? ''}' : '$e')
             .map((s) => s.trim())
-            .where((s) => s.isNotEmpty)
+            .where((s) => RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s))
             .toList();
         if (list.isNotEmpty) return list;
       }
@@ -671,27 +700,42 @@ class LibraryService {
     }
     final now = DateTime.now().toUtc().add(const Duration(hours: 8));
     final month = '${now.year}-${now.month.toString().padLeft(2, '0')}';
-    final r = await _post('/api/Room/detail', {
-      'area_id': roomId,
-      'month': month,
-    });
-    final d = r['data'];
-    if (d is Map<String, dynamic>) {
-      final rawDays = d['days'] ?? d['date'] ?? d['dateList'] ?? d['list'];
-      if (rawDays is List) {
-        final list = rawDays
-            .map((e) => e is Map ? '${e['day'] ?? e['date'] ?? ''}' : '$e')
-            .map((s) => s.trim())
-            .where((s) => RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s))
-            .toList();
-        if (list.isNotEmpty) return list;
+    try {
+      final r = await _post('/api/Room/detail', {
+        'area_id': roomId,
+        'month': month,
+      });
+      final d = r['data'];
+      if (d is Map<String, dynamic>) {
+        final rawDays = d['list'] ?? d['days'] ?? d['date'] ?? d['dateList'];
+        if (rawDays is List) {
+          final list = <String>[];
+          for (final item in rawDays) {
+            if (item is Map) {
+              final status = '${item['status'] ?? '0'}';
+              if (status != '0' && status != '1') continue;
+              final s = '${item['date'] ?? item['day'] ?? ''}'.trim();
+              if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s)) list.add(s);
+            } else {
+              final s = '$item'.trim();
+              if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s)) list.add(s);
+            }
+          }
+          if (list.isNotEmpty) return list;
+        }
+        final start = DateTime.tryParse('${d['startDate'] ?? ''}');
+        final end = DateTime.tryParse('${d['endDate'] ?? ''}');
+        if (start != null && end != null && !end.isBefore(start)) {
+          final days = end.difference(start).inDays.clamp(0, 14);
+          return [
+            for (var i = 0; i <= days; i++) _day(start.add(Duration(days: i))),
+          ];
+        }
       }
-      // Room is open; offer today + next 6 days as bookable dates.
-      return [
-        for (var i = 0; i < 7; i++) _day(now.add(Duration(days: i))),
-      ];
+    } catch (_) {
+      // Fall through to default 7-day window.
     }
-    return const [];
+    return [for (var i = 0; i < 7; i++) _day(now.add(Duration(days: i)))];
   }
 
   /// Schedule and capacity constraints for a seminar room on [day].
