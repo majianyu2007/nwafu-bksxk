@@ -56,13 +56,14 @@ final campusAccessProvider =
 class CampusAccessController extends StateNotifier<CampusAccessState> {
   CampusAccessController(this._ref, {DirectProbe? probe})
     : _probe = probe ?? defaultDirectProbe,
+      _vpn = _ref.read(vpnBridgeProvider),
       super(const CampusAccessState());
 
   final Ref _ref;
   final DirectProbe _probe;
+  final VpnBridge _vpn;
   Future<void>? _checking;
 
-  VpnBridge get _vpn => _ref.read(vpnBridgeProvider);
   bool get vpnAvailable => !kIsWeb && _vpn.available;
 
   /// Re-evaluates the route; starts the VPN when off campus and allowed.
