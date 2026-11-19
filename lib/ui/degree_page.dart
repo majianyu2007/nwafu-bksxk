@@ -57,9 +57,12 @@ class _DegreePageState extends ConsumerState<DegreePage> {
     final state = ref.watch(degreeProvider);
     final audit = session.signedIn ? state.audit : null;
     final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('学业进度'),
+    return AuroraBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          title: const Text('学业进度'),
         actions: [
           if (audit != null)
             IconButton(
@@ -86,7 +89,7 @@ class _DegreePageState extends ConsumerState<DegreePage> {
           children: [
             Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 900),
+                constraints: const BoxConstraints(maxWidth: 1040),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -156,6 +159,7 @@ class _DegreePageState extends ConsumerState<DegreePage> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
