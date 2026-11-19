@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         西农教务助手 · 网页版桥接 (NWAFU Web Bridge)
 // @namespace    cn.edu.nwafu.bksxk.webbridge
-// @version      1.3.2
-// @description  让西农教务助手网页版访问学校接口：选课，以及用本浏览器里已登录的教务会话查看课表、成绩、考试和空教室。教务登录在学校官方页面完成；仅在校园网内有效。
+// @version      1.4.0
+// @description  让西农教务助手网页版访问学校接口：选课，以及用本浏览器里已登录的教务会话查看课表、成绩、考试、空教室、学业进度、消息与图书馆。教务登录在学校官方页面完成；仅在校园网内有效。
 // @author       nwafu-bksxk
 // @match        https://mjy.js.org/nwafu-bksxk/*
 // @match        http://localhost:*/*
@@ -10,6 +10,8 @@
 // @match        https://majianyu2007.github.io/nwafu-bksxk/*
 // @connect      bksxk.nwafu.edu.cn
 // @connect      ehall.nwafu.edu.cn
+// @connect      newehall.nwafu.edu.cn
+// @connect      booking-lib.nwafu.edu.cn
 // @connect      authserver.nwafu.edu.cn
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
@@ -39,13 +41,15 @@
 
   var API_HOST = 'bksxk.nwafu.edu.cn';
   var EDU_HOST = 'ehall.nwafu.edu.cn';
+  var PORTAL_HOST = 'newehall.nwafu.edu.cn';
+  var LIBRARY_HOST = 'booking-lib.nwafu.edu.cn';
   var win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
   var NativeXHR = win.XMLHttpRequest;
 
   // Signal to the app that the bridge is present (used to skip the install prompt).
   try {
     win.__bksxkBridgeReady = true;
-    win.__bksxkBridgeVersion = '1.3.2';
+    win.__bksxkBridgeVersion = '1.4.0';
     win.__bksxkEduSessionBridgeReady = true;
   } catch (e) { /* ignore */ }
 
@@ -56,7 +60,7 @@
     try {
       if (win.document && win.document.documentElement) {
         win.document.documentElement.setAttribute('data-bksxk-bridge-ready', 'true');
-        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.3.2');
+        win.document.documentElement.setAttribute('data-bksxk-bridge-version', '1.4.0');
         win.document.documentElement.setAttribute('data-bksxk-edu-session-bridge-ready', 'true');
       }
     } catch (e) { /* ignore */ }
@@ -73,29 +77,59 @@
       // resolves to it.
       var u = new URL(url, win.location.href);
       return u.hostname === API_HOST || u.hostname === EDU_HOST ||
+        u.hostname === PORTAL_HOST || u.hostname === LIBRARY_HOST ||
         u.hostname === 'authserver.nwafu.edu.cn';
     } catch (e) {
       return false;
     }
   }
 
-  function isEduUrl(u) {
-    return u.protocol === 'https:' && u.hostname === EDU_HOST &&
-      (!u.port || u.port === '443') && !u.username && !u.password &&
-      u.pathname.indexOf('/jwapp/') === 0;
+  function isHttpsCampus(u) {
+    return u.protocol === 'https:' &&
+      (!u.port || u.port === '443') && !u.username && !u.password;
   }
 
-  // Explicit read-only EMAP contract. POST here is querying, never a generic
-  // authenticated proxy: no enrollment, application, password or MFA writes.
+  function isEduUrl(u) {
+    return isHttpsCampus(u) && u.hostname === EDU_HOST &&
+      (u.pathname.indexOf('/jwapp/') === 0 ||
+        u.pathname === '/login' ||
+        u.pathname.indexOf('/execCardMethod/') === 0);
+  }
+
+  // Explicit contract for EMAP, portal (newehall) and library (booking-lib).
   function isEduRead(method, u) {
-    if (!isEduUrl(u)) return false;
+    if (!isHttpsCampus(u)) return false;
+    var m = method.toUpperCase();
     var path = u.pathname;
-    if (method.toUpperCase() === 'GET') {
-      return /^\/jwapp\/sys\/(wdkbby|cjcx|studentWdksapApp|kxjas|xywccx)\/\*default\/index\.do$/.test(path) ||
+    if (u.hostname === PORTAL_HOST) {
+      if (m === 'GET') {
+        return path === '/login' ||
+          path === '/jsonp/ywtb/getUnreadMessageCount' ||
+          path === '/jsonp/getTagsMessages';
+      }
+      if (m === 'POST') {
+        return path === '/taskcenterapp/sys/taskCenter/taskNew/getTaskTodoAndDoneCount.do' ||
+          path === '/taskcenterapp/sys/taskCenter/taskNew/getTaskRestful.do';
+      }
+      return false;
+    }
+    if (u.hostname === LIBRARY_HOST) {
+      if (m === 'GET') return path === '/api/cas/cas';
+      if (m === 'POST') {
+        return /^\/api\/(cas\/user|Member\/(my|seat|seminar)|Seat\/(date|seat|confirm)|seat\/xuzuoconfirm|Space\/(signin|leave|checkout|cancel)|Seminar\/roomCancel)$/.test(path) ||
+          path === '/reserve/index/list';
+      }
+      return false;
+    }
+    if (!isEduUrl(u)) return false;
+    if (m === 'GET') {
+      return path === '/login' ||
+        /^\/jwapp\/sys\/(wdkbby|cjcx|studentWdksapApp|kxjas|xywccx)\/\*default\/index\.do$/.test(path) ||
         /^\/jwapp\/sys\/funauthapp\/api\/getAppConfig\/(wdkbby-5959167891382285|cjcx-4768574631264620|studentWdksapApp-4768687067472349|kxjas-4768402106681759|xywccx-4980269146247992)\.do$/.test(path);
     }
-    if (method.toUpperCase() !== 'POST' || u.search) return false;
-    return /^\/jwapp\/sys\/wdkbby\/modules\/(jshkcb\/(dqxnxq|xnxqcx|jc)|xskcb\/(cxxljc|cxxszhxqkb|xswpkc|xsdkkc))\.do$/.test(path) ||
+    if (m !== 'POST' || u.search) return false;
+    return /^\/execCardMethod\/[\w-]+\/[\w-]+$/.test(path) ||
+      /^\/jwapp\/sys\/wdkbby\/modules\/(jshkcb\/(dqxnxq|xnxqcx|jc)|xskcb\/(cxxljc|cxxszhxqkb|xswpkc|xsdkkc))\.do$/.test(path) ||
       /^\/jwapp\/sys\/cjcx\/modules\/cjcx\/(xscjcx|cxxscjpm)\.do$/.test(path) ||
       path === '/jwapp/sys/studentWdksapApp/WdksapController/cxxsksap.do' ||
       path === '/jwapp/sys/studentWdksapApp/modules/wdksap/cxxsjbxx.do' ||
@@ -106,9 +140,9 @@
   function isSafeEduResponse(url) {
     try {
       var u = new URL(url);
-      return u.protocol === 'https:' && (!u.port || u.port === '443') &&
-        !u.username && !u.password &&
-        (u.hostname === EDU_HOST || u.hostname === 'authserver.nwafu.edu.cn');
+      return isHttpsCampus(u) &&
+        (u.hostname === EDU_HOST || u.hostname === PORTAL_HOST ||
+          u.hostname === LIBRARY_HOST || u.hostname === 'authserver.nwafu.edu.cn');
     } catch (e) { return false; }
   }
 

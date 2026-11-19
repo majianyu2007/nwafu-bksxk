@@ -253,11 +253,17 @@ class CasClient {
     if (kIsWeb) {
       requireBrowserSessionBridge();
       _validateUrl(current);
-      if (current.host != 'ehall.nwafu.edu.cn' ||
-          !current.path.startsWith('/jwapp/')) {
+      final allowedWeb =
+          (current.host == 'ehall.nwafu.edu.cn' &&
+              (current.path.startsWith('/jwapp/') || current.path == '/login')) ||
+          (current.host == 'newehall.nwafu.edu.cn' &&
+              current.path == '/login') ||
+          (current.host == 'booking-lib.nwafu.edu.cn' &&
+              current.path == '/api/cas/cas');
+      if (!allowedWeb) {
         throw AppError(
           AppErrorKind.schemaOrRedirect,
-          message: '网页版只能连接学校官方教务应用',
+          message: '网页版只能连接学校官方教务、门户与图书馆应用',
         );
       }
       // GM owns redirects and browser cookies. Never emulate native manual CAS.

@@ -238,13 +238,9 @@ class PortalService {
 
   void reset() => _ready.clear();
 
-  static void _requireNative() {
+  static void _requireSessionSupport() {
     if (kIsWeb) {
-      throw AppError(
-        AppErrorKind.schemaOrRedirect,
-        message: '网页版不支持查看学校消息',
-        hint: '请在手机或电脑客户端查看。',
-      );
+      CasClient.requireBrowserSessionBridge();
     }
   }
 
@@ -256,7 +252,7 @@ class PortalService {
 
   /// Exchanges a CAS ticket for the host's session.
   Future<void> open(PortalHost host) async {
-    _requireNative();
+    _requireSessionSupport();
     final last = await cas.follow(host.loginUrl);
     if (last.realUri.host != host.host || (last.statusCode ?? 500) >= 400) {
       throw _expiredError;
@@ -269,7 +265,7 @@ class PortalService {
     Future<Response<String>> Function() send, {
     bool retried = false,
   }) async {
-    _requireNative();
+    _requireSessionSupport();
     try {
       if (!_ready.contains(host)) await open(host);
     } on AppError catch (e) {

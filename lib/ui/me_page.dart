@@ -51,13 +51,11 @@ final meTools = <MeTool>[
     label: '消息',
     open: () => const PortalInboxPage(),
     badge: portalBadgeProvider,
-    nativeOnly: true,
   ),
   MeTool(
     icon: Icons.local_library_outlined,
     label: '图书馆',
     open: () => const LibraryPage(),
-    nativeOnly: true,
   ),
   MeTool(
     icon: Icons.meeting_room_outlined,
