@@ -7,9 +7,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../app/edu_providers.dart';
+import '../app/ui_prefs.dart';
 import '../core/errors.dart';
 import '../core/web_env.dart';
 import '../data/academic_calendar.dart' show schoolDate;
@@ -54,17 +54,6 @@ final _memberProvider = FutureProvider.autoDispose<LibraryMember>(
   (ref) => ref.watch(libraryServiceProvider).member(),
 );
 
-Future<void> _openOfficial(
-  BuildContext context, [
-  String route = '/home',
-]) async {
-  final ok = await launchUrl(
-    libraryPage(route),
-    mode: LaunchMode.externalApplication,
-  );
-  if (!ok && context.mounted) showToast(context, '没能打开图书馆页面');
-}
-
 class LibraryPage extends ConsumerWidget {
   const LibraryPage({super.key});
 
@@ -84,11 +73,7 @@ class LibraryPage extends ConsumerWidget {
                 icon: const Icon(Icons.qr_code_2),
                 onPressed: () => _showQr(context),
               ),
-              IconButton(
-                tooltip: '打开图书馆预约页',
-                icon: const Icon(Icons.open_in_new),
-                onPressed: () => _openOfficial(context),
-              ),
+              const SizedBox(width: 4),
             ],
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(48),
@@ -167,13 +152,24 @@ EdgeInsets _pad(BuildContext context) {
   return EdgeInsets.fromLTRB(side, 12, side, 32);
 }
 
-class _AreaList extends ConsumerWidget {
+class _AreaList extends ConsumerStatefulWidget {
   const _AreaList({required this.kind});
   final LibraryKind kind;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_AreaList> createState() => _AreaListState();
+}
+
+class _AreaListState extends ConsumerState<_AreaList> {
+  String? _campus;
+
+  @override
+  Widget build(BuildContext context) {
+    final kind = widget.kind;
     final async = ref.watch(_areasProvider(kind));
+    final favs = ref.watch(
+      uiPrefsProvider.select((p) => p.favoriteLibraryAreas),
+    );
     final theme = Theme.of(context);
     return RefreshIndicator(
       onRefresh: () => ref.refresh(_areasProvider(kind).future),
@@ -189,11 +185,25 @@ class _AreaList extends ConsumerWidget {
               ],
             );
           }
-          // Seats: most free first. Rooms: by campus and floor.
-          final list = [...areas];
-          if (kind == LibraryKind.seat) {
-            list.sort((a, b) => (b.free ?? 0).compareTo(a.free ?? 0));
-          }
+          final campuses = {
+            for (final a in areas)
+              if (a.campus.isNotEmpty) a.campus,
+          }.toList()..sort();
+          final activeCampus =
+              _campus != null && campuses.contains(_campus) ? _campus : null;
+          // Favorites first; within seats, most free first.
+          final list = [
+            for (final a in areas)
+              if (activeCampus == null || a.campus == activeCampus) a,
+          ]..sort((a, b) {
+              final fa = favs.contains(a.id) ? 0 : 1;
+              final fb = favs.contains(b.id) ? 0 : 1;
+              if (fa != fb) return fa.compareTo(fb);
+              if (kind == LibraryKind.seat) {
+                return (b.free ?? 0).compareTo(a.free ?? 0);
+              }
+              return a.name.compareTo(b.name);
+            });
           final free = kind == LibraryKind.seat
               ? list.fold<int>(0, (s, a) => s + (a.free ?? 0))
               : null;
@@ -202,7 +212,7 @@ class _AreaList extends ConsumerWidget {
             children: [
               if (free != null)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
                   child: Text(
                     '今天还有 $free 个空座',
                     style: theme.textTheme.titleMedium?.copyWith(
@@ -210,13 +220,40 @@ class _AreaList extends ConsumerWidget {
                     ),
                   ),
                 ),
+              if (campuses.length >= 2) ...[
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('全部校区'),
+                        selected: activeCampus == null,
+                        onSelected: (_) => setState(() => _campus = null),
+                      ),
+                      for (final c in campuses)
+                        ChoiceChip(
+                          label: Text(c),
+                          selected: activeCampus == c,
+                          onSelected: (_) => setState(() => _campus = c),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
               AdaptiveGrid(
                 minColumnWidth: 340,
                 maxColumns: 2,
                 spacing: 10,
                 runSpacing: 10,
                 children: [
-                  for (final a in list) _AreaTile(area: a, kind: kind),
+                  for (final a in list)
+                    _AreaTile(
+                      area: a,
+                      kind: kind,
+                      favorite: favs.contains(a.id),
+                    ),
                 ],
               ),
             ],
@@ -228,9 +265,14 @@ class _AreaList extends ConsumerWidget {
 }
 
 class _AreaTile extends ConsumerWidget {
-  const _AreaTile({required this.area, required this.kind});
+  const _AreaTile({
+    required this.area,
+    required this.kind,
+    this.favorite = false,
+  });
   final LibraryArea area;
   final LibraryKind kind;
+  final bool favorite;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -240,7 +282,9 @@ class _AreaTile extends ConsumerWidget {
         ? null
         : (area.free ?? 0) / area.total!;
     return GlassCard(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      tint: favorite ? scheme.primary : null,
+      tintAmount: 0.06,
+      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
       onTap: kind == LibraryKind.seat
           ? () async {
               final booked = await showAdaptiveSheet<bool>(
@@ -327,6 +371,18 @@ class _AreaTile extends ConsumerWidget {
               label: area.fullyBooked ? '约满' : '可预约',
               color: area.fullyBooked ? scheme.error : Colors.green,
             ),
+          IconButton(
+            tooltip: favorite ? '取消常用置顶' : '设为常用置顶',
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              favorite ? Icons.star : Icons.star_border,
+              size: 20,
+              color: favorite ? Colors.amber.shade700 : scheme.onSurfaceVariant,
+            ),
+            onPressed: () => ref
+                .read(uiPrefsProvider.notifier)
+                .toggleFavoriteLibraryArea(area.id),
+          ),
         ],
       ),
     );

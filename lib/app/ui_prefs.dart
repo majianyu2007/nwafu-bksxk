@@ -38,6 +38,7 @@ class UiPrefs {
     this.hideGrades = false,
     this.courseColors = const {},
     this.scaleMode = UiScaleMode.auto,
+    this.favoriteLibraryAreas = const {},
   });
 
   /// Translucent "liquid glass" chrome. Off = solid surfaces, no blur.
@@ -55,6 +56,9 @@ class UiPrefs {
   /// Responsive UI scale & density preset.
   final UiScaleMode scaleMode;
 
+  /// Pinned favorite library reading area / seminar room IDs.
+  final Set<String> favoriteLibraryAreas;
+
   UiPrefs copyWith({
     bool? glass,
     TimetableViewMode? timetableView,
@@ -64,6 +68,7 @@ class UiPrefs {
     bool? hideGrades,
     Map<String, int>? courseColors,
     UiScaleMode? scaleMode,
+    Set<String>? favoriteLibraryAreas,
   }) => UiPrefs(
     glass: glass ?? this.glass,
     timetableView: clearView ? null : timetableView ?? this.timetableView,
@@ -72,6 +77,7 @@ class UiPrefs {
     hideGrades: hideGrades ?? this.hideGrades,
     courseColors: courseColors ?? this.courseColors,
     scaleMode: scaleMode ?? this.scaleMode,
+    favoriteLibraryAreas: favoriteLibraryAreas ?? this.favoriteLibraryAreas,
   );
 }
 
@@ -98,6 +104,7 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
   static const _kHideGrades = 'ui.hide_grades.v1';
   static const _kColors = 'ui.course_colors.v1';
   static const _kScaleMode = 'ui.scale_mode.v1';
+  static const _kFavLib = 'ui.lib_fav_areas.v1';
 
   static UiPrefs _read(SharedPreferences p) {
     var colors = const <String, int>{};
@@ -115,6 +122,7 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
       (m) => m.name == rawScale,
       orElse: () => UiScaleMode.auto,
     );
+    final favLib = (p.getStringList(_kFavLib) ?? const <String>[]).toSet();
     return UiPrefs(
       glass: p.getBool(_kGlass) ?? true,
       timetableView: switch (p.getString(_kView)) {
@@ -127,6 +135,7 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
       hideGrades: p.getBool(_kHideGrades) ?? false,
       courseColors: colors,
       scaleMode: scaleMode,
+      favoriteLibraryAreas: favLib,
     );
   }
 
@@ -164,6 +173,13 @@ class UiPrefsController extends StateNotifier<UiPrefs> {
   Future<void> setScaleMode(UiScaleMode v) {
     state = state.copyWith(scaleMode: v);
     return _save((p) => p.setString(_kScaleMode, v.name));
+  }
+
+  Future<void> toggleFavoriteLibraryArea(String areaId) {
+    final next = {...state.favoriteLibraryAreas};
+    if (!next.remove(areaId)) next.add(areaId);
+    state = state.copyWith(favoriteLibraryAreas: next);
+    return _save((p) => p.setStringList(_kFavLib, next.toList()));
   }
 
   /// Sets (or with null clears) the colour of a course for one account.
