@@ -1,4 +1,7 @@
+import 'dart:async' show unawaited;
+
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:fluid_glass/fluid_glass.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -48,6 +51,9 @@ Future<void> main() async {
   final storage = await Storage.open();
   await AppBackground.instance.init();
   await NotificationService.instance.init();
+  if (!kIsWeb) {
+    unawaited(FluidGlass.ensureInitialized().catchError((Object _) {}));
+  }
 
   final container = ProviderContainer(
     overrides: [

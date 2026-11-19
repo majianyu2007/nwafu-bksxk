@@ -6,7 +6,10 @@ library;
 
 import 'dart:ui' as ui;
 
+import 'package:fluid_glass/fluid_glass.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../app/theme.dart';
 
@@ -124,74 +127,48 @@ class GlassSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = GlassTokens.of(context);
-    final apple = isApplePlatform(context);
-    // Apple's materials blur harder and boost saturation, then lay a thin
-    // bright rim on top; Material keeps the softer, flatter look.
     final fill = alpha == null ? t.chromeFill : t.fill(alpha!);
-    Widget body = DecoratedBox(
-      decoration: BoxDecoration(
-        color: apple && t.enabled
-            ? fill.withValues(alpha: fill.a * 0.72)
-            : fill,
-        borderRadius: borderRadius,
-        gradient: apple && t.enabled
-            ? LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  t.highlight.withValues(alpha: t.sheenAlpha * 0.5),
-                  fill.withValues(alpha: fill.a * 0.6),
-                ],
-                stops: const [0, 0.5],
-              )
-            : null,
-        border: border && t.enabled
-            ? Border.all(
-                color: apple
-                    ? t.highlight.withValues(alpha: t.borderAlpha * 2.2)
-                    : t.border,
-                width: apple ? 0.6 : 1,
-              )
-            : null,
-      ),
-      child: padding == null ? child : Padding(padding: padding!, child: child),
-    );
-    if (t.enabled) {
-      final sigma = apple ? t.blurSigma * 2.6 : t.blurSigma;
-      final blur = ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma);
-      body = BackdropFilter(
-        filter: apple
-            ? ui.ImageFilter.compose(outer: _saturate, inner: blur)
-            : blur,
-        child: body,
+    final inner =
+        padding == null ? child : Padding(padding: padding!, child: child);
+
+    if (!t.enabled) {
+      Widget solid = DecoratedBox(
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: borderRadius,
+        ),
+        child: inner,
       );
-      body = apple
-          ? ClipRSuperellipse(borderRadius: borderRadius, child: body)
-          : ClipRRect(borderRadius: borderRadius, child: body);
+      if (shadow) {
+        solid = DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: borderRadius,
+            boxShadow: t.shadow,
+          ),
+          child: solid,
+        );
+      }
+      return solid;
     }
-    if (!shadow) return body;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: borderRadius,
-        boxShadow: t.shadow,
+
+    final apple = isApplePlatform(context);
+    final radius = borderRadius.topLeft.x;
+    final shape = radius >= 999
+        ? const Capsule()
+        : RoundedRectangle(radius);
+
+    return RepaintBoundary(
+      child: LiquidPanel(
+        backdrop: nativeBackdrop,
+        shape: shape,
+        surfaceColor: apple ? fill.withValues(alpha: fill.a * 0.78) : fill,
+        blurRadius: apple ? t.blurSigma * 1.4 : t.blurSigma,
+        showHighlight: border,
+        showShadow: shadow,
+        child: inner,
       ),
-      child: body,
     );
   }
-}
-
-/// Saturation boost of Apple's system materials (about 1.8×).
-final _saturate = ui.ColorFilter.matrix(_saturation(1.8));
-
-List<double> _saturation(double s) {
-  const r = 0.2126, g = 0.7152, b = 0.0722;
-  final i = 1 - s;
-  return [
-    r * i + s, g * i, b * i, 0, 0, //
-    r * i, g * i + s, b * i, 0, 0, //
-    r * i, g * i, b * i + s, 0, 0, //
-    0, 0, 0, 1, 0,
-  ];
 }
 
 /// iOS and macOS get the Apple-material look.
@@ -345,7 +322,16 @@ class GlassCapsuleNavBar extends StatelessWidget {
                             message: items[i].label,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(height / 2),
-                              onTap: () => onSelected(i),
+                              onTap: () {
+                                if (!kIsWeb && i != selectedIndex) {
+                                  final p = Theme.of(context).platform;
+                                  if (p == TargetPlatform.iOS ||
+                                      p == TargetPlatform.android) {
+                                    HapticFeedback.selectionClick();
+                                  }
+                                }
+                                onSelected(i);
+                              },
                               child: AnimatedContainer(
                                 duration: duration,
                                 curve: Curves.easeOutCubic,
