@@ -16,12 +16,15 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../core/errors.dart';
+import '../core/web_env.dart';
 import 'academic_calendar.dart' show calendarDate, schoolDate;
 import 'cas_client.dart';
 import 'degree_audit.dart';
 import 'edu_models.dart';
 
 const kEhallOrigin = 'https://ehall.nwafu.edu.cn';
+final _ehallAuthServerHost = Uri.parse(kAuthServer).host;
+const _reAuthMarker = Object();
 
 /// The EMAP apps the client uses, with their ids from `getAppConfig`.
 enum EmapApp {
@@ -81,6 +84,22 @@ class EhallService {
   Future<void> _doActivate(EmapApp app) async {
     final generation = _generation;
     final last = await cas.follow(app.indexUrl);
+    if (last.realUri.host == _ehallAuthServerHost) {
+      if (last.realUri.path.contains('/reAuthCheck/')) {
+        throw AppError(
+          AppErrorKind.sessionExpired,
+          message: '访问教务系统需要二次验证',
+          hint: kIsWeb && !isCasLoginBridgeReady
+              ? '请先在浏览器打开 ehall.nwafu.edu.cn 完成二次验证后刷新。'
+              : '请重新登录统一身份认证，并在二次验证时勾选「信任此设备」后再试。',
+          raw: _reAuthMarker,
+        );
+      }
+      final tip = extractCasErrorTip(last.data ?? '');
+      if (tip.isNotEmpty) {
+        throw classifyLoginFailure(last.data ?? '');
+      }
+    }
     if (last.realUri.host != Uri.parse(kEhallOrigin).host ||
         last.realUri.path != Uri.parse(app.indexUrl).path ||
         (last.statusCode ?? 500) >= 400) {
@@ -170,7 +189,11 @@ class EhallService {
     try {
       if (!_ready.contains(app)) await activate(app);
     } on AppError catch (e) {
-      if (e.kind != AppErrorKind.sessionExpired || retried) rethrow;
+      if (e.kind != AppErrorKind.sessionExpired ||
+          identical(e.raw, _reAuthMarker) ||
+          retried) {
+        rethrow;
+      }
       if (!await _recoverLogin(app)) throw _expiredError;
       return _post(app, path, form, retried: true);
     }

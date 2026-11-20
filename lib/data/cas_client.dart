@@ -25,7 +25,6 @@ import 'dart:math';
 
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
-import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:flutter/foundation.dart';
 
 import '../core/crypto/cas_password.dart';
@@ -33,6 +32,7 @@ import '../core/crypto/passkey.dart';
 import '../core/crypto/webauthn_register.dart';
 import '../core/errors.dart';
 import '../core/web_env.dart';
+import 'secure_cookie_storage.dart' show OriginScopedCookieManager;
 import 'vpn/campus_proxy.dart';
 
 const kAuthServer = 'https://authserver.nwafu.edu.cn';
@@ -154,7 +154,7 @@ class CasClient {
           ),
         );
     if (!webBridgeMode) {
-      _dio.interceptors.add(CookieManager(_jar));
+      _dio.interceptors.add(OriginScopedCookieManager(_jar));
       if (dio == null) CampusProxy.instance.attach(_dio);
     }
   }
@@ -1165,7 +1165,7 @@ class CasClient {
     }
     final j = _json(res.data);
     if (j.isEmpty) {
-      final tip = _extractCasErrorTip(res.data ?? '');
+      final tip = extractCasErrorTip(res.data ?? '');
       if (tip.isNotEmpty) {
         throw classifyLoginFailure(res.data ?? '');
       }
@@ -1193,7 +1193,7 @@ class CasClient {
     final last = await follow(loginUrl(c.service));
     if (last.realUri.toString().contains('/authserver/')) {
       final html = last.data ?? '';
-      if (_extractCasErrorTip(html).isNotEmpty) {
+      if (extractCasErrorTip(html).isNotEmpty) {
         throw classifyLoginFailure(html);
       }
       throw AppError(
@@ -1493,23 +1493,33 @@ final _showErrorTipRe = RegExp(
   r'id=["\x27]showErrorTip["\x27][^>]*>\s*(?:<span[^>]*>)?([^<]+)<',
 );
 final _formErrorTipRe = RegExp(
-  r'id=["\x27]formErrorTip["\x27][^>]*>.*?<span[^>]*>([^<]+)</span>',
+  r'id=["\x27]formErrorTip["\x27][^>]*>(?:(?!</div>).)*?<span[^>]*>([^<]+)</span>',
   dotAll: true,
 );
 final _noAccessOrRegisteredTipRe = RegExp(
   r'class=["\x27][^"\x27]*no-access-or-registered-tip[^"\x27]*["\x27][^>]*>([^<]+)<',
 );
 
-String _extractCasErrorTip(String html) =>
-    _showErrorTipRe.firstMatch(html)?[1]?.trim() ??
-    _formErrorTipRe.firstMatch(html)?[1]?.trim() ??
-    _noAccessOrRegisteredTipRe.firstMatch(html)?[1]?.trim() ??
-    '';
+/// Extracts an explicit AuthServer error banner/tip from [html], or empty if
+/// the page is a clean login form.
+String extractCasErrorTip(String html) {
+  for (final re in [
+    _showErrorTipRe,
+    _formErrorTipRe,
+    _noAccessOrRegisteredTipRe,
+  ]) {
+    for (final m in re.allMatches(html)) {
+      final tip = m[1]?.trim() ?? '';
+      if (tip.isNotEmpty) return tip;
+    }
+  }
+  return '';
+}
 
 /// Turns a failed login page into an [AppError], keyed on the page's own
 /// error tip, as `wisedu_cas._classify_and_raise` does.
 AppError classifyLoginFailure(String html) {
-  final tip = _extractCasErrorTip(html);
+  final tip = extractCasErrorTip(html);
   if (tip.contains('未注册') || tip.contains('无权访问')) {
     return AppError(
       AppErrorKind.schemaOrRedirect,

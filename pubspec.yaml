@@ -3,7 +3,7 @@ description: >-
   西农教务助手 · Offline timetables, academic grades and course selection
   for Northwest A&F University.
 publish_to: "none"
-version: 2.1.1+8
+version: 2.1.2+9
 
 environment:
   sdk: ">=3.12.0 <4.0.0"
@@ -19,7 +19,6 @@ dependencies:
   # Networking
   dio: ^5.4.3+1
   cookie_jar: ^4.0.8
-  dio_cookie_manager: ^3.1.1
   # Persistence
   flutter_secure_storage: ^9.2.2
   shared_preferences: ^2.2.3

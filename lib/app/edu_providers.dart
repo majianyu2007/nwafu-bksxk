@@ -9,7 +9,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:cookie_jar/cookie_jar.dart' show CookieJar, PersistCookieJar;
+import 'package:cookie_jar/cookie_jar.dart' show CookieJar;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show IconData, Icons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,6 +24,7 @@ import '../data/device_unlock.dart';
 import '../data/edu_models.dart';
 import '../data/ehall_service.dart';
 import '../data/home_widget_sync.dart';
+import '../data/library_service.dart';
 import '../data/notifications.dart';
 import '../data/portal_service.dart';
 import '../data/secure_cookie_storage.dart';
@@ -100,10 +101,11 @@ class EduClient {
     _cookies = !kIsWeb && accountId != null
         ? SecureCookieStorage(storage, accountId)
         : null;
-    jar = _cookies == null ? CookieJar() : PersistCookieJar(storage: _cookies);
+    jar = _cookies == null ? CookieJar() : SafePersistCookieJar(storage: _cookies);
     cas = CasClient(cookieJar: jar);
     ehall = EhallService(cas);
     portal = PortalService(cas);
+    library = LibraryService(cas);
   }
 
   final Storage storage;
@@ -111,6 +113,7 @@ class EduClient {
   late final CasClient cas;
   late final EhallService ehall;
   late final PortalService portal;
+  late final LibraryService library;
   SecureCookieStorage? _cookies;
 
   Future<void> close({bool clearCookies = false}) async {
@@ -161,6 +164,7 @@ class EduSessionController extends StateNotifier<EduState> {
   void _bindClient() {
     _client.ehall.onLoginRequired = silentRelogin;
     _client.portal.onLoginRequired = silentRelogin;
+    _client.library.onLoginRequired = silentRelogin;
     _client.ehall.expectedUsername = state.account?.username;
   }
 
@@ -390,6 +394,7 @@ class EduSessionController extends StateNotifier<EduState> {
     if (!_current(p.epoch)) throw _cancelled;
     p.client.ehall.reset();
     p.client.portal.reset();
+    p.client.library.reset();
     var account = EduAccount(
       username: p.username,
       usePasskey: p.passkey != null,
@@ -578,6 +583,7 @@ class EduSessionController extends StateNotifier<EduState> {
           await client.cas.clearSession();
           client.ehall.reset();
           client.portal.reset();
+          client.library.reset();
         });
         return false;
       } catch (_) {

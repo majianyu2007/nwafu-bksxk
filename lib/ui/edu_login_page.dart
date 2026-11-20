@@ -36,7 +36,10 @@ class _EduLoginPageState extends ConsumerState<EduLoginPage> {
   bool _usedDeviceKey = false;
   bool _remember = true;
   bool _obscurePassword = true;
-  bool _trustDevice = false;
+  bool _trustDevice =
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android);
   bool _busy = false;
   bool _finished = false;
   bool _cancelled = false;

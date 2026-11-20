@@ -9,7 +9,6 @@ library;
 import 'dart:convert';
 import 'dart:io' show Platform;
 
-import 'package:cookie_jar/cookie_jar.dart' show PersistCookieJar;
 import 'package:flutter/widgets.dart' show WidgetsFlutterBinding;
 import 'package:workmanager/workmanager.dart';
 
@@ -107,7 +106,7 @@ Future<bool> runBackgroundRefresh() async {
     return false;
   }
   final cookies = SecureCookieStorage(storage, account.username);
-  final cas = CasClient(cookieJar: PersistCookieJar(storage: cookies));
+  final cas = CasClient(cookieJar: SafePersistCookieJar(storage: cookies));
   final ehall = EhallService(cas)..expectedUsername = account.username;
   ehall.onLoginRequired = () => _silentLogin(storage, cas, account);
   final notifications = NotificationService.instance;

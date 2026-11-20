@@ -17,12 +17,12 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
-import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 
 import '../core/constants.dart';
 import '../core/errors.dart';
 import '../core/web_env.dart';
 import 'models.dart';
+import 'secure_cookie_storage.dart' show OriginScopedCookieManager;
 import 'vpn/campus_proxy.dart';
 
 /// Result of probing one backend node of the course-selection cluster.
@@ -88,7 +88,7 @@ class ApiClient {
           },
         ));
     if (!kIsWeb) {
-      _dio.interceptors.add(CookieManager(_cookieJar));
+      _dio.interceptors.add(OriginScopedCookieManager(_cookieJar));
       if (dio == null) CampusProxy.instance.attach(_dio);
     }
   }

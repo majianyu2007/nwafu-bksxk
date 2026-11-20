@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/errors.dart';
 import '../../data/library_service.dart';
+import '../edu_login_page.dart';
 import 'library_common.dart';
 
 const _kMaxCachedImages = 32;
@@ -177,22 +178,52 @@ class _LibraryQrSheetState extends ConsumerState<LibraryQrSheet> {
           height: 240,
           child: Center(child: CircularProgressIndicator()),
         ),
-        error: (e, _) => SizedBox(
-          height: 180,
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(e is AppError ? e.message : '入馆码暂时取不到'),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () => ref.invalidate(libraryMemberProvider),
-                  child: const Text('重试'),
-                ),
-              ],
+        error: (e, _) {
+          final appErr = e is AppError ? e : null;
+          final needsLogin =
+              appErr?.kind == AppErrorKind.sessionExpired ||
+              appErr?.kind == AppErrorKind.account;
+          return SizedBox(
+            height: 200,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(appErr?.message ?? '入馆码暂时取不到'),
+                  if (appErr?.hint != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      appErr!.hint!,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      if (needsLogin)
+                        FilledButton(
+                          onPressed: () async {
+                            final ok = await pushEduLogin(context);
+                            if (ok == true && mounted) {
+                              invalidateLibraryProviders(ref);
+                            }
+                          },
+                          child: const Text('重新登录'),
+                        ),
+                      TextButton(
+                        onPressed: () => ref.invalidate(libraryMemberProvider),
+                        child: const Text('重试'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
         data: (m) {
           final bytes = _decodeQr(m.qrImage);
           return Column(

@@ -530,7 +530,7 @@ class LibraryService {
 
   /// Signs the unified identity in again when its session has lapsed (the
   /// same silent re-login the EMAP apps use).
-  final Future<bool> Function()? onLoginRequired;
+  Future<bool> Function()? onLoginRequired;
   String? _token;
   int _generation = 0;
   Future<String>? _loginInFlight;
@@ -568,9 +568,24 @@ class LibraryService {
   }) async {
     _requireBridgeOnWeb();
     final res = await cas.follow('$kLibraryOrigin/api/cas/cas');
-    if (res.realUri.host == _authServerHost && !retried) {
-      // The AuthServer wants a login: the unified session has expired.
-      if (await (onLoginRequired?.call() ?? Future.value(false))) {
+    if (res.realUri.host == _authServerHost) {
+      if (res.realUri.path.contains('/reAuthCheck/')) {
+        // The AuthServer wants a second factor for booking-lib (e.g. device
+        // not trusted). Do not call silentRelogin(), which cannot answer MFA
+        // and would clear the active session.
+        throw AppError(
+          AppErrorKind.sessionExpired,
+          message: '访问图书馆需要二次验证',
+          hint: kIsWeb && !isCasLoginBridgeReady
+              ? '请先在浏览器打开 booking-lib.nwafu.edu.cn 完成二次验证后刷新。'
+              : '请重新登录统一身份认证，并在二次验证时勾选「信任此设备」后再试。',
+        );
+      }
+      final tip = extractCasErrorTip(res.data ?? '');
+      if (tip.isNotEmpty) {
+        throw classifyLoginFailure(res.data ?? '');
+      }
+      if (!retried && await (onLoginRequired?.call() ?? Future.value(false))) {
         return _doLogin(retried: true, generation: _generation);
       }
       throw AppError(

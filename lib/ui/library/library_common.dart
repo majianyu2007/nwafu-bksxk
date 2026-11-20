@@ -16,11 +16,17 @@ import '../widgets.dart';
 
 final libraryServiceProvider = Provider<LibraryService>((ref) {
   final client = ref.watch(eduClientProvider);
-  return LibraryService(
-    client.cas,
-    onLoginRequired: ref.read(eduSessionProvider.notifier).silentRelogin,
-  );
+  client.library.onLoginRequired ??=
+      ref.read(eduSessionProvider.notifier).silentRelogin;
+  return client.library;
 });
+
+void invalidateLibraryProviders(WidgetRef ref) {
+  ref.invalidate(libraryAreasProvider(LibraryKind.seat));
+  ref.invalidate(libraryAreasProvider(LibraryKind.space));
+  ref.invalidate(libraryBookingsProvider);
+  ref.invalidate(libraryMemberProvider);
+}
 
 final libraryAreasProvider = FutureProvider.autoDispose
     .family<List<LibraryArea>, LibraryKind>((ref, kind) {
@@ -80,12 +86,17 @@ Widget libraryErrorWidget(BuildContext context, Object e, VoidCallback retry) {
                 label: const Text('更新桥接脚本 ($kRecommendedWebBridgeVersion)'),
               ),
             if (needsLogin)
-              FilledButton(
-                onPressed: () async {
-                  final ok = await pushEduLogin(context);
-                  if (ok == true) retry();
-                },
-                child: const Text('重新登录'),
+              Consumer(
+                builder: (context, ref, _) => FilledButton(
+                  onPressed: () async {
+                    final ok = await pushEduLogin(context);
+                    if (ok == true) {
+                      invalidateLibraryProviders(ref);
+                      retry();
+                    }
+                  },
+                  child: const Text('重新登录'),
+                ),
               ),
             TextButton(onPressed: retry, child: const Text('重试')),
           ],

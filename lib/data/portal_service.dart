@@ -36,6 +36,8 @@ const kNewEhallOrigin = 'https://newehall.nwafu.edu.cn';
 const kEhallPortalOrigin = 'https://ehall.nwafu.edu.cn';
 final _kNewEhallUri = Uri.parse(kNewEhallOrigin);
 final _kEhallPortalUri = Uri.parse(kEhallPortalOrigin);
+final _portalAuthServerHost = Uri.parse(kAuthServer).host;
+const _portalReAuthMarker = Object();
 
 /// The two portal sessions this service opens.
 enum PortalHost {
@@ -326,6 +328,22 @@ class PortalService {
     late final Future<void> run;
     run = () async {
       final last = await cas.follow(host.loginUrl);
+      if (last.realUri.host == _portalAuthServerHost) {
+        if (last.realUri.path.contains('/reAuthCheck/')) {
+          throw AppError(
+            AppErrorKind.sessionExpired,
+            message: '访问学校门户需要二次验证',
+            hint: kIsWeb && !isCasLoginBridgeReady
+                ? '请先在浏览器打开 ${host.host} 完成二次验证后刷新。'
+                : '请重新登录统一身份认证，并在二次验证时勾选「信任此设备」后再试。',
+            raw: _portalReAuthMarker,
+          );
+        }
+        final tip = extractCasErrorTip(last.data ?? '');
+        if (tip.isNotEmpty) {
+          throw classifyLoginFailure(last.data ?? '');
+        }
+      }
       if (last.realUri.host != host.host || (last.statusCode ?? 500) >= 400) {
         throw _expiredError;
       }
@@ -346,7 +364,11 @@ class PortalService {
     try {
       if (!_ready.contains(host)) await open(host);
     } on AppError catch (e) {
-      if (e.kind != AppErrorKind.sessionExpired || retried) rethrow;
+      if (e.kind != AppErrorKind.sessionExpired ||
+          identical(e.raw, _portalReAuthMarker) ||
+          retried) {
+        rethrow;
+      }
       if (!await _recover(host)) throw _expiredError;
       return _call(host, send, retried: true);
     }
